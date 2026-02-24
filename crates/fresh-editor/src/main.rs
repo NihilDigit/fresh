@@ -1675,7 +1675,7 @@ fn create_plugin_package(
 "#,
         name,
         if description.is_empty() {
-            format!("A Fresh plugin")
+            "A Fresh plugin".to_string()
         } else {
             description.to_string()
         },
@@ -1776,7 +1776,7 @@ fn create_theme_package(
 "#,
         name,
         if description.is_empty() {
-            format!("A Fresh theme")
+            "A Fresh theme".to_string()
         } else {
             description.to_string()
         },
@@ -1905,7 +1905,7 @@ fn create_language_package(
 "#,
         name,
         if description.is_empty() {
-            format!("Language support for Fresh")
+            "Language support for Fresh".to_string()
         } else {
             description.to_string()
         },
