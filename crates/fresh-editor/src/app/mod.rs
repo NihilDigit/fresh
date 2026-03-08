@@ -731,6 +731,9 @@ pub struct Editor {
     /// Whether a file tree poll task is currently running in the background
     file_tree_poll_in_progress: bool,
 
+    /// Whether a file change (auto-revert) poll task is currently running in the background
+    file_change_poll_in_progress: bool,
+
     /// Tracks rapid file change events for debouncing
     /// Maps file path to (last event time, event count)
     file_rapid_change_counts: HashMap<PathBuf, (std::time::Instant, u32)>,
@@ -1479,6 +1482,7 @@ impl Editor {
             file_mod_times: HashMap::new(),
             dir_mod_times: HashMap::new(),
             file_tree_poll_in_progress: false,
+            file_change_poll_in_progress: false,
             file_rapid_change_counts: HashMap::new(),
             file_open_state: None,
             file_browser_layout: None,
@@ -4546,6 +4550,9 @@ impl Editor {
                 }
                 AsyncMessage::FileTreePollResult(changed_dirs) => {
                     self.handle_file_tree_poll_result(changed_dirs);
+                }
+                AsyncMessage::FileChangePollResult(results) => {
+                    self.handle_file_change_poll_result(results);
                 }
                 AsyncMessage::FileExplorerToggleComplete {
                     view,

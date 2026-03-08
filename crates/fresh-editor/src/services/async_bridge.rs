@@ -185,6 +185,12 @@ pub enum AsyncMessage {
     /// Each tuple is (node_id, path, new_mtime)
     FileTreePollResult(Vec<(NodeId, std::path::PathBuf, std::time::SystemTime)>),
 
+    /// File change poll completed — contains open files whose mtime changed or was first seen
+    /// Each tuple is (path, new_mtime, previously_tracked). When `previously_tracked` is true,
+    /// the file's mtime differs from the stored value (needs revert check); when false, the
+    /// file is being seen for the first time (just record the mtime).
+    FileChangePollResult(Vec<(std::path::PathBuf, std::time::SystemTime, bool)>),
+
     /// File explorer toggle completed — contains the updated view and toggle result
     FileExplorerToggleComplete {
         view: FileTreeView,
