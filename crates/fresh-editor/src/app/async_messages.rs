@@ -1110,12 +1110,41 @@ impl Editor {
         }
     }
 
-    /// Handle async refresh completed — restore the view
+    /// Handle async refresh completed — restore the view and perform post-refresh actions
     pub(super) fn handle_file_explorer_async_refresh_complete(
         &mut self,
-        view: FileTreeView,
+        mut view: FileTreeView,
         result: Result<(), String>,
+        context: crate::services::async_bridge::FileExplorerRefreshContext,
     ) {
+        use crate::services::async_bridge::FileExplorerRefreshContext;
+
+        // Perform context-specific post-refresh actions
+        match &context {
+            FileExplorerRefreshContext::AfterDelete { deleted_index } => {
+                if result.is_ok() {
+                    // Re-select the next best node after deletion
+                    let count = view.visible_count();
+                    if count > 0 {
+                        let new_index = if let Some(idx) = deleted_index {
+                            (*idx).min(count.saturating_sub(1))
+                        } else {
+                            0
+                        };
+                        if let Some(node_id) = view.get_node_at_index(new_index) {
+                            view.set_selected(Some(node_id));
+                        }
+                    }
+                }
+            }
+            FileExplorerRefreshContext::AfterRename { new_path } => {
+                if result.is_ok() {
+                    view.navigate_to_path(new_path);
+                }
+            }
+            FileExplorerRefreshContext::Generic => {}
+        }
+
         self.file_explorer = Some(view);
         match result {
             Ok(()) => {

@@ -28,6 +28,20 @@ pub enum LspSemanticTokensResponse {
     Range(Result<Option<SemanticTokensRangeResult>, String>),
 }
 
+/// Context for what triggered a file explorer refresh, so the handler
+/// can perform the right post-refresh action (e.g. re-select after delete).
+#[derive(Debug)]
+pub enum FileExplorerRefreshContext {
+    /// Generic refresh (manual refresh, poll, new file/dir creation)
+    Generic,
+    /// Refresh after a file/directory was deleted.
+    /// `deleted_index` is the visible index of the deleted node before deletion.
+    AfterDelete { deleted_index: Option<usize> },
+    /// Refresh after a file/directory was renamed.
+    /// `new_path` is the path to navigate to after refresh.
+    AfterRename { new_path: std::path::PathBuf },
+}
+
 /// Messages sent from async tasks to the synchronous main loop
 #[derive(Debug)]
 pub enum AsyncMessage {
@@ -182,6 +196,8 @@ pub enum AsyncMessage {
     FileExplorerAsyncRefreshComplete {
         view: FileTreeView,
         result: Result<(), String>,
+        /// Context about what triggered this refresh, for post-refresh actions
+        context: FileExplorerRefreshContext,
     },
 
     /// File explorer expand to path completed

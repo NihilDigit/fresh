@@ -4554,8 +4554,12 @@ impl Editor {
                 } => {
                     self.handle_file_explorer_toggle_complete(view, node_id, result);
                 }
-                AsyncMessage::FileExplorerAsyncRefreshComplete { view, result } => {
-                    self.handle_file_explorer_async_refresh_complete(view, result);
+                AsyncMessage::FileExplorerAsyncRefreshComplete {
+                    view,
+                    result,
+                    context,
+                } => {
+                    self.handle_file_explorer_async_refresh_complete(view, result, context);
                 }
                 AsyncMessage::Plugin(plugin_msg) => {
                     use fresh_core::api::{JsCallbackId, PluginAsyncMessage};

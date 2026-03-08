@@ -350,21 +350,7 @@ impl Editor {
         }
 
         // Take the file explorer and spawn refresh in a background task
-        if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
-            if let Some(mut view) = self.file_explorer.take() {
-                let sender = bridge.sender();
-                runtime.spawn(async move {
-                    let result = view
-                        .tree_mut()
-                        .refresh_node(selected_id)
-                        .await
-                        .map_err(|e| e.to_string());
-                    #[allow(clippy::let_underscore_must_use)]
-                    let _ = sender
-                        .send(AsyncMessage::FileExplorerAsyncRefreshComplete { view, result });
-                });
-            }
-        }
+        self.spawn_file_explorer_refresh(selected_id);
     }
 
     pub fn file_explorer_new_file(&mut self) {
@@ -522,14 +508,15 @@ impl Editor {
 
         match delete_result {
             Ok(_) => {
-                // Find the parent node to refresh
-                let parent_id = if let Some(explorer) = &self.file_explorer {
-                    explorer
+                // Find the parent node to refresh and remember the deleted index
+                let (parent_id, deleted_index) = if let Some(explorer) = &self.file_explorer {
+                    let parent = explorer
                         .tree()
                         .get_node_by_path(&path)
-                        .map(|node| get_parent_node_id(explorer.tree(), node.id, false))
+                        .map(|node| get_parent_node_id(explorer.tree(), node.id, false));
+                    (parent, explorer.get_selected_index())
                 } else {
-                    None
+                    (None, None)
                 };
 
                 self.set_status_message(t!("explorer.moved_to_trash", name = &name).to_string());
@@ -539,7 +526,12 @@ impl Editor {
 
                 // Spawn async refresh for the parent directory
                 if let Some(parent_id) = parent_id {
-                    self.spawn_file_explorer_refresh(parent_id);
+                    self.spawn_file_explorer_refresh_with_context(
+                        parent_id,
+                        crate::services::async_bridge::FileExplorerRefreshContext::AfterDelete {
+                            deleted_index,
+                        },
+                    );
                 }
             }
             Err(e) => {
@@ -683,7 +675,12 @@ impl Editor {
 
                     // Spawn async refresh for the parent directory
                     if let Some(parent_id) = parent_id {
-                        self.spawn_file_explorer_refresh(parent_id);
+                        self.spawn_file_explorer_refresh_with_context(
+                            parent_id,
+                            crate::services::async_bridge::FileExplorerRefreshContext::AfterRename {
+                                new_path,
+                            },
+                        );
                     }
                 }
                 Err(e) => {
@@ -802,6 +799,17 @@ impl Editor {
     /// task, and sends it back via `AsyncMessage::FileExplorerAsyncRefreshComplete`.
     /// The file explorer will be `None` until the refresh completes.
     fn spawn_file_explorer_refresh(&mut self, node_id: crate::view::file_tree::NodeId) {
+        self.spawn_file_explorer_refresh_with_context(
+            node_id,
+            crate::services::async_bridge::FileExplorerRefreshContext::Generic,
+        );
+    }
+
+    fn spawn_file_explorer_refresh_with_context(
+        &mut self,
+        node_id: crate::view::file_tree::NodeId,
+        context: crate::services::async_bridge::FileExplorerRefreshContext,
+    ) {
         if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
             if let Some(mut view) = self.file_explorer.take() {
                 let sender = bridge.sender();
@@ -812,8 +820,11 @@ impl Editor {
                         .await
                         .map_err(|e| e.to_string());
                     #[allow(clippy::let_underscore_must_use)]
-                    let _ = sender
-                        .send(AsyncMessage::FileExplorerAsyncRefreshComplete { view, result });
+                    let _ = sender.send(AsyncMessage::FileExplorerAsyncRefreshComplete {
+                        view,
+                        result,
+                        context,
+                    });
                 });
             }
         }
