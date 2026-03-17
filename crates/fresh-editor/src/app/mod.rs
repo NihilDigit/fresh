@@ -3317,8 +3317,9 @@ impl Editor {
 
     /// Count modified buffers that would require a save prompt on quit.
     ///
-    /// When `hot_exit` is enabled, all buffers (unnamed and file-backed) are
-    /// excluded because they are automatically recovered across sessions.
+    /// When `hot_exit` is enabled, unnamed buffers are excluded (they are
+    /// automatically recovered across sessions), but file-backed modified
+    /// buffers still trigger a prompt with a "recoverable" option.
     /// When `auto_save_enabled` is true, file-backed buffers are excluded
     /// (they will be saved to disk on exit).
     fn count_modified_buffers_needing_prompt(&self) -> usize {
@@ -3331,12 +3332,12 @@ impl Editor {
                 if !state.buffer.is_modified() {
                     return false;
                 }
-                if hot_exit {
-                    return false; // all buffers auto-persisted via hot exit
-                }
                 if let Some(meta) = self.buffer_metadata.get(buffer_id) {
                     if let Some(path) = meta.file_path() {
                         let is_unnamed = path.as_os_str().is_empty();
+                        if is_unnamed && hot_exit {
+                            return false; // unnamed buffer, auto-recovered via hot exit
+                        }
                         if !is_unnamed && auto_save {
                             return false; // file-backed, will be auto-saved on exit
                         }
