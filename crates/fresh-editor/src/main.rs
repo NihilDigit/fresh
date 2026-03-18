@@ -2767,6 +2767,15 @@ fn real_main() -> AnyhowResult<()> {
             editor.set_gpm_active(true);
         }
 
+        // Detect Zellij terminal multiplexer and enable software cursor.
+        // Zellij suppresses hardware cursor show/hide sequences from child
+        // processes, causing the cursor to disappear when navigating.
+        // Using a software cursor (REVERSED cell styling) works around this.
+        if std::env::var_os("ZELLIJ").is_some() {
+            tracing::info!("Detected Zellij environment, enabling software cursor");
+            editor.set_software_cursor_only(true);
+        }
+
         if first_run {
             handle_first_run_setup(
                 &mut editor,
