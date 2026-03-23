@@ -911,14 +911,14 @@ impl TextMateEngine {
                 }
             })
             .collect();
-        eprintln!(
-            "full_parse: returning {} spans for vp={}..{}",
-            result.len(), viewport_start, viewport_end
-        );
         result
     }
 
     /// Find the best point to resume parsing from for the viewport.
+    ///
+    /// Only considers checkpoints within `MAX_PARSE_BYTES` of `desired_start`
+    /// to avoid parsing enormous ranges when a distant checkpoint exists
+    /// (e.g. from a previous visit to a different part of a large file).
     fn find_parse_resume_point(
         &self,
         desired_start: usize,
@@ -927,8 +927,11 @@ impl TextMateEngine {
     ) -> (usize, syntect::parsing::ParseState, syntect::parsing::ScopeStack, bool) {
         use syntect::parsing::{ParseState, ScopeStack};
 
-        // BUG: unbounded search finds distant checkpoints
-        let markers = self.checkpoint_markers.query_range(0, desired_start + 1);
+        // Only search for checkpoints within MAX_PARSE_BYTES of desired_start.
+        // This prevents using a checkpoint near byte 0 when the viewport is at
+        // byte 11MB, which would require parsing the entire file.
+        let search_start = desired_start.saturating_sub(MAX_PARSE_BYTES);
+        let markers = self.checkpoint_markers.query_range(search_start, desired_start + 1);
         let nearest = markers.into_iter().max_by_key(|(_, start, _)| *start);
 
         if let Some((id, cp_pos, _)) = nearest {
@@ -939,8 +942,10 @@ impl TextMateEngine {
         if parse_end <= MAX_PARSE_BYTES {
             (0, ParseState::new(syntax), ScopeStack::new(), true)
         } else {
-            // BUG: create_checkpoints=false means no checkpoints stored for this region
-            (desired_start, ParseState::new(syntax), ScopeStack::new(), false)
+            // Large file with no nearby checkpoint: start fresh at desired_start.
+            // Enable checkpoint creation so future visits to this region can
+            // resume from a nearby checkpoint instead of re-parsing.
+            (desired_start, ParseState::new(syntax), ScopeStack::new(), true)
         }
     }
 

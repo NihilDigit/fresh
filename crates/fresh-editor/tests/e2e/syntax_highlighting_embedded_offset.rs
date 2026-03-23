@@ -616,6 +616,16 @@ fn test_large_file_highlighting_survives_navigation() {
         "Ctrl+End should reach end, cursor={} file={}",
         harness.cursor_position(), file_size
     );
+    // First visit to end should have syntax highlighting (strings are green).
+    // Before the fix, find_parse_resume_point would find a distant checkpoint
+    // and slice_bytes would return empty for the unloaded range, giving 0 colors.
+    assert!(
+        colors_end_1 >= 1,
+        "First visit to end of large file must have highlighting, got {} colors. \
+         This indicates slice_bytes returned empty for the viewport range \
+         (buffer chunks not loaded, or find_parse_resume_point chose a distant checkpoint).",
+        colors_end_1
+    );
 
     // Jump to beginning
     harness
@@ -639,7 +649,14 @@ fn test_large_file_highlighting_survives_navigation() {
     for _ in 0..3 {
         harness.tick_and_render().unwrap();
     }
-    let _ = dump_screen(&harness, "SECOND CTRL+END");
+    let colors_end_2 = dump_screen(&harness, "SECOND CTRL+END");
+
+    // Second visit should also have highlighting (the original bug: 0 spans here)
+    assert!(
+        colors_end_2 >= 1,
+        "Second visit to end of large file must have highlighting, got {} colors",
+        colors_end_2
+    );
 
     let stats = harness.highlight_stats().expect("should have TextMate stats");
     // With the fix: second visit should use nearby checkpoints, parsing ~22KB.
