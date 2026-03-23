@@ -1275,3 +1275,130 @@ fn test_restore_focus_after_discard_no_hot_exit() {
         harness.assert_screen_not_contains("EDITED");
     }
 }
+
+/// Focus restoration with file explorer visible.
+/// The file explorer is visible when the workspace is saved and restored.
+/// The active buffer should still be correctly restored.
+#[test]
+fn test_restore_focus_with_file_explorer_visible() {
+    let temp_dir = TempDir::new().unwrap();
+    let project_dir = temp_dir.path().join("project");
+    std::fs::create_dir(&project_dir).unwrap();
+
+    let file1 = project_dir.join("alpha.txt");
+    let file2 = project_dir.join("beta.txt");
+    let file3 = project_dir.join("gamma.txt");
+    std::fs::write(&file1, "Alpha file content").unwrap();
+    std::fs::write(&file2, "Beta file content").unwrap();
+    std::fs::write(&file3, "Gamma file content").unwrap();
+
+    let dir_context = DirectoryContext::for_testing(temp_dir.path());
+
+    // Session 1: open files, enable file explorer, switch to beta, quit
+    {
+        let mut config = Config::default();
+        config.editor.hot_exit = true;
+
+        let mut harness = EditorTestHarness::create(
+            100,
+            24,
+            HarnessOptions::new()
+                .with_config(config)
+                .with_working_dir(project_dir.clone())
+                .with_shared_dir_context(dir_context.clone())
+                .without_empty_plugins_dir(),
+        )
+        .unwrap();
+
+        harness.editor_mut().set_session_mode(true);
+        harness.open_file(&file1).unwrap();
+        harness.open_file(&file2).unwrap();
+        harness.open_file(&file3).unwrap();
+        harness.render().unwrap();
+
+        // Enable file explorer (visible, but editor keeps focus)
+        harness.editor_mut().show_file_explorer();
+        harness.editor_mut().focus_editor();
+        harness.render().unwrap();
+
+        // Switch to beta using open_file (direct, avoids keyboard context issues)
+        harness.open_file(&file2).unwrap();
+        harness.render().unwrap();
+        harness.assert_screen_contains("Beta file content");
+
+        harness.shutdown(true).unwrap();
+    }
+
+    // Session 2: restore — beta should be focused, file explorer visible
+    {
+        let mut config = Config::default();
+        config.editor.hot_exit = true;
+
+        let mut harness = EditorTestHarness::create(
+            100,
+            24,
+            HarnessOptions::new()
+                .with_config(config)
+                .with_working_dir(project_dir.clone())
+                .with_shared_dir_context(dir_context.clone())
+                .without_empty_plugins_dir(),
+        )
+        .unwrap();
+
+        let restored = harness.startup(true, &[]).unwrap();
+        assert!(restored, "Workspace should be restored");
+        harness.render().unwrap();
+
+        // Beta should be the active buffer
+        let status_row = (24 - layout::BOTTOM_RESERVED_ROWS) as u16;
+        let status_bar = harness.screen_row_text(status_row);
+        assert!(
+            status_bar.contains("beta.txt"),
+            "After restore with file explorer visible, beta.txt should be active.\n\
+             Status bar: {status_bar}\nFull screen:\n{}",
+            harness.screen_to_string()
+        );
+        harness.assert_screen_contains("Beta file content");
+
+        // Switch to alpha, edit, quit
+        harness.open_file(&file1).unwrap();
+        harness.render().unwrap();
+        harness.assert_screen_contains("Alpha file content");
+        harness.send_key(KeyCode::End, KeyModifiers::NONE).unwrap();
+        harness.type_text(" EDITED").unwrap();
+        harness.render().unwrap();
+
+        // Shut down (hot exit preserves the edit + workspace saves alpha as active)
+        harness.shutdown(true).unwrap();
+    }
+
+    // Session 3: restore — alpha should be focused (last active in session 2)
+    {
+        let mut config = Config::default();
+        config.editor.hot_exit = true;
+
+        let mut harness = EditorTestHarness::create(
+            100,
+            24,
+            HarnessOptions::new()
+                .with_config(config)
+                .with_working_dir(project_dir.clone())
+                .with_shared_dir_context(dir_context.clone())
+                .without_empty_plugins_dir(),
+        )
+        .unwrap();
+
+        let restored = harness.startup(true, &[]).unwrap();
+        assert!(restored, "Session 3: workspace should be restored");
+        harness.render().unwrap();
+
+        let status_row = (24 - layout::BOTTOM_RESERVED_ROWS) as u16;
+        let status_bar = harness.screen_row_text(status_row);
+        assert!(
+            status_bar.contains("alpha.txt"),
+            "After restore, alpha.txt should be active (it was last active in session 2).\n\
+             Status bar: {status_bar}\nFull screen:\n{}",
+            harness.screen_to_string()
+        );
+    }
+}
