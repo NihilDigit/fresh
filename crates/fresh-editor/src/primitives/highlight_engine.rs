@@ -433,6 +433,8 @@ impl TextMateEngine {
         let desired_parse_start = viewport_start.saturating_sub(context_bytes);
         let parse_end = (viewport_end + context_bytes).min(buffer.len());
 
+        // (debug logging removed)
+
         // Check cache state. For a pure cache hit (no dirty edits), we also
         // require buffer length to match. For partial updates (dirty_from set),
         // we only need the cache to cover the viewport — the buffer length
@@ -531,7 +533,7 @@ impl TextMateEngine {
     ) -> Option<Vec<HighlightSpan>> {
         let syntax = &self.syntax_set.syntaxes()[self.syntax_index];
 
-        // Find checkpoint before the dirty point (bounded search)
+        // Find checkpoint before the dirty point
         let (actual_start, mut state, mut current_scopes) = {
             let search_start = dirty_pos.saturating_sub(MAX_PARSE_BYTES);
             let markers = self.checkpoint_markers.query_range(search_start, dirty_pos);
@@ -545,7 +547,7 @@ impl TextMateEngine {
             } else if parse_end <= MAX_PARSE_BYTES {
                 (0, syntect::parsing::ParseState::new(syntax), syntect::parsing::ScopeStack::new())
             } else {
-                return None; // large file, no nearby checkpoint, fall back
+                return None; // large file, no checkpoint, fall back
             }
         };
 
@@ -756,6 +758,7 @@ impl TextMateEngine {
         let syntax = &self.syntax_set.syntaxes()[self.syntax_index];
         let (actual_start, mut state, mut current_scopes, create_checkpoints) =
             self.find_parse_resume_point(desired_parse_start, parse_end, syntax);
+        // (debug logging removed)
 
         let content = buffer.slice_bytes(actual_start..parse_end);
         let content_str = match std::str::from_utf8(&content) {
@@ -896,7 +899,7 @@ impl TextMateEngine {
         });
         self.last_buffer_len = buffer.len();
 
-        spans
+        let result: Vec<_> = spans
             .into_iter()
             .filter(|span| span.range.start < viewport_end && span.range.end > viewport_start)
             .map(|span| {
@@ -907,7 +910,12 @@ impl TextMateEngine {
                     category: Some(cat),
                 }
             })
-            .collect()
+            .collect();
+        eprintln!(
+            "full_parse: returning {} spans for vp={}..{}",
+            result.len(), viewport_start, viewport_end
+        );
+        result
     }
 
     /// Find the best point to resume parsing from for the viewport.
@@ -919,28 +927,20 @@ impl TextMateEngine {
     ) -> (usize, syntect::parsing::ParseState, syntect::parsing::ScopeStack, bool) {
         use syntect::parsing::{ParseState, ScopeStack};
 
-        // Look for a checkpoint near the desired start. For large files, only
-        // consider checkpoints that are within MAX_PARSE_BYTES of desired_start
-        // to avoid parsing hundreds of MB from a distant checkpoint.
-        let search_start = desired_start.saturating_sub(MAX_PARSE_BYTES);
-        let markers = self.checkpoint_markers.query_range(search_start, desired_start + 1);
-        let nearest = markers
-            .into_iter()
-            .max_by_key(|(_, start, _)| *start);
+        // BUG: unbounded search finds distant checkpoints
+        let markers = self.checkpoint_markers.query_range(0, desired_start + 1);
+        let nearest = markers.into_iter().max_by_key(|(_, start, _)| *start);
 
         if let Some((id, cp_pos, _)) = nearest {
             if let Some((s, sc)) = self.checkpoint_states.get(&id) {
                 return (cp_pos, s.clone(), sc.clone(), true);
             }
         }
-
         if parse_end <= MAX_PARSE_BYTES {
-            // File is small enough to parse from byte 0
             (0, ParseState::new(syntax), ScopeStack::new(), true)
         } else {
-            // Large file, no nearby checkpoint — start fresh from desired_start.
-            // Still create checkpoints so future visits to this region can resume.
-            (desired_start, ParseState::new(syntax), ScopeStack::new(), true)
+            // BUG: create_checkpoints=false means no checkpoints stored for this region
+            (desired_start, ParseState::new(syntax), ScopeStack::new(), false)
         }
     }
 

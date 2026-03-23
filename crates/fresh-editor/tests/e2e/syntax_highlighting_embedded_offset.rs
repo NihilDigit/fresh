@@ -9,6 +9,7 @@
 use crate::common::harness::{EditorTestHarness, HarnessOptions};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::Color;
+use std::io::Write;
 use std::path::PathBuf;
 
 fn fixture_path(filename: &str) -> PathBuf {
@@ -27,10 +28,12 @@ fn collect_highlight_colors(harness: &EditorTestHarness, row_start: u16, row_end
                 if let Some(fg) = style.fg {
                     match fg {
                         Color::Indexed(15) => {}  // default white text
+                        Color::White => {}        // default white text (alternate repr)
                         Color::Indexed(244) => {} // line numbers
                         Color::Indexed(237) => {} // tilde empty lines
                         Color::Indexed(0) => {}   // black
                         Color::Indexed(236) => {} // dark gray UI
+                        Color::Rgb(140, 140, 140) => {} // line numbers (RGB)
                         Color::Reset => {}
                         _ => {
                             colors.insert(format!("{:?}", fg));
@@ -523,5 +526,132 @@ fn test_perf_no_highlight_drift_after_typing() {
         colors_before, colors_after,
         "Highlight colors on lines after the edit should not drift after typing. \
          This indicates cached span byte offsets are not being adjusted for inserts."
+    );
+}
+
+// ============================================================
+// Large file tests (> 1MB, fallback path)
+// ============================================================
+
+/// Generate a large Rust file (~11MB) for testing.
+/// Uses the same `let var_N = "...";` pattern that reproduced the bug in tmux.
+fn create_large_rust_file() -> tempfile::NamedTempFile {
+    let mut f = tempfile::Builder::new()
+        .suffix(".rs")
+        .tempfile()
+        .expect("create temp file");
+    writeln!(f, "// Large test file").unwrap();
+    writeln!(f, "fn main() {{").unwrap();
+    for i in 0..270_000 {
+        writeln!(f, "    let var_{} = \"hello world {}\";", i, i).unwrap();
+    }
+    writeln!(f, "    println!(\"done\");").unwrap();
+    writeln!(f, "}}").unwrap();
+    f.flush().unwrap();
+    let size = f.as_file().metadata().unwrap().len();
+    assert!(size > 10_000_000, "Test file should be > 10MB, got {} bytes", size);
+    f
+}
+
+/// In a large file (>10MB): jump to end, jump to beginning, jump back to end.
+/// The highlighting on the second visit to the end must match the first visit.
+///
+/// Reproduces a bug where the large-file fallback path either:
+/// (a) didn't create checkpoints, so the second visit had no state to resume from, or
+/// (b) found a distant checkpoint from the beginning and tried to parse the entire file.
+///
+/// Both cases result in highlighting loss or hang on the second visit.
+#[test]
+fn test_large_file_highlighting_survives_navigation() {
+    // Use /tmp/large_test.rs — the same file used for tmux reproduction
+    let path = std::path::Path::new("/tmp/large_test.rs");
+    assert!(path.exists(), "Run: python3 -c \"...\" to generate /tmp/large_test.rs first");
+
+    let file_size = std::fs::metadata(path).unwrap().len();
+
+    let mut harness = create_harness();
+    harness.open_file(path).unwrap();
+    harness.render().unwrap();
+
+    // Helper to dump rows with text and color info
+    let dump_screen = |harness: &EditorTestHarness, label: &str| {
+        eprintln!("=== {} === cursor={}", label, harness.cursor_position());
+        eprintln!("  has_highlighter={}", harness.has_highlighter());
+        for row in 2..8u16 {
+            // Dump actual text
+            let mut text = String::new();
+            for col in 0..100u16 {
+                text.push_str(&harness.get_cell(col, row).unwrap_or(" ".to_string()));
+            }
+            eprintln!("  text r{:02}: {}", row, text.trim_end());
+            // Dump unique fg colors on this row (content area only)
+            let mut row_colors = std::collections::HashSet::new();
+            for col in 12..80u16 {
+                if let Some(fg) = harness.get_cell_style(col, row).and_then(|s| s.fg) {
+                    row_colors.insert(format!("{:?}", fg));
+                }
+            }
+            eprintln!("  fgs  r{:02}: {:?}", row, row_colors);
+        }
+        if let Some(stats) = harness.highlight_stats() {
+            eprintln!("  stats: bytes_parsed={} cache_hits={} cache_misses={} convergences={} checkpoints_updated={}",
+                stats.bytes_parsed, stats.cache_hits, stats.cache_misses, stats.convergences, stats.checkpoints_updated);
+        }
+        let colors = collect_highlight_colors(harness, 2, 20);
+        eprintln!("  highlight_colors={}", colors);
+        colors
+    };
+
+    // Jump to end — extra tick_and_render to ensure async chunk loading completes
+    harness.reset_highlight_stats();
+    harness
+        .send_key(KeyCode::End, KeyModifiers::CONTROL)
+        .unwrap();
+    for _ in 0..5 {
+        harness.tick_and_render().unwrap();
+    }
+    let colors_end_1 = dump_screen(&harness, "FIRST CTRL+END");
+    assert!(
+        harness.cursor_position() > file_size as usize / 2,
+        "Ctrl+End should reach end, cursor={} file={}",
+        harness.cursor_position(), file_size
+    );
+
+    // Jump to beginning
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+    let colors_home = dump_screen(&harness, "CTRL+HOME");
+    assert!(
+        colors_home >= 2,
+        "Top of file must have highlighting (sanity check), got {} colors",
+        colors_home
+    );
+
+    // Jump back to end — with the fix, this should use checkpoints from the
+    // first visit and parse only the viewport region (~22KB), not the entire
+    // file from a distant checkpoint (11MB).
+    harness.reset_highlight_stats();
+    harness
+        .send_key(KeyCode::End, KeyModifiers::CONTROL)
+        .unwrap();
+    for _ in 0..3 {
+        harness.tick_and_render().unwrap();
+    }
+    let _ = dump_screen(&harness, "SECOND CTRL+END");
+
+    let stats = harness.highlight_stats().expect("should have TextMate stats");
+    // With the fix: second visit should use nearby checkpoints, parsing ~22KB.
+    // Without the fix: finds distant checkpoint from HOME and parses ~11MB.
+    // Use 1MB as the threshold — anything over that indicates the distant
+    // checkpoint bug.
+    assert!(
+        stats.bytes_parsed < 1_000_000,
+        "Second visit to end of large file should not re-parse the entire file. \
+         Parsed {} bytes (expected < 1MB). This indicates the distant checkpoint bug: \
+         find_parse_resume_point found a checkpoint at the beginning of the file \
+         and tried to parse from there.",
+        stats.bytes_parsed
     );
 }
