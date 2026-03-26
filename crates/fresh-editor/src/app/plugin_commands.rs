@@ -25,6 +25,41 @@ const IGNORED_DIRS: &[&str] = &[
     ".DS_Store",
 ];
 
+/// File extensions known to be binary — skip these during project-wide search
+/// to avoid unnecessary I/O and prevent hangs on large binary files.
+const BINARY_EXTENSIONS: &[&str] = &[
+    // Images
+    "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "tiff", "tif", "psd", "svg",
+    // Audio/Video
+    "mp3", "mp4", "wav", "avi", "mkv", "mov", "flac", "ogg", "webm", "m4a",
+    // Archives
+    "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "zst",
+    // Executables/Libraries
+    "exe", "dll", "so", "dylib", "a", "o", "obj", "lib", "class", "pyc", "pyo",
+    // Documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt",
+    // Fonts
+    "ttf", "otf", "woff", "woff2", "eot",
+    // Other binary
+    "bin", "dat", "db", "sqlite", "sqlite3", "pack", "idx",
+    "DS_Store", "swp", "swo",
+];
+
+/// Maximum file size (in bytes) to search. Files larger than this are skipped
+/// to prevent hangs on very large files that slip past the binary-extension check.
+const MAX_SEARCH_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Returns true if the file path has an extension known to be binary.
+fn is_binary_extension(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            let ext_lower = ext.to_ascii_lowercase();
+            BINARY_EXTENSIONS.contains(&ext_lower.as_str())
+        })
+        .unwrap_or(false)
+}
+
 /// Build `FileSearchOptions` from the common grep parameters.
 fn make_search_opts(
     fixed_string: bool,
@@ -58,7 +93,9 @@ fn walk_files_recursive(
         }
         match entry.entry_type {
             crate::model::filesystem::EntryType::File => {
-                out.push(entry.path);
+                if !is_binary_extension(&entry.path) {
+                    out.push(entry.path);
+                }
             }
             crate::model::filesystem::EntryType::Directory => {
                 if !IGNORED_DIRS.contains(&entry.name.as_str()) {
@@ -94,8 +131,10 @@ fn walk_files_streaming(
         }
         match entry.entry_type {
             crate::model::filesystem::EntryType::File => {
-                if !send(entry.path) {
-                    return;
+                if !is_binary_extension(&entry.path) {
+                    if !send(entry.path) {
+                        return;
+                    }
                 }
             }
             crate::model::filesystem::EntryType::Directory => {
@@ -1981,6 +2020,12 @@ impl Editor {
                 }
             } else {
                 // Not open — search via FileSystem trait
+                // Skip files that exceed the size limit to avoid hangs on large files
+                if let Ok(meta) = self.filesystem.metadata(file_path) {
+                    if meta.size > MAX_SEARCH_FILE_SIZE {
+                        continue;
+                    }
+                }
                 let fs_opts_file =
                     make_search_opts(fixed_string, case_sensitive, whole_words, remaining);
                 let mut cursor = crate::model::filesystem::FileSearchCursor::new();
@@ -2226,6 +2271,12 @@ impl Editor {
                         }
                     } else {
                         // Search via FileSystem trait
+                        // Skip files that exceed the size limit
+                        if let Ok(meta) = fs.metadata(&file_path) {
+                            if meta.size > MAX_SEARCH_FILE_SIZE {
+                                return;
+                            }
+                        }
                         let fs_opts = crate::model::filesystem::FileSearchOptions {
                             fixed_string,
                             case_sensitive,
