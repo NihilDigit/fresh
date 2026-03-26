@@ -8427,3 +8427,178 @@ done
 
     Ok(())
 }
+
+/// Test that LSP workspace root uses root_markers detection from the file path,
+/// not the editor's working directory, when started via the manual restart command.
+///
+/// Reproduces issue #1360: when opening ~/.config/wezterm/wezterm.lua from $HOME,
+/// the LSP workspace root was set to $HOME because manual_restart didn't pass the
+/// file path for root_markers-based detection.
+///
+/// Uses auto_start: false and triggers LSP via the command palette (Start/Restart
+/// LSP) to exercise the manual_restart path specifically.
+#[test]
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "FakeLspServer uses a Bash script which is not available on Windows"
+)]
+fn test_lsp_workspace_root_uses_file_dir_not_cwd() -> anyhow::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+
+    // Set up directory structure: working_dir is a "home" directory,
+    // file is in a nested subdirectory (like ~/.config/wezterm/wezterm.lua)
+    let home_dir = temp_dir.path().join("fakehome");
+    let config_dir = home_dir.join("dotconfig").join("wezterm");
+    std::fs::create_dir_all(&config_dir)?;
+
+    let test_file = config_dir.join("test.lua");
+    std::fs::write(&test_file, "local wezterm = require 'wezterm'\nreturn {}\n")?;
+
+    // Create a fake LSP server that logs the rootUri from the initialize request
+    let log_file = temp_dir.path().join("lsp_init_log.txt");
+    let script_path = temp_dir.path().join("fake_lua_lsp.sh");
+    let script = format!(
+        r##"#!/bin/bash
+LOG_FILE="{log_file}"
+> "$LOG_FILE"
+
+read_message() {{
+    local content_length=0
+    while IFS=: read -r key value; do
+        key=$(echo "$key" | tr -d '\r\n')
+        value=$(echo "$value" | tr -d '\r\n ')
+        if [ "$key" = "Content-Length" ]; then
+            content_length=$value
+        fi
+        if [ -z "$key" ]; then
+            break
+        fi
+    done
+    if [ $content_length -gt 0 ]; then
+        dd bs=1 count=$content_length 2>/dev/null
+    fi
+}}
+
+send_message() {{
+    local message="$1"
+    local length=${{#message}}
+    printf "Content-Length: $length\r\n\r\n%s" "$message"
+}}
+
+while true; do
+    msg=$(read_message)
+    if [ -z "$msg" ]; then
+        break
+    fi
+
+    method=$(echo "$msg" | grep -o '"method":"[^"]*"' | cut -d'"' -f4)
+    msg_id=$(echo "$msg" | grep -o '"id":[0-9]*' | cut -d':' -f2)
+
+    case "$method" in
+        "initialize")
+            # Extract rootUri from the initialize params and log it
+            root_uri=$(echo "$msg" | grep -o '"rootUri":"[^"]*"' | cut -d'"' -f4)
+            echo "ROOT_URI=$root_uri" >> "$LOG_FILE"
+            send_message '{{"jsonrpc":"2.0","id":'"$msg_id"',"result":{{"capabilities":{{"textDocumentSync":{{"openClose":true,"change":2}},"completionProvider":{{"resolveProvider":false}}}}}}}}'
+            ;;
+        "initialized")
+            ;;
+        "textDocument/didOpen")
+            ;;
+        "shutdown")
+            send_message '{{"jsonrpc":"2.0","id":'"$msg_id"',"result":null}}'
+            ;;
+        "exit")
+            exit 0
+            ;;
+    esac
+done
+"##,
+        log_file = log_file.display()
+    );
+    std::fs::write(&script_path, script)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))?;
+    }
+
+    // Configure LSP for lua with root_markers that won't be found in the test dirs
+    // Configure LSP for lua with auto_start: false to force the manual restart path
+    let mut config = fresh::config::Config::default();
+    config.lsp.insert(
+        "lua".to_string(),
+        vec![fresh::services::lsp::LspServerConfig {
+            command: script_path.to_string_lossy().to_string(),
+            args: vec![],
+            enabled: true,
+            auto_start: false, // KEY: must be manually started to exercise manual_restart
+            process_limits: fresh::services::process_limits::ProcessLimits::default(),
+            initialization_options: None,
+            env: Default::default(),
+            language_id_overrides: Default::default(),
+            root_markers: vec![".luarc.json".to_string()], // Not present in test dirs
+            name: None,
+            only_features: None,
+            except_features: None,
+        }],
+    );
+
+    // Create harness with working_dir set to "home" (simulating running from $HOME)
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, config, home_dir.clone())?;
+
+    // Open the lua file — LSP will NOT start because auto_start is false
+    harness.open_file(&test_file)?;
+    harness.render()?;
+
+    // Verify LSP is NOT running yet
+    assert!(
+        !harness
+            .editor()
+            .running_lsp_servers()
+            .contains(&"lua".to_string()),
+        "LSP should not be running before manual start"
+    );
+
+    // Use command palette to trigger "Start/Restart LSP" (exercises manual_restart path)
+    harness.send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)?;
+    harness.wait_for_prompt()?;
+    harness.type_text("Start")?;
+    harness.render()?;
+    harness.send_key(KeyCode::Enter, KeyModifiers::NONE)?;
+    harness.render()?;
+
+    // Wait for the fake LSP to receive the initialize request and log the rootUri
+    harness.wait_until(|_| {
+        std::fs::read_to_string(&log_file)
+            .unwrap_or_default()
+            .contains("ROOT_URI=")
+    })?;
+
+    let log = std::fs::read_to_string(&log_file)?;
+    let root_uri_line = log
+        .lines()
+        .find(|l| l.starts_with("ROOT_URI="))
+        .expect("ROOT_URI not found in log");
+    let root_uri = &root_uri_line["ROOT_URI=".len()..];
+
+    // The root URI should be the file's parent directory (config_dir),
+    // NOT the working directory (home_dir)
+    let expected_suffix = "fakehome/dotconfig/wezterm";
+    assert!(
+        root_uri.contains(expected_suffix),
+        "rootUri should be the file's parent directory, not the working directory.\n\
+         Expected rootUri to contain: {expected_suffix}\n\
+         Got rootUri: {root_uri}\n\
+         This would fail if the editor uses cwd ({}) instead of the file's directory.",
+        home_dir.display()
+    );
+    assert!(
+        !root_uri.ends_with("/fakehome"),
+        "rootUri must NOT be the working directory (home dir).\n\
+         Got rootUri: {root_uri}"
+    );
+
+    Ok(())
+}
