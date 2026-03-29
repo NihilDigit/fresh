@@ -179,3 +179,149 @@ impl Extractor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    /// Create a tar.gz archive containing a single file.
+    fn create_tar_gz(dir: &Path, archive_name: &str, inner_path: &str, content: &[u8]) -> PathBuf {
+        let archive_path = dir.join(archive_name);
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, inner_path, content)
+            .unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        archive_path
+    }
+
+    /// Create a zip archive containing a single file.
+    fn create_zip(dir: &Path, archive_name: &str, inner_path: &str, content: &[u8]) -> PathBuf {
+        let archive_path = dir.join(archive_name);
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let mut zip_writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip_writer.start_file(inner_path, options).unwrap();
+        zip_writer.write_all(content).unwrap();
+        zip_writer.finish().unwrap();
+        archive_path
+    }
+
+    /// Create a gz-compressed single file.
+    fn create_gz(dir: &Path, archive_name: &str, content: &[u8]) -> PathBuf {
+        let archive_path = dir.join(archive_name);
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        enc.write_all(content).unwrap();
+        enc.finish().unwrap();
+        archive_path
+    }
+
+    #[test]
+    fn test_extract_tar_gz() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"#!/bin/sh\necho hello\n";
+        let archive = create_tar_gz(dir.path(), "tool.tar.gz", "bin/tool", content);
+
+        let dest = dir.path().join("output");
+        Extractor::extract(&archive, &dest, 0).unwrap();
+
+        let extracted = std::fs::read(dest.join("bin/tool")).unwrap();
+        assert_eq!(extracted, content);
+    }
+
+    #[test]
+    fn test_extract_tar_gz_strip_components() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"binary data";
+        let archive = create_tar_gz(
+            dir.path(),
+            "tool.tar.gz",
+            "gopls-v0.21.1/bin/gopls",
+            content,
+        );
+
+        let dest = dir.path().join("output");
+        Extractor::extract(&archive, &dest, 1).unwrap();
+
+        // After stripping 1 component, "gopls-v0.21.1/bin/gopls" → "bin/gopls"
+        let extracted = std::fs::read(dest.join("bin/gopls")).unwrap();
+        assert_eq!(extracted, content);
+    }
+
+    #[test]
+    fn test_extract_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"zip file content";
+        let archive = create_zip(dir.path(), "tool.zip", "tool.exe", content);
+
+        let dest = dir.path().join("output");
+        Extractor::extract(&archive, &dest, 0).unwrap();
+
+        let extracted = std::fs::read(dest.join("tool.exe")).unwrap();
+        assert_eq!(extracted, content);
+    }
+
+    #[test]
+    fn test_extract_zip_strip_components() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"nested zip content";
+        let archive = create_zip(dir.path(), "tool.zip", "prefix/inner/tool.exe", content);
+
+        let dest = dir.path().join("output");
+        Extractor::extract(&archive, &dest, 1).unwrap();
+
+        let extracted = std::fs::read(dest.join("inner/tool.exe")).unwrap();
+        assert_eq!(extracted, content);
+    }
+
+    #[test]
+    fn test_extract_gz_single_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"rust-analyzer binary";
+        let archive = create_gz(dir.path(), "rust-analyzer.gz", content);
+
+        let dest = dir.path().join("output");
+        Extractor::extract(&archive, &dest, 0).unwrap();
+
+        // gz extraction uses the archive stem as filename
+        let extracted = std::fs::read(dest.join("rust-analyzer")).unwrap();
+        assert_eq!(extracted, content);
+    }
+
+    #[test]
+    fn test_extract_unsupported_format() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("tool.rar");
+        std::fs::write(&archive, b"fake").unwrap();
+
+        let dest = dir.path().join("output");
+        let result = Extractor::extract(&archive, &dest, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unsupported"));
+    }
+
+    #[test]
+    fn test_extract_creates_dest_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"data";
+        let archive = create_gz(dir.path(), "tool.gz", content);
+
+        let dest = dir.path().join("deeply/nested/output");
+        assert!(!dest.exists());
+
+        Extractor::extract(&archive, &dest, 0).unwrap();
+        assert!(dest.exists());
+    }
+}

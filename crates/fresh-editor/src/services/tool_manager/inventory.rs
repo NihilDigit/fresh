@@ -125,3 +125,129 @@ impl ToolInventory {
         self.data.tools.get(tool_name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_creates_empty_inventory_when_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let inventory = ToolInventory::load(dir.path()).unwrap();
+        assert!(inventory.list().is_empty());
+    }
+
+    #[test]
+    fn test_register_and_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut inventory = ToolInventory::load(dir.path()).unwrap();
+
+        inventory
+            .register(
+                "gopls",
+                "v0.21.1",
+                &dir.path().join("gopls/v0.21.1"),
+                "fresh-tools",
+            )
+            .unwrap();
+
+        let tools = inventory.list();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "gopls");
+        assert_eq!(tools[0].version, "v0.21.1");
+        assert_eq!(tools[0].installed_by, "fresh-tools");
+        assert!(!tools[0].installed_at.is_empty());
+    }
+
+    #[test]
+    fn test_register_persists_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+
+        {
+            let mut inventory = ToolInventory::load(dir.path()).unwrap();
+            inventory
+                .register(
+                    "ruff",
+                    "0.15.7",
+                    &dir.path().join("ruff/0.15.7"),
+                    "fresh-tools-python",
+                )
+                .unwrap();
+        }
+
+        // Reload from disk
+        let inventory = ToolInventory::load(dir.path()).unwrap();
+        let tools = inventory.list();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "ruff");
+    }
+
+    #[test]
+    fn test_remove_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut inventory = ToolInventory::load(dir.path()).unwrap();
+
+        inventory
+            .register("gopls", "v0.21.1", &dir.path().join("gopls"), "test")
+            .unwrap();
+        assert_eq!(inventory.list().len(), 1);
+
+        let removed = inventory.remove("gopls").unwrap();
+        assert!(removed);
+        assert!(inventory.list().is_empty());
+
+        // Removing again returns false
+        let removed = inventory.remove("gopls").unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn test_get_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut inventory = ToolInventory::load(dir.path()).unwrap();
+
+        assert!(inventory.get("gopls").is_none());
+
+        inventory
+            .register("gopls", "v0.21.1", &dir.path().join("gopls"), "test")
+            .unwrap();
+
+        let entry = inventory.get("gopls").unwrap();
+        assert_eq!(entry.version, "v0.21.1");
+    }
+
+    #[test]
+    fn test_register_overwrites_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut inventory = ToolInventory::load(dir.path()).unwrap();
+
+        inventory
+            .register(
+                "gopls",
+                "v0.21.1",
+                &dir.path().join("gopls/v0.21.1"),
+                "test",
+            )
+            .unwrap();
+        inventory
+            .register(
+                "gopls",
+                "v0.22.0",
+                &dir.path().join("gopls/v0.22.0"),
+                "test",
+            )
+            .unwrap();
+
+        assert_eq!(inventory.list().len(), 1);
+        assert_eq!(inventory.get("gopls").unwrap().version, "v0.22.0");
+    }
+
+    #[test]
+    fn test_load_corrupt_json_fails_gracefully() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("inventory.json"), "not valid json").unwrap();
+
+        let result = ToolInventory::load(dir.path());
+        assert!(result.is_err());
+    }
+}

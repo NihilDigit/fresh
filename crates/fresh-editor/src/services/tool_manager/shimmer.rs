@@ -109,3 +109,105 @@ impl Shimmer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_and_remove_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        let target = dir.path().join("tools/gopls/v0.21.1/gopls");
+
+        // Create a fake target binary
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"fake binary").unwrap();
+
+        // Create shim
+        Shimmer::create(&bin_dir, "gopls", &target).unwrap();
+
+        #[cfg(unix)]
+        {
+            let shim_path = bin_dir.join("gopls");
+            assert!(shim_path.symlink_metadata().is_ok(), "shim should exist");
+            let link_target = std::fs::read_link(&shim_path).unwrap();
+            assert_eq!(link_target, target);
+        }
+
+        #[cfg(windows)]
+        {
+            let shim_path = bin_dir.join("gopls.cmd");
+            assert!(shim_path.exists(), "shim .cmd should exist");
+            let content = std::fs::read_to_string(&shim_path).unwrap();
+            assert!(content.contains("gopls"));
+        }
+
+        // Remove shim
+        Shimmer::remove(&bin_dir, "gopls").unwrap();
+
+        #[cfg(unix)]
+        assert!(!bin_dir.join("gopls").exists());
+        #[cfg(windows)]
+        assert!(!bin_dir.join("gopls.cmd").exists());
+    }
+
+    #[test]
+    fn test_create_shim_replaces_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+
+        let target_v1 = dir.path().join("v1/tool");
+        let target_v2 = dir.path().join("v2/tool");
+        std::fs::create_dir_all(target_v1.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(target_v2.parent().unwrap()).unwrap();
+        std::fs::write(&target_v1, b"v1").unwrap();
+        std::fs::write(&target_v2, b"v2").unwrap();
+
+        Shimmer::create(&bin_dir, "tool", &target_v1).unwrap();
+        Shimmer::create(&bin_dir, "tool", &target_v2).unwrap();
+
+        #[cfg(unix)]
+        {
+            let link_target = std::fs::read_link(bin_dir.join("tool")).unwrap();
+            assert_eq!(link_target, target_v2);
+        }
+    }
+
+    #[test]
+    fn test_remove_nonexistent_shim_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        // Should not error
+        Shimmer::remove(dir.path(), "nonexistent").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_set_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tool");
+        std::fs::write(&file, b"binary").unwrap();
+
+        // Start with no execute permission
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        Shimmer::set_executable(&file).unwrap();
+
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+        assert!(mode & 0o111 != 0, "file should be executable");
+    }
+
+    #[test]
+    fn test_create_shim_creates_bin_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("deeply/nested/bin");
+        let target = dir.path().join("tool");
+        std::fs::write(&target, b"binary").unwrap();
+
+        assert!(!bin_dir.exists());
+        Shimmer::create(&bin_dir, "tool", &target).unwrap();
+        assert!(bin_dir.exists());
+    }
+}

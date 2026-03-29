@@ -3474,4 +3474,86 @@ mod tests {
         assert!(json.contains("ScrollToLineCenter"));
         assert!(json.contains("50"));
     }
+
+    #[test]
+    fn test_platform_context_detect() {
+        let ctx = PlatformContext::detect();
+
+        // OS should be one of the expected values
+        assert!(
+            ["linux", "macos", "windows", "unknown"].contains(&ctx.os.as_str()),
+            "unexpected os: {}",
+            ctx.os
+        );
+
+        // Arch should be one of the expected values
+        assert!(
+            ["x86_64", "aarch64", "arm", "x86", "unknown"].contains(&ctx.arch.as_str()),
+            "unexpected arch: {}",
+            ctx.arch
+        );
+
+        // Target triple should contain the arch
+        assert!(
+            ctx.target_triple.starts_with(&ctx.arch),
+            "target_triple '{}' should start with arch '{}'",
+            ctx.target_triple,
+            ctx.arch
+        );
+
+        // exe_ext and archive_ext should match OS
+        if ctx.os == "windows" {
+            assert_eq!(ctx.exe_ext, ".exe");
+            assert_eq!(ctx.archive_ext, "zip");
+        } else {
+            assert_eq!(ctx.exe_ext, "");
+            assert_eq!(ctx.archive_ext, "tar.gz");
+        }
+
+        // libc should only be set on Linux
+        if ctx.os == "linux" {
+            assert!(ctx.libc.is_some());
+        } else {
+            assert!(ctx.libc.is_none());
+        }
+    }
+
+    #[test]
+    fn test_platform_context_serialization() {
+        let ctx = PlatformContext::detect();
+        let json = serde_json::to_string(&ctx).unwrap();
+
+        // camelCase field names per serde rename
+        assert!(json.contains("\"os\""));
+        assert!(json.contains("\"arch\""));
+        assert!(json.contains("\"exeExt\""));
+        assert!(json.contains("\"archiveExt\""));
+        assert!(json.contains("\"targetTriple\""));
+
+        // Round-trip
+        let deserialized: PlatformContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.os, ctx.os);
+        assert_eq!(deserialized.arch, ctx.arch);
+    }
+
+    #[test]
+    fn test_installed_tool_info_serialization() {
+        let info = InstalledToolInfo {
+            name: "gopls".to_string(),
+            version: "v0.21.1".to_string(),
+            install_dir: "/home/user/.local/share/fresh/tools/gopls/v0.21.1".to_string(),
+            installed_by: "fresh-tools".to_string(),
+            installed_at: "2026-03-30T14:22:00Z".to_string(),
+            shim_path: Some("/home/user/.local/share/fresh/tools/bin/gopls".to_string()),
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"installDir\""));
+        assert!(json.contains("\"installedBy\""));
+        assert!(json.contains("\"shimPath\""));
+
+        let deserialized: InstalledToolInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.name, "gopls");
+        assert_eq!(deserialized.version, "v0.21.1");
+    }
 }
