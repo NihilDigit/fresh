@@ -2350,3 +2350,279 @@ fn test_select_word_with_accented_characters() {
         "Ctrl+W should select the entire word including accented characters"
     );
 }
+
+/// Test that Shift+Home selects from cursor to line start (issue #1428)
+/// Verifies that the SelectLineStart action is properly wired up and produces
+/// a selection when Shift+Home is pressed.
+#[test]
+fn test_shift_home_selects_to_line_start() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    // Type a line of text; cursor ends at position 11
+    harness.type_text("hello world").unwrap();
+
+    // Press Shift+Home to select from cursor to line start
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Should have a selection
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+Home"
+    );
+
+    // Selection should span the entire line (0..11)
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Cursor should have a selection after Shift+Home");
+    assert_eq!(range.start, 0, "Selection should start at position 0");
+    assert_eq!(range.end, 11, "Selection should end at position 11");
+
+    // Cursor should now be at position 0 (line start)
+    assert_eq!(
+        cursor.position, 0,
+        "Cursor should move to line start after Shift+Home"
+    );
+
+    // Selected text should be "hello world"
+    let selected_text = harness
+        .editor_mut()
+        .active_state_mut()
+        .get_text_range(range.start, range.end);
+    assert_eq!(
+        selected_text, "hello world",
+        "Shift+Home should select from cursor to line start"
+    );
+}
+
+/// Test that Shift+End selects from cursor to line end (issue #1428)
+#[test]
+fn test_shift_end_selects_to_line_end() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    // Type a line of text
+    harness.type_text("hello world").unwrap();
+
+    // Move cursor to start of line
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::NONE)
+        .unwrap();
+
+    // Press Shift+End to select from cursor to line end
+    harness
+        .send_key(KeyCode::End, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Should have a selection
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+End"
+    );
+
+    // Selection should span the entire line (0..11)
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Cursor should have a selection after Shift+End");
+    assert_eq!(range.start, 0, "Selection should start at position 0");
+    assert_eq!(range.end, 11, "Selection should end at position 11");
+
+    // Cursor should now be at position 11 (line end)
+    assert_eq!(
+        cursor.position, 11,
+        "Cursor should move to line end after Shift+End"
+    );
+
+    // Selected text should be "hello world"
+    let selected_text = harness
+        .editor_mut()
+        .active_state_mut()
+        .get_text_range(range.start, range.end);
+    assert_eq!(
+        selected_text, "hello world",
+        "Shift+End should select from cursor to line end"
+    );
+}
+
+/// Test Shift+Home from middle of line (issue #1428)
+#[test]
+fn test_shift_home_from_middle_of_line() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    harness.type_text("hello world").unwrap();
+
+    // Move cursor to start, then right 5 times to position 5 (space after "hello")
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::NONE)
+        .unwrap();
+    for _ in 0..5 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+
+    // Press Shift+Home to select from position 5 back to start
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+Home from middle"
+    );
+
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Cursor should have a selection");
+    assert_eq!(range.start, 0, "Selection should start at 0");
+    assert_eq!(range.end, 5, "Selection should end at 5");
+    assert_eq!(cursor.position, 0, "Cursor should be at line start");
+}
+
+/// Test Shift+End from middle of line (issue #1428)
+#[test]
+fn test_shift_end_from_middle_of_line() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    harness.type_text("hello world").unwrap();
+
+    // Move cursor to start, then right 5 times to position 5
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::NONE)
+        .unwrap();
+    for _ in 0..5 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+
+    // Press Shift+End to select from position 5 to end
+    harness
+        .send_key(KeyCode::End, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+End from middle"
+    );
+
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Cursor should have a selection");
+    assert_eq!(range.start, 5, "Selection should start at 5");
+    assert_eq!(range.end, 11, "Selection should end at 11");
+    assert_eq!(cursor.position, 11, "Cursor should be at line end");
+}
+
+/// Test Shift+Home and Shift+End on multiline text (issue #1428)
+#[test]
+fn test_shift_home_end_multiline() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    harness.type_text("first line\nsecond line").unwrap();
+
+    // Cursor is at end of "second line" (position 22)
+    // Press Shift+Home to select to start of second line
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+Home on second line"
+    );
+
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Cursor should have a selection");
+    // "first line\n" is 11 bytes, so second line starts at 11
+    assert_eq!(
+        range.start, 11,
+        "Selection should start at beginning of second line"
+    );
+    assert_eq!(
+        range.end, 22,
+        "Selection should end at end of second line"
+    );
+    assert_eq!(
+        cursor.position, 11,
+        "Cursor should be at start of second line"
+    );
+}
+
+/// Test Shift+Home with line wrapping enabled (issue #1428)
+#[test]
+fn test_shift_home_with_line_wrap() {
+    use fresh::config::Config;
+
+    let mut config = Config::default();
+    config.editor.line_wrap = true;
+    let mut harness = EditorTestHarness::with_config(80, 24, config).unwrap();
+
+    harness.type_text("hello world").unwrap();
+    harness.render().unwrap();
+
+    // Press Shift+Home to select from cursor to line start
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+Home with line wrap enabled"
+    );
+
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Should have selection range after Shift+Home with line wrap");
+    assert_eq!(range.start, 0, "Selection should start at 0");
+    assert_eq!(range.end, 11, "Selection should end at 11");
+}
+
+/// Test Shift+End with line wrapping enabled (issue #1428)
+#[test]
+fn test_shift_end_with_line_wrap() {
+    use fresh::config::Config;
+
+    let mut config = Config::default();
+    config.editor.line_wrap = true;
+    let mut harness = EditorTestHarness::with_config(80, 24, config).unwrap();
+
+    harness.type_text("hello world").unwrap();
+
+    // Move to start
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Press Shift+End to select from cursor to line end
+    harness
+        .send_key(KeyCode::End, KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    assert!(
+        harness.has_selection(),
+        "Should have selection after Shift+End with line wrap enabled"
+    );
+
+    let cursor = harness.editor().active_cursors().primary();
+    let range = cursor
+        .selection_range()
+        .expect("Should have selection range after Shift+End with line wrap");
+    assert_eq!(range.start, 0, "Selection should start at 0");
+    assert_eq!(range.end, 11, "Selection should end at 11");
+}
