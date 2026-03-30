@@ -3190,6 +3190,7 @@ impl Editor {
             if let Some(theme) = self.theme_registry.get_cloned(theme_name) {
                 self.theme = theme;
                 self.theme.set_terminal_cursor_color();
+                self.reapply_all_diagnostics();
             }
         }
     }

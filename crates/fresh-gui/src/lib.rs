@@ -263,11 +263,13 @@ where
 // Internal runner
 // ---------------------------------------------------------------------------
 
+type CreateAppFn<A> = Box<dyn FnOnce(u16, u16) -> AnyhowResult<A>>;
+
 /// Winit application that bridges winit/wgpu to the [`GuiApplication`] trait.
 struct WgpuRunner<A: GuiApplication> {
     config: GuiConfig,
     /// Factory called in `resumed()` once the window is ready.
-    create_app: Option<Box<dyn FnOnce(u16, u16) -> AnyhowResult<A>>>,
+    create_app: Option<CreateAppFn<A>>,
     /// Runtime state — created in `resumed()`.
     state: Option<RunnerState<A>>,
 }

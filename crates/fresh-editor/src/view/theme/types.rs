@@ -1210,8 +1210,9 @@ impl Theme {
     pub fn is_light(&self) -> bool {
         if let Some((r, g, b)) = color_to_rgb(self.editor_bg) {
             // sRGB relative luminance (ITU-R BT.709)
-            let lum =
-                0.2126 * (r as f64 / 255.0) + 0.7152 * (g as f64 / 255.0) + 0.0722 * (b as f64 / 255.0);
+            let lum = 0.2126 * (r as f64 / 255.0)
+                + 0.7152 * (g as f64 / 255.0)
+                + 0.0722 * (b as f64 / 255.0);
             lum > 0.5
         } else {
             false
