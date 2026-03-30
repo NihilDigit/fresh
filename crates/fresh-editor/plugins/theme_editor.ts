@@ -355,6 +355,8 @@ interface ThemeEditorState {
   savedCursorPath: string | null;
   /** Whether to close the editor after a successful save */
   closeAfterSave: boolean;
+  /** Whether the Save As prompt has been pre-filled (to distinguish first vs second Enter) */
+  saveAsPreFilled: boolean;
   /** Which panel has focus */
   focusPanel: "tree" | "picker";
   /** Focus target within picker panel */
@@ -420,6 +422,7 @@ const state: ThemeEditorState = {
   isBuiltin: false,
   savedCursorPath: null,
   closeAfterSave: false,
+  saveAsPreFilled: false,
   focusPanel: "tree",
   pickerFocus: { type: "hex-input" },
   filterText: "",
@@ -1604,10 +1607,31 @@ async function onThemeSaveAsPromptConfirmed(args: {
 
   const name = args.input.trim();
   if (name) {
+    // If user accepted a suggestion without typing, pre-fill the prompt so they can edit the name
+    if (args.selected_index !== null && !state.saveAsPreFilled) {
+      state.saveAsPreFilled = true;
+      editor.startPromptWithInitial(editor.t("prompt.save_as"), "theme-save-as", name);
+      editor.setPromptSuggestions([{
+        text: state.themeName,
+        description: state.isBuiltin
+          ? editor.t("suggestion.current_builtin")
+          : editor.t("suggestion.current"),
+        value: state.themeName,
+      }]);
+      return true;
+    }
+    state.saveAsPreFilled = false;
+
     // Reject names that match a built-in theme
     if (state.builtinThemes.includes(name)) {
-      editor.setStatus(editor.t("error.name_is_builtin", { name }));
-      theme_editor_save_as();
+      editor.startPromptWithInitial(editor.t("prompt.save_as_builtin_error"), "theme-save-as", name);
+      editor.setPromptSuggestions([{
+        text: state.themeName,
+        description: state.isBuiltin
+          ? editor.t("suggestion.current_builtin")
+          : editor.t("suggestion.current"),
+        value: state.themeName,
+      }]);
       return true;
     }
 
@@ -2757,11 +2781,14 @@ function theme_editor_save_as() : void {
     state.savedCursorPath = getCurrentFieldPath();
   }
 
+  state.saveAsPreFilled = false;
   editor.startPrompt(editor.t("prompt.save_as"), "theme-save-as");
 
   editor.setPromptSuggestions([{
     text: state.themeName,
-    description: editor.t("suggestion.current"),
+    description: state.isBuiltin
+      ? editor.t("suggestion.current_builtin")
+      : editor.t("suggestion.current"),
     value: state.themeName,
   }]);
 }
