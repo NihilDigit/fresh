@@ -3787,19 +3787,20 @@ impl SplitRenderer {
         // Whether we've emitted a Break for the current logical line (i.e., we're on a continuation)
         let mut on_continuation = false;
 
-        /// Effective width for the current segment: full width for first segment,
-        /// reduced by indent for continuations.
+        /// Effective width for the current segment.
+        ///
+        /// This always returns `available_width` because hanging indent is
+        /// already accounted for by the indent text emitted into
+        /// `current_line_width` via `emit_break_with_indent`.  Subtracting
+        /// `line_indent` here would double-count it, causing "squished"
+        /// wrapping on narrow terminals (issue #1502).
         #[inline]
         fn effective_width(
             available_width: usize,
-            line_indent: usize,
-            on_continuation: bool,
+            _line_indent: usize,
+            _on_continuation: bool,
         ) -> usize {
-            if on_continuation {
-                available_width.saturating_sub(line_indent)
-            } else {
-                available_width
-            }
+            available_width
         }
 
         /// Emit a Break token followed by hanging indent spaces.
