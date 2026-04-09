@@ -29,15 +29,6 @@ pub fn relay_loop(
         // Check for resize
         if resize_flag.swap(false, Ordering::SeqCst) {
             if let Ok(size) = get_terminal_size() {
-                // Clear the terminal immediately so any stale content drawn
-                // at the old cell size (e.g. from a font change in termux)
-                // is wiped from the screen. The server's next frame is a
-                // full redraw thanks to ratatui autoresize. We only touch
-                // the visible display — not SGR state — so the editor's
-                // theme colors persist until the new frame lands.
-                let _ = stdout.write_all(b"\x1b[2J\x1b[H");
-                let _ = stdout.flush();
-
                 let resize_msg = serde_json::to_string(&ClientControl::Resize {
                     cols: size.cols,
                     rows: size.rows,

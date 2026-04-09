@@ -5,11 +5,11 @@
 //! - Processes input events from clients
 //! - Broadcasts rendered output to all clients
 
-use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyEventKind};
@@ -65,110 +65,29 @@ pub struct EditorServer {
     waiting_clients: std::collections::HashMap<u64, u64>,
 }
 
-/// Maximum number of frames buffered per client before new frames are dropped.
-/// 16 frames ≈ 270ms at 60fps.
-const MAX_QUEUED_FRAMES: usize = 16;
-
-/// Shared queue backing `ClientDataWriter`.
-///
-/// Supports normal bounded push, plus `replace` which drops any pending frames
-/// and installs a single new one. `replace` is used on resize to discard stale
-/// diff frames rendered at the old dimensions, which would otherwise be drawn
-/// at the new (now different) cell size on the client and cause UI glitches.
-struct WriterQueue {
-    inner: Mutex<WriterQueueInner>,
-    notify: Condvar,
-}
-
-struct WriterQueueInner {
-    frames: VecDeque<Vec<u8>>,
-    shutdown: bool,
-}
-
-impl WriterQueue {
-    fn new() -> Self {
-        Self {
-            inner: Mutex::new(WriterQueueInner {
-                frames: VecDeque::new(),
-                shutdown: false,
-            }),
-            notify: Condvar::new(),
-        }
-    }
-
-    /// Push a frame onto the queue. Returns false if the queue is at capacity
-    /// or shutdown has been signaled.
-    fn push(&self, data: Vec<u8>) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.shutdown || inner.frames.len() >= MAX_QUEUED_FRAMES {
-            return false;
-        }
-        inner.frames.push_back(data);
-        self.notify.notify_one();
-        true
-    }
-
-    /// Drop any pending frames and push this one. Used on resize to discard
-    /// stale frames rendered at the old dimensions before queueing the fresh
-    /// post-resize full redraw. Returns false only if shutdown was signaled.
-    fn replace(&self, data: Vec<u8>) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.shutdown {
-            return false;
-        }
-        inner.frames.clear();
-        inner.frames.push_back(data);
-        self.notify.notify_one();
-        true
-    }
-
-    /// Block until a frame is available or shutdown is signaled. Always drains
-    /// any remaining queued frames before returning `None`, so pending frames
-    /// are flushed on clean shutdown.
-    fn pop(&self) -> Option<Vec<u8>> {
-        let mut inner = self.inner.lock().unwrap();
-        loop {
-            if let Some(frame) = inner.frames.pop_front() {
-                return Some(frame);
-            }
-            if inner.shutdown {
-                return None;
-            }
-            inner = self.notify.wait(inner).unwrap();
-        }
-    }
-
-    /// Signal the writer thread to exit once the queue is drained.
-    fn shutdown(&self) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.shutdown = true;
-        self.notify.notify_all();
-    }
-}
-
 /// Buffered writer for sending data to a client without blocking the server loop.
 ///
-/// Spawns a background thread that pops frames from a shared queue and writes
-/// them to the client's data pipe. If the queue fills up (client is too slow
-/// to read), frames are dropped. If the pipe breaks, the `pipe_broken` flag is
-/// set so the main loop can disconnect the client.
+/// Spawns a background thread that receives data via a bounded channel and
+/// writes it to the client's data pipe. If the channel fills up (client is
+/// too slow to read), frames are dropped. If the pipe breaks, the `pipe_broken`
+/// flag is set so the main loop can disconnect the client.
 struct ClientDataWriter {
-    queue: Arc<WriterQueue>,
+    sender: mpsc::SyncSender<Vec<u8>>,
     pipe_broken: Arc<AtomicBool>,
 }
 
 impl ClientDataWriter {
     /// Create a new writer that spawns a background thread to write to the data stream.
     fn new(data: StreamWrapper, client_id: u64) -> Self {
-        let queue = Arc::new(WriterQueue::new());
+        // 16 frames of buffer (~270ms at 60fps before dropping frames)
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(16);
         let pipe_broken = Arc::new(AtomicBool::new(false));
-        let queue_clone = queue.clone();
         let pipe_broken_clone = pipe_broken.clone();
 
         std::thread::Builder::new()
             .name(format!("client-{}-writer", client_id))
             .spawn(move || {
-                while let Some(buf) = queue_clone.pop() {
+                while let Ok(buf) = rx.recv() {
                     if let Err(e) = data.write_all(&buf) {
                         tracing::debug!("Client {} writer pipe error: {}", client_id, e);
                         pipe_broken_clone.store(true, Ordering::Relaxed);
@@ -185,35 +104,20 @@ impl ClientDataWriter {
             .expect("Failed to spawn client writer thread");
 
         Self {
-            queue,
+            sender: tx,
             pipe_broken,
         }
     }
 
-    /// Try to send data without blocking. Returns false if the queue is full
+    /// Try to send data without blocking. Returns false if the channel is full
     /// (client too slow) or the writer thread has exited.
     fn try_write(&self, data: &[u8]) -> bool {
-        self.queue.push(data.to_vec())
-    }
-
-    /// Drop any pending frames and queue this one. Used on resize to discard
-    /// stale frames rendered at the old dimensions; the fresh post-resize
-    /// frame is a full redraw (via ratatui autoresize) and does not depend on
-    /// those diffs.
-    fn replace_pending(&self, data: &[u8]) -> bool {
-        self.queue.replace(data.to_vec())
+        self.sender.try_send(data.to_vec()).is_ok()
     }
 
     /// Check if the writer thread detected a broken pipe.
     fn is_broken(&self) -> bool {
         self.pipe_broken.load(Ordering::Relaxed)
-    }
-}
-
-impl Drop for ClientDataWriter {
-    fn drop(&mut self) {
-        // Signal the writer thread to exit after draining any pending frames.
-        self.queue.shutdown();
     }
 }
 
@@ -290,10 +194,6 @@ impl EditorServer {
 
         let mut next_client_id = 1u64;
         let mut needs_render = true;
-        // When set, the next broadcast drops any pending queued frames on each
-        // client before sending the new one. Used after a resize so stale
-        // diffs rendered at the old dimensions never reach the client.
-        let mut discard_pending_frames = false;
         let mut last_render = Instant::now();
         const FRAME_DURATION: Duration = Duration::from_millis(16); // 60fps
 
@@ -418,11 +318,6 @@ impl EditorServer {
             if resize_occurred {
                 self.update_terminal_size()?;
                 needs_render = true;
-                // Drop any frames still queued in each client's writer: they
-                // were rendered at the old dimensions and would glitch the
-                // client terminal (e.g. termux during a font change). The
-                // next render is a full redraw thanks to ratatui autoresize.
-                discard_pending_frames = true;
             }
 
             // Process input events
@@ -479,10 +374,9 @@ impl EditorServer {
 
             // Render and broadcast if needed
             if needs_render && last_render.elapsed() >= FRAME_DURATION {
-                self.render_and_broadcast(discard_pending_frames)?;
+                self.render_and_broadcast()?;
                 last_render = Instant::now();
                 needs_render = false;
-                discard_pending_frames = false;
             }
 
             // Brief sleep to avoid busy-waiting
@@ -998,13 +892,8 @@ impl EditorServer {
         }
     }
 
-    /// Render the editor and broadcast output to all clients.
-    ///
-    /// `discard_pending_frames` should be true when called immediately after a
-    /// resize: the writer thread for each client will drop any stale frames
-    /// still queued at the old dimensions before this fresh full-redraw frame
-    /// is sent.
-    fn render_and_broadcast(&mut self, discard_pending_frames: bool) -> io::Result<()> {
+    /// Render the editor and broadcast output to all clients
+    fn render_and_broadcast(&mut self) -> io::Result<()> {
         let Some(ref mut editor) = self.editor else {
             return Ok(());
         };
@@ -1059,15 +948,8 @@ impl EditorServer {
                 output.clone()
             };
 
-            if !frame.is_empty() {
-                let queued = if discard_pending_frames {
-                    client.data_writer.replace_pending(&frame)
-                } else {
-                    client.data_writer.try_write(&frame)
-                };
-                if !queued {
-                    tracing::warn!("Client {} output buffer full, dropping frame", client.id);
-                }
+            if !frame.is_empty() && !client.data_writer.try_write(&frame) {
+                tracing::warn!("Client {} output buffer full, dropping frame", client.id);
             }
             // Clear full render flag after sending
             client.needs_full_render = false;
@@ -1111,79 +993,5 @@ impl ConnectedClient {
             .and_then(|v| v.as_deref())
             .map(|v| v == "truecolor" || v == "24bit")
             .unwrap_or(false)
-    }
-}
-
-#[cfg(test)]
-mod writer_queue_tests {
-    use super::{WriterQueue, MAX_QUEUED_FRAMES};
-
-    #[test]
-    fn push_then_pop_returns_frames_in_order() {
-        let queue = WriterQueue::new();
-        assert!(queue.push(b"first".to_vec()));
-        assert!(queue.push(b"second".to_vec()));
-        assert_eq!(queue.pop().as_deref(), Some(&b"first"[..]));
-        assert_eq!(queue.pop().as_deref(), Some(&b"second"[..]));
-    }
-
-    #[test]
-    fn push_rejected_when_queue_full() {
-        let queue = WriterQueue::new();
-        for i in 0..MAX_QUEUED_FRAMES {
-            assert!(queue.push(vec![i as u8]));
-        }
-        // Queue is at capacity; further pushes should be rejected.
-        assert!(!queue.push(b"overflow".to_vec()));
-    }
-
-    #[test]
-    fn replace_drops_pending_frames_and_installs_new_one() {
-        let queue = WriterQueue::new();
-        // Stuff the queue with stale frames (simulating frames rendered at
-        // the old dimensions that are about to be invalidated by a resize).
-        for i in 0..5 {
-            assert!(queue.push(vec![i as u8]));
-        }
-        // Installing a fresh post-resize frame should drop all of them.
-        assert!(queue.replace(b"fresh".to_vec()));
-        assert_eq!(queue.pop().as_deref(), Some(&b"fresh"[..]));
-        // Nothing else should remain in the queue. A follow-up push then pop
-        // proves the queue is empty (without blocking on an empty pop).
-        assert!(queue.push(b"next".to_vec()));
-        assert_eq!(queue.pop().as_deref(), Some(&b"next"[..]));
-    }
-
-    #[test]
-    fn replace_ignores_full_capacity() {
-        let queue = WriterQueue::new();
-        for i in 0..MAX_QUEUED_FRAMES {
-            assert!(queue.push(vec![i as u8]));
-        }
-        // replace must always succeed (unless shut down) regardless of how
-        // full the queue is — that's the whole point of using it on resize.
-        assert!(queue.replace(b"resync".to_vec()));
-        assert_eq!(queue.pop().as_deref(), Some(&b"resync"[..]));
-    }
-
-    #[test]
-    fn shutdown_drains_remaining_frames_then_returns_none() {
-        let queue = WriterQueue::new();
-        assert!(queue.push(b"a".to_vec()));
-        assert!(queue.push(b"b".to_vec()));
-        queue.shutdown();
-        // Any frames already queued should still be delivered so teardown
-        // sequences don't get dropped on disconnect.
-        assert_eq!(queue.pop().as_deref(), Some(&b"a"[..]));
-        assert_eq!(queue.pop().as_deref(), Some(&b"b"[..]));
-        assert_eq!(queue.pop(), None);
-    }
-
-    #[test]
-    fn push_and_replace_rejected_after_shutdown() {
-        let queue = WriterQueue::new();
-        queue.shutdown();
-        assert!(!queue.push(b"nope".to_vec()));
-        assert!(!queue.replace(b"nope".to_vec()));
     }
 }
