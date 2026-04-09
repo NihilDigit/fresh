@@ -1780,6 +1780,39 @@ impl Editor {
         // Find a replacement buffer, preferring the most recently focused one
         // First try focus history, then fall back to any visible buffer
         let active_split = self.split_manager.active_split();
+
+        // Detect whether the active split's open-buffers list has a Group
+        // tab immediately *before* the buffer we're closing. If it does,
+        // we'll re-activate that group tab after the close-buffer cleanup
+        // — that handles the case where the user drilled into a buffer
+        // (e.g. the magit-style review-diff plugin's drill-down composite)
+        // from a buffer-group tab, and now expects `q` to land them back
+        // on the group tab they came from rather than on whatever
+        // unrelated buffer happened to be in `focus_history` from before.
+        //
+        // We capture this BEFORE the open_buffers list is mutated, so the
+        // closing buffer's tab position is still valid.
+        let prefer_group_tab: Option<crate::model::event::LeafId> =
+            self.split_view_states.get(&active_split).and_then(|vs| {
+                use crate::view::split::TabTarget;
+                tracing::debug!(
+                    "close_buffer_internal: active_split={:?} open_buffers={:?} closing={:?}",
+                    active_split,
+                    vs.open_buffers,
+                    id
+                );
+                let pos = vs
+                    .open_buffers
+                    .iter()
+                    .position(|t| matches!(t, TabTarget::Buffer(b) if *b == id))?;
+                if pos > 0 {
+                    if let TabTarget::Group(leaf_id) = vs.open_buffers[pos - 1] {
+                        return Some(leaf_id);
+                    }
+                }
+                None
+            });
+
         let replacement_from_history = self.split_view_states.get(&active_split).and_then(|vs| {
             // Find the most recently focused buffer that's still open and visible
             vs.focus_history
@@ -1862,6 +1895,26 @@ impl Editor {
         // If this was the last visible buffer, focus file explorer
         if is_last_visible_buffer {
             self.focus_file_explorer();
+        }
+
+        // If the closing buffer was preceded in tab order by a buffer-group
+        // tab, activate that group now so the user lands back on the
+        // group they came from. This intentionally runs AFTER the regular
+        // replacement logic above — the replacement buffer is still set as
+        // the split's underlying active buffer, but `active_target()`
+        // returns Group(...) once `active_group_tab` is set, so the
+        // editor renders and routes input to the group's panels.
+        tracing::debug!(
+            "close_buffer_internal: closing={:?} prefer_group_tab={:?}",
+            id,
+            prefer_group_tab
+        );
+        if let Some(group_leaf) = prefer_group_tab {
+            tracing::debug!(
+                "close_buffer_internal: activating group tab {:?}",
+                group_leaf
+            );
+            self.activate_group_tab(group_leaf);
         }
 
         Ok(())

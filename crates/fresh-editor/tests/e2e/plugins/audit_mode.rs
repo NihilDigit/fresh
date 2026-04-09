@@ -3096,3 +3096,93 @@ fn test_review_diff_cursor_line_highlight_does_not_bleed_to_next_row() {
         screen
     );
 }
+
+/// WIP regression test for the drill-down close behavior: pressing `q` in the
+/// composite side-by-side diff should return focus to the review-diff
+/// buffer group, not pick some unrelated buffer or open `[No Name]`.
+///
+/// **Status:** times out (the bug is real and the fix is incomplete; see
+/// `docs/wip/audit_mode_drill_down_close.md`). The wait at the end of the
+/// test is the semantic wait that's supposed to fail when the bug is
+/// present — it correctly hangs because the GIT STATUS panel never reappears.
+#[test]
+#[ignore = "WIP — drill-down close fix is incomplete; see docs/wip/audit_mode_drill_down_close.md"]
+fn test_review_diff_drill_down_close_returns_to_group() {
+    init_tracing_from_env();
+    let repo = GitTestRepo::new();
+    repo.setup_typical_project();
+    setup_audit_mode_plugin(&repo);
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    // Modify a file so the review diff has something to drill into.
+    let main_rs_path = repo.path.join("src/main.rs");
+    fs::write(&main_rs_path, "fn main() { /* changed */ }\n").expect("modify file");
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        40,
+        Config::default(),
+        repo.path.clone(),
+    )
+    .unwrap();
+    harness.open_file(&main_rs_path).unwrap();
+    harness.render().unwrap();
+    harness
+        .wait_until(|h| h.screen_to_string().contains("changed"))
+        .unwrap();
+
+    let _ = open_review_diff(&mut harness);
+
+    // Wait until the file list shows the modified file and the diff panel
+    // header shows the per-file path — both are buffer content (not status
+    // bar) and indicate review diff has finished fetching git state.
+    harness
+        .wait_until(|h| {
+            let s = h.screen_to_string();
+            s.contains("main.rs") && s.contains("DIFF FOR")
+        })
+        .unwrap();
+
+    // Drill down on the selected file. Enter triggers `review_drill_down`,
+    // which builds a composite side-by-side diff buffer and switches to it.
+    // The composite tab title is "*Diff: <filepath>*".
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .wait_until(|h| {
+            let s = h.screen_to_string();
+            if s.contains("TypeError") {
+                panic!("TypeError during drill-down. Screen:\n{}", s);
+            }
+            s.contains("*Diff:") || s.contains("OLD (HEAD)")
+        })
+        .unwrap();
+
+    // Close the composite via `q` (bound by the diff-view mode).
+    harness
+        .send_key(KeyCode::Char('q'), KeyModifiers::NONE)
+        .unwrap();
+
+    // After closing the composite the review-diff group should be active
+    // again — the GIT STATUS / DIFF FOR layout reappears, and the toolbar
+    // shows the review-mode hint set ("Stage / Unstage / Discard …").
+    harness
+        .wait_until(|h| {
+            let s = h.screen_to_string();
+            s.contains("GIT STATUS") && s.contains("DIFF FOR") && s.contains("s Stage")
+        })
+        .unwrap();
+
+    // And critically — the active buffer should NOT be a fresh [No Name]
+    // buffer. The composite was closed; the editor must NOT have created
+    // an empty replacement.
+    let final_screen = harness.screen_to_string();
+    assert!(
+        !final_screen.contains("[No Name]"),
+        "Closing the drill-down composite should return to the review-diff \
+         group, not create a [No Name] buffer. Screen:\n{}",
+        final_screen
+    );
+}
