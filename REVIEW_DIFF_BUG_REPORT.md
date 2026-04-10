@@ -68,31 +68,23 @@ A test repository was created at `/tmp/test-repo` with the following git status:
 
 ## Bug Reports
 
-### Bug #1: File Explorer Steals Focus from Review Diff (HIGH SEVERITY)
+### Bug #1: Review Diff Does Not Auto-Focus When File Explorer Is Open (LOW SEVERITY — UX Discoverability)
 
-**Description**: When the File Explorer sidebar is open (visible), it captures keyboard focus instead of the Review Diff panels. All navigation keys (Up, Down, j, k) and action keys operate on the File Explorer instead of the Review Diff file list or diff panel.
+**Description**: When the File Explorer sidebar is open (visible) and has focus, opening Review Diff does NOT automatically move focus to the Review Diff panels. The user must press `Ctrl+E` to switch focus from the File Explorer to the editor area (which contains the Review Diff). Without knowing about `Ctrl+E`, it appears that keyboard shortcuts are broken.
+
+**Mitigating Factors**:
+- `Ctrl+E` correctly switches focus between the File Explorer and the Review Diff panels. Once pressed, all review-mode keybindings work properly.
+- There ARE visual indicators that the File Explorer has focus: the explorer border is bright white when focused vs. gray/dimmed when unfocused, a `▌` cursor is shown, and the header changes to `File Explorer (Ctrl+E)` when unfocused (hinting at how to re-focus it).
+
+**The UX Issue**: The problem is discoverability. When a user opens Review Diff, they expect it to receive input immediately. Instead, keystrokes silently go to the File Explorer. The `(Ctrl+E)` hint only appears in the explorer header AFTER focus has been manually switched away — i.e., only after the user already knows the shortcut. There is no onscreen hint visible while the explorer is focused that tells the user how to switch away.
 
 **Steps to Reproduce**:
-1. Open the editor with the File Explorer sidebar visible (default state)
+1. Open the editor with the File Explorer sidebar visible and focused (default state)
 2. Open Review Diff via `Ctrl+P` → "Review Diff"
-3. Press `Down` arrow key
+3. Press `Down` arrow key — it moves the explorer cursor, not the review diff selection
+4. Press `Ctrl+E` — focus shifts to Review Diff; now `Down` works correctly
 
-**Expected**: The review diff file selection (`>` indicator) moves to the next file  
-**Actual**: The File Explorer's `▌` cursor moves down instead; the review diff `>` indicator stays unchanged; the diff panel does not update
-
-**Evidence** (tmux capture):
-```
-┌ File Explorer ─────────────────×─┐ ...
-│▼ test-repo                     ● │ ...
-│▌   long_lines.txt              M │ GIT STATUS              │ DIFF FOR config.toml
-│    main.py                     M │▸ Staged                 │...
-│    new_module.py               U │>M  config.toml          │ <-- selection stuck
-```
-The `▌` cursor moved in the File Explorer while the `>` in the review diff remained on `config.toml`.
-
-**Workaround**: Close the File Explorer with `Ctrl+B` before using Review Diff.
-
-**Root Cause Hypothesis**: The buffer group for review diff doesn't gain input focus when the File Explorer panel is open; the editor routes keystrokes to the File Explorer's tree view instead of the active review-mode buffer.
+**Suggestion**: Either (a) automatically switch focus to the Review Diff panels when the mode is activated, or (b) show the `(Ctrl+E)` hint in the explorer header at all times (not only when unfocused), so users can discover the shortcut.
 
 ---
 
@@ -267,7 +259,7 @@ s Stage  u Unstage  d Discard │ c Comment  N Note  x Del │ ↵ Open  Tab Swi
 
 | # | Bug | Severity | Category |
 |---|-----|----------|----------|
-| 1 | File Explorer steals focus from Review Diff | **HIGH** | Focus management |
+| 1 | Review Diff doesn't auto-focus when File Explorer is open | **LOW** | UX discoverability |
 | 2 | Terminal resize destroys Review Diff layout | **HIGH** | Rendering/resize |
 | 3 | Side-by-side drill-down fails for deleted files | **MEDIUM** | Edge case |
 | 4 | Hunk navigation (n/p) — inconsistent cursor tracking | **LOW-MEDIUM** | Cursor sync |
