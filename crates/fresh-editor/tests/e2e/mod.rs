@@ -42,6 +42,7 @@ pub mod indent_dedent;
 pub mod inline_diagnostics;
 pub mod issue_1147_wrapped_line_nav;
 pub mod issue_1502_word_wrap_squished;
+pub mod issue_1537_goto_matching_bracket_find_next;
 pub mod keybinding_editor;
 pub mod language_features_e2e;
 pub mod large_file_inplace_write_bug;
