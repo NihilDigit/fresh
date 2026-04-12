@@ -6,6 +6,7 @@
     <title>Fresh - The Terminal IDE</title>
     <meta name="description" content="Fresh is a terminal IDE. One static binary, instant startup, broad LSP coverage, magit-style diff review, project-wide search, huge-file editing, SSH remote editing, and TypeScript plugins.">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='12' y='70' font-family='monospace' font-size='60' font-weight='bold' fill='%23222'%3E%3E_%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="public/vendor/asciinema-player/asciinema-player.css">
     <style>
         :root {
             --bg-dark: #0a0a0a;
@@ -589,6 +590,29 @@
             width: 100%;
             display: block;
             cursor: zoom-in;
+        }
+
+        /* Asciinema-player host — fills the hero window frame. */
+        .asciinema-host {
+            width: 100%;
+            background: var(--bg-darker);
+            display: block;
+        }
+        .asciinema-host .ap-wrapper,
+        .asciinema-host .ap-player {
+            background: var(--bg-darker) !important;
+            border: none !important;
+        }
+        .asciinema-host .ap-term {
+            padding: 8px !important;
+        }
+        /* Keep the player muted — no control bar chrome in the hero. */
+        .asciinema-host .ap-control-bar {
+            display: none !important;
+        }
+        .asciinema-host img {
+            width: 100%;
+            display: block;
         }
 
         .screenshot-glow {
@@ -1308,7 +1332,9 @@
                         <span></span><span></span><span></span>
                     </div>
                 </div>
-                <a href="public/assets/hero.png" target="_blank"><img src="public/assets/hero.png" alt="Fresh terminal text editor showing file explorer, syntax-highlighted code, and integrated terminal"></a>
+                <div id="demo-player" class="asciinema-host">
+                    <a href="public/assets/hero.png" target="_blank"><img src="public/assets/hero.png" alt="Fresh editor showing file explorer, syntax-highlighted code, and integrated terminal" id="demo-fallback"></a>
+                </div>
                 <div class="screenshot-glow"></div>
             </div>
         </div>
@@ -1741,6 +1767,35 @@
                 // Hide version badge if fetch fails (e.g., CORS, rate limiting)
                 document.getElementById('version-badge').style.display = 'none';
             });
+    </script>
+
+    <!-- Asciinema player: recorded demo of Fresh. Loads async; keeps the
+         static hero PNG if the bundle or cast fail to load. -->
+    <script src="public/vendor/asciinema-player/asciinema-player.min.js"></script>
+    <script>
+        (function () {
+            if (typeof AsciinemaPlayer === 'undefined') return;
+            const host = document.getElementById('demo-player');
+            if (!host) return;
+            const fallback = document.getElementById('demo-fallback');
+            try {
+                host.textContent = '';
+                AsciinemaPlayer.create('public/fresh-demo.cast', host, {
+                    autoPlay: true,
+                    loop: true,
+                    preload: true,
+                    idleTimeLimit: 1.5,
+                    speed: 1.25,
+                    cols: 110,
+                    rows: 30,
+                    controls: false,
+                    fit: 'width',
+                    theme: 'asciinema'
+                });
+            } catch (err) {
+                if (fallback) host.appendChild(fallback);
+            }
+        })();
     </script>
 
     <!-- Cloudflare Web Analytics (sinelaw.github.io/fresh) -->
