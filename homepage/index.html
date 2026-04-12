@@ -333,13 +333,13 @@
             text-decoration-color: var(--accent-green);
         }
 
-        /* Show only the first five benefit-led pills (Intuitive keys
-           & mouse, Fast & light, Huge files, Themes, TypeScript
-           plugins) plus the trailing "and more!" link. The rest stay
-           in the DOM for screen readers / SEO but are not rendered;
-           they're reachable via the "and more!" anchor to the Full
-           feature list at the bottom. */
-        .feature-pills li:nth-child(n+6):not(.feature-pill-more) {
+        /* Show the first six benefit-led pills (Intuitive keys &
+           mouse, Fast & light, Huge files, Themes, TypeScript
+           plugins, Open source) plus the trailing "and more!" link.
+           The rest stay in the DOM for screen readers / SEO but are
+           not rendered; they're reachable via the "and more!" anchor
+           to the Full feature list at the bottom. */
+        .feature-pills li:nth-child(n+7):not(.feature-pill-more) {
             display: none;
         }
 
@@ -1285,6 +1285,7 @@
                 <li>Huge files</li>
                 <li>Themes</li>
                 <li>TypeScript plugins</li>
+                <li>Open source</li>
                 <li>Multi-cursor</li>
                 <li>Keyboard macros</li>
                 <li>LSP</li>
@@ -1293,7 +1294,6 @@
                 <li>Project-wide grep</li>
                 <li>SSH remote editing</li>
                 <li>Vim mode</li>
-                <li>Open source</li>
                 <li class="feature-pill-more"><a href="#full-features">and more!</a></li>
             </ul>
 
