@@ -270,50 +270,89 @@
             font-weight: 400;
         }
 
-        /* Rotator line — sized to match the hero-claim sub-line. */
-        .hero-rotator-line {
-            color: var(--text-muted);
+        /* Feature rotator — three items visible at once (old, current,
+           next). Edges fade toward transparent via a CSS mask. Every
+           cycle a new item slides in from the right, pushing the
+           previous items leftward. */
+        .feature-rotator {
+            overflow: hidden;
+            max-width: 1100px;
+            margin: 0 auto 32px;
+            height: 2em;
             font-size: clamp(1.0625rem, 2.55vw, 1.4875rem);
-            line-height: 1.35;
-            margin: 0 auto 28px;
+            -webkit-mask-image: linear-gradient(90deg,
+                transparent 0%,
+                rgba(0, 0, 0, 0.15) 8%,
+                black 40%,
+                black 60%,
+                rgba(0, 0, 0, 0.15) 92%,
+                transparent 100%);
+            mask-image: linear-gradient(90deg,
+                transparent 0%,
+                rgba(0, 0, 0, 0.15) 8%,
+                black 40%,
+                black 60%,
+                rgba(0, 0, 0, 0.15) 92%,
+                transparent 100%);
         }
 
-        .feature-rotator {
-            display: inline-block;
-            min-width: 16ch;
-            text-align: left;
+        .rotator-track {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 33.3333%;
+            align-items: center;
+            /* Slide happens fast so the pause at the end of each tick
+               leaves plenty of time to read the centered item. */
+            transition: transform 0.45s cubic-bezier(0.4, 0.0, 0.2, 1);
+            will-change: transform, filter;
+        }
+
+        .rotator-track.no-anim {
+            transition: none;
+            animation: none !important;
+        }
+
+        /* Motion blur: peaks mid-slide, eases back to zero so the
+           centered item is crisp for the pause. Plays for the same
+           duration as the transform transition. */
+        .rotator-track.sliding {
+            animation: rotator-motion-blur 0.45s ease-in-out;
+        }
+
+        @keyframes rotator-motion-blur {
+            0%   { filter: blur(0); }
+            50%  { filter: blur(6px); }
+            100% { filter: blur(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .rotator-track.sliding {
+                animation: none;
+            }
+        }
+
+        .rotator-item {
+            text-align: center;
+            padding: 0 12px;
+            white-space: nowrap;
+            color: var(--text-muted);
+            font-weight: 500;
+            transition:
+                color 0.45s ease,
+                font-weight 0.45s ease;
+        }
+
+        .rotator-item.current {
             color: var(--accent-green);
             font-weight: 700;
-            /* Motion-blur swap animation. */
-            transition:
-                opacity 0.18s ease-out,
-                filter 0.18s ease-out,
-                transform 0.18s ease-out;
-            will-change: filter, transform, opacity;
         }
 
-        .feature-rotator.rotator-out {
-            opacity: 0;
-            filter: blur(12px);
-            transform: translateX(22px);
-        }
-
-        .feature-rotator.rotator-in {
-            opacity: 0;
-            filter: blur(12px);
-            transform: translateX(-22px);
-        }
-
-        /* Honor reduced-motion preferences. */
         @media (prefers-reduced-motion: reduce) {
-            .feature-rotator {
+            .rotator-track {
                 transition: none !important;
             }
-            .feature-rotator.rotator-out,
-            .feature-rotator.rotator-in {
-                opacity: 1;
-                filter: none;
-                transform: none;
+            .rotator-item {
+                transition: none !important;
             }
         }
 
@@ -1268,12 +1307,12 @@
             .hero-claim {
                 padding: 0 8px;
             }
-            .hero-rotator-line {
-                font-size: 0.9rem;
-                padding: 0 8px;
-            }
             .feature-rotator {
-                min-width: 12ch;
+                margin: 0 auto 20px;
+            }
+            .rotator-item {
+                padding: 0 4px;
+                font-size: 0.95em;
             }
         }
 
@@ -1345,11 +1384,11 @@
     <section class="hero">
         <div class="hero-content">
             <h1>Fresh</h1>
-            <p class="hero-claim">A powerful terminal text editor — with IDE features built in.<br><span class="hero-claim-sub">Multi-cursor, macros, multi-GB files, regex, LSP, git review, fuzzy finder, project grep, SSH remote — no plugins required. Open source.</span></p>
+            <p class="hero-claim">A powerful terminal text editor — with IDE features built in.</p>
 
-            <p class="hero-rotator-line">
-                <span class="feature-rotator" aria-live="polite" aria-atomic="true">multi-cursor</span>
-            </p>
+            <div class="feature-rotator" aria-live="polite" aria-atomic="true">
+                <div class="rotator-track"></div>
+            </div>
 
             <div class="download-section">
                 <div class="install-single">
@@ -1662,45 +1701,6 @@
         </div>
     </section>
 
-    <!-- All Features -->
-    <section class="all-features">
-        <h2>Also included</h2>
-        <div class="features-grid">
-            <div class="feature-card">
-                <h3>Code folding</h3>
-                <p>LSP folding ranges plus indent-based fallback. Gutter indicators and fold-aware scrolling, including in large-file mode.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Package manager</h3>
-                <p>Install plugins, themes, language packs and bundles from the official registry. Local-path installs. Scaffold new packages with <code style="color: var(--accent-green);">--init</code>.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Text encodings</h3>
-                <p>UTF-8, UTF-16 LE/BE, Latin-1, Windows-1250/1251/1252, GBK, Shift-JIS, EUC-KR, GB18030. Detection, conversion, and clickable status-bar indicator.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Settings UI</h3>
-                <p>Graphical settings editor with deep search, hierarchical breadcrumbs, and inherit/unset for nullable settings. Keybinding editor with conflict detection and key capture.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Split panes &amp; tabs</h3>
-                <p>Split editing in any direction, tab bar, side-by-side diff view, built-in Markdown preview, fuzzy file finder, file explorer with git status.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Auto-close &amp; indent</h3>
-                <p>Configurable bracket and quote auto-close with per-language overrides. Smart-quote suppression inside strings. Auto-indent and auto-dedent driven by tree-sitter.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Read-only mode</h3>
-                <p>Library and toolchain paths (rustup, /usr/include, /nix/store, Homebrew Cellar, Xcode SDKs) open read-only automatically. Toggle on demand.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Cross-platform</h3>
-                <p>Linux, macOS, Windows (ConPTY) and FreeBSD binaries. Packaging via Homebrew, AUR, winget, Flatpak, AppImage, .deb and .rpm.</p>
-            </div>
-        </div>
-    </section>
-
     <!-- Full feature list -->
     <section class="feature-list-section">
         <h2>Full feature list</h2>
@@ -1715,11 +1715,15 @@
             <li>Project-wide grep (live, via ripgrep)</li>
             <li>Project-wide search &amp; replace</li>
             <li>File explorer with git status</li>
-            <li>Tabs, split panes, side-by-side diff</li>
+            <li>Tabs and split panes</li>
+            <li>Side-by-side diff view</li>
+            <li>Markdown preview (compose mode)</li>
             <li>Multi-cursor &amp; block selection</li>
             <li>Keyboard macros</li>
             <li>Regex find &amp; replace with capture groups</li>
+            <li>Auto-close brackets &amp; quotes (per-language)</li>
             <li>Smart home, smart backspace dedent, surround</li>
+            <li>Auto-indent &amp; auto-dedent (tree-sitter)</li>
             <li>Code folding (LSP + indent-based)</li>
             <li>Magit-style git diff review</li>
             <li>Git gutter, git log viewer, git grep</li>
@@ -1736,16 +1740,20 @@
             <li>Vim mode</li>
             <li>TypeScript plugins (QuickJS + OXC)</li>
             <li>Package manager for plugins, themes, languages</li>
+            <li>Scaffold new packages with <code>--init</code></li>
             <li>Live-preview theme editor</li>
             <li>Built-in themes: Gruvbox, Dracula, Nord, Tokyo Night…</li>
             <li>Rainbow brackets, vertical rulers, whitespace indicators</li>
             <li>Customizable status bar with <code>{clock}</code> element</li>
             <li>Internationalization (Japanese, Korean, Chinese, Vietnamese…)</li>
             <li>Many text encodings (UTF-16, GBK, Shift-JIS, Latin-1…)</li>
+            <li>Read-only mode for library &amp; toolchain paths</li>
             <li>Settings UI with deep search</li>
             <li>Keybinding editor with conflict detection</li>
             <li>Single static binary, no runtime</li>
+            <li>Packaging: Homebrew, AUR, winget, apt, Flatpak, AppImage, cargo</li>
             <li>Linux, macOS, Windows, FreeBSD</li>
+            <li>Open source (GPL-2.0)</li>
         </ul>
     </section>
 
@@ -1858,45 +1866,104 @@
             });
         });
 
-        // Feature rotator: swap in/out with a motion-blur animation.
+        // Feature rotator: three items visible at once (old | current | next).
+        // Each tick appends a new item on the right and slides the track left
+        // by one slot (33.3333%). After the slide, the leftmost item is
+        // removed and the transform is reset so the track doesn't drift off
+        // forever. The mask on .feature-rotator fades the edges so "old"
+        // exits and "next" enters with a soft gradient.
         (function featureRotator() {
-            const el = document.querySelector('.feature-rotator');
-            if (!el) return;
+            const track = document.querySelector('.rotator-track');
+            if (!track) return;
             const items = [
                 'multi-cursor',
+                'keyboard macros',
+                'multi-GB files',
+                'regex find/replace',
                 'fuzzy file finder',
                 'project-wide grep',
-                'Magit-style diff review',
+                'Magit-style git review',
                 'LSP for many languages',
                 'SSH remote editing',
-                'live-preview themes',
-                'integrated terminal',
                 'detachable sessions',
+                'integrated terminal',
                 'Vim mode',
                 'TypeScript plugins',
-                'multi-GB file support'
+                'live-preview themes',
+                'code folding',
+                'split panes',
+                'git gutter & log',
+                'rainbow brackets',
+                'custom status bar',
+                'crash recovery',
+                'block selection',
+                'command palette',
+                'cross-platform',
+                'single static binary',
+                'open source'
             ];
             const reduceMotion = window.matchMedia &&
                 window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            function mkItem(text, isCurrent) {
+                const el = document.createElement('span');
+                el.className = 'rotator-item' + (isCurrent ? ' current' : '');
+                el.textContent = text;
+                return el;
+            }
+
+            // Start with 3 items: old, current, next.
             let idx = 0;
+            track.appendChild(mkItem(items[idx++ % items.length], false));
+            track.appendChild(mkItem(items[idx++ % items.length], true));
+            track.appendChild(mkItem(items[idx++ % items.length], false));
+
             function tick() {
+                // Append the next item on the right so the incoming slide
+                // has content to reveal.
+                const incoming = mkItem(items[idx++ % items.length], false);
+                track.appendChild(incoming);
+
+                // Role shift (class changes transition color/weight in sync
+                // with the translate):
+                //   kids[0] = leaving (removed after slide)
+                //   kids[1] = was current -> becomes old (.current drops)
+                //   kids[2] = was next    -> becomes current (.current adds)
+                //   kids[3] = incoming    -> stays unclassed (becomes next)
+                const kids = track.children;
+                kids[1].classList.remove('current');
+                kids[2].classList.add('current');
+
                 if (reduceMotion) {
-                    idx = (idx + 1) % items.length;
-                    el.textContent = items[idx];
+                    track.removeChild(track.firstElementChild);
                     return;
                 }
-                el.classList.add('rotator-out');
-                setTimeout(() => {
-                    idx = (idx + 1) % items.length;
-                    el.textContent = items[idx];
-                    el.classList.remove('rotator-out');
-                    el.classList.add('rotator-in');
-                    // Force reflow so the transition restarts, then drop class.
-                    void el.offsetWidth;
-                    el.classList.remove('rotator-in');
-                }, 200);
+
+                // Retrigger the motion-blur animation — toggle the class
+                // after a reflow so it replays each tick.
+                track.classList.remove('sliding');
+                void track.offsetWidth;
+                track.classList.add('sliding');
+
+                // Slide the track one slot left — items fly in from the
+                // right pushing everything left.
+                track.style.transform = 'translateX(-33.3333%)';
+
+                const onEnd = (e) => {
+                    if (e && e.propertyName !== 'transform') return;
+                    track.removeEventListener('transitionend', onEnd);
+                    track.classList.remove('sliding');
+                    track.classList.add('no-anim');
+                    track.removeChild(track.firstElementChild);
+                    track.style.transform = 'translateX(0)';
+                    void track.offsetWidth;
+                    track.classList.remove('no-anim');
+                };
+                track.addEventListener('transitionend', onEnd);
             }
-            setInterval(tick, 1400);
+
+            // 450ms slide + ~1050ms pause so the center item is easy to read.
+            setInterval(tick, 1500);
         })();
 
         // Fetch latest version from GitHub releases
