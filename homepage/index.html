@@ -270,81 +270,35 @@
             font-weight: 400;
         }
 
-        /* Feature rotator — three items visible at once (old, current,
-           next). Edges fade toward transparent via a CSS mask. Every
-           cycle a new item slides in from the right, pushing the
-           previous items leftward. */
-        .feature-rotator {
-            overflow: hidden;
-            max-width: 1100px;
+        /* Feature pills — a static, scannable row of capabilities under
+           the claim. No animation. Inspired by the hero feature chips
+           on Linear / Raycast / Vercel, where the brand confidence is
+           carried by the headline + demo rather than a moving widget. */
+        .feature-pills {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
             margin: 0 auto 32px;
-            height: 2em;
-            font-size: clamp(1.0625rem, 2.55vw, 1.4875rem);
-            -webkit-mask-image: linear-gradient(90deg,
-                transparent 0%,
-                rgba(0, 0, 0, 0.15) 8%,
-                black 40%,
-                black 60%,
-                rgba(0, 0, 0, 0.15) 92%,
-                transparent 100%);
-            mask-image: linear-gradient(90deg,
-                transparent 0%,
-                rgba(0, 0, 0, 0.15) 8%,
-                black 40%,
-                black 60%,
-                rgba(0, 0, 0, 0.15) 92%,
-                transparent 100%);
+            padding: 0;
+            max-width: 900px;
         }
 
-        .rotator-track {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: 33.3333%;
-            align-items: center;
-            /* Slide happens fast so the pause at the end of each tick
-               leaves plenty of time to read the centered item. */
-            transition: transform 0.45s cubic-bezier(0.4, 0.0, 0.2, 1);
-            will-change: transform, filter;
-        }
-
-        .rotator-track.no-anim {
-            transition: none;
-            animation: none !important;
-        }
-
-        /* Motion blur: peaks mid-slide, eases back to zero so the
-           centered item is crisp for the pause. Plays for the same
-           duration as the transform transition. */
-        .rotator-track.sliding {
-            animation: rotator-motion-blur 0.45s ease-in-out;
-        }
-
-        @keyframes rotator-motion-blur {
-            0%   { filter: blur(0); }
-            50%  { filter: blur(6px); }
-            100% { filter: blur(0); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .rotator-track.sliding {
-                animation: none;
-            }
-        }
-
-        .rotator-item {
-            text-align: center;
-            padding: 0 12px;
-            white-space: nowrap;
+        .feature-pills li {
+            font-size: 0.85rem;
             color: var(--text-muted);
-            font-weight: 500;
-            transition:
-                color 0.45s ease,
-                font-weight 0.45s ease;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 5px 14px;
+            border-radius: 999px;
+            white-space: nowrap;
+            transition: border-color 0.15s ease, color 0.15s ease;
         }
 
-        .rotator-item.current {
+        .feature-pills li:hover {
             color: var(--accent-green);
-            font-weight: 700;
+            border-color: var(--accent-green);
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -1307,12 +1261,14 @@
             .hero-claim {
                 padding: 0 8px;
             }
-            .feature-rotator {
+            .feature-pills {
                 margin: 0 auto 20px;
+                padding: 0 8px;
+                gap: 6px;
             }
-            .rotator-item {
-                padding: 0 4px;
-                font-size: 0.95em;
+            .feature-pills li {
+                font-size: 0.75rem;
+                padding: 4px 10px;
             }
         }
 
@@ -1386,9 +1342,18 @@
             <h1>Fresh</h1>
             <p class="hero-claim">A powerful terminal text editor — with IDE features built in.</p>
 
-            <div class="feature-rotator" aria-live="polite" aria-atomic="true">
-                <div class="rotator-track"></div>
-            </div>
+            <ul class="feature-pills">
+                <li>multi-cursor</li>
+                <li>keyboard macros</li>
+                <li>multi-GB files</li>
+                <li>LSP</li>
+                <li>Magit-style git review</li>
+                <li>fuzzy file finder</li>
+                <li>project-wide grep</li>
+                <li>SSH remote editing</li>
+                <li>Vim mode</li>
+                <li>open source</li>
+            </ul>
 
             <div class="download-section">
                 <div class="install-single">
@@ -1743,7 +1708,7 @@
             <li>Scaffold new packages with <code>--init</code></li>
             <li>Live-preview theme editor</li>
             <li>Built-in themes: Gruvbox, Dracula, Nord, Tokyo Night…</li>
-            <li>Rainbow brackets, vertical rulers, whitespace indicators</li>
+            <li>Vertical rulers, whitespace indicators</li>
             <li>Customizable status bar with <code>{clock}</code> element</li>
             <li>Internationalization (Japanese, Korean, Chinese, Vietnamese…)</li>
             <li>Many text encodings (UTF-16, GBK, Shift-JIS, Latin-1…)</li>
@@ -1865,106 +1830,6 @@
                 }
             });
         });
-
-        // Feature rotator: three items visible at once (old | current | next).
-        // Each tick appends a new item on the right and slides the track left
-        // by one slot (33.3333%). After the slide, the leftmost item is
-        // removed and the transform is reset so the track doesn't drift off
-        // forever. The mask on .feature-rotator fades the edges so "old"
-        // exits and "next" enters with a soft gradient.
-        (function featureRotator() {
-            const track = document.querySelector('.rotator-track');
-            if (!track) return;
-            const items = [
-                'multi-cursor',
-                'keyboard macros',
-                'multi-GB files',
-                'regex find/replace',
-                'fuzzy file finder',
-                'project-wide grep',
-                'Magit-style git review',
-                'LSP for many languages',
-                'SSH remote editing',
-                'detachable sessions',
-                'integrated terminal',
-                'Vim mode',
-                'TypeScript plugins',
-                'live-preview themes',
-                'code folding',
-                'split panes',
-                'git gutter & log',
-                'rainbow brackets',
-                'custom status bar',
-                'crash recovery',
-                'block selection',
-                'command palette',
-                'cross-platform',
-                'single static binary',
-                'open source'
-            ];
-            const reduceMotion = window.matchMedia &&
-                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-            function mkItem(text, isCurrent) {
-                const el = document.createElement('span');
-                el.className = 'rotator-item' + (isCurrent ? ' current' : '');
-                el.textContent = text;
-                return el;
-            }
-
-            // Start with 3 items: old, current, next.
-            let idx = 0;
-            track.appendChild(mkItem(items[idx++ % items.length], false));
-            track.appendChild(mkItem(items[idx++ % items.length], true));
-            track.appendChild(mkItem(items[idx++ % items.length], false));
-
-            function tick() {
-                // Append the next item on the right so the incoming slide
-                // has content to reveal.
-                const incoming = mkItem(items[idx++ % items.length], false);
-                track.appendChild(incoming);
-
-                // Role shift (class changes transition color/weight in sync
-                // with the translate):
-                //   kids[0] = leaving (removed after slide)
-                //   kids[1] = was current -> becomes old (.current drops)
-                //   kids[2] = was next    -> becomes current (.current adds)
-                //   kids[3] = incoming    -> stays unclassed (becomes next)
-                const kids = track.children;
-                kids[1].classList.remove('current');
-                kids[2].classList.add('current');
-
-                if (reduceMotion) {
-                    track.removeChild(track.firstElementChild);
-                    return;
-                }
-
-                // Retrigger the motion-blur animation — toggle the class
-                // after a reflow so it replays each tick.
-                track.classList.remove('sliding');
-                void track.offsetWidth;
-                track.classList.add('sliding');
-
-                // Slide the track one slot left — items fly in from the
-                // right pushing everything left.
-                track.style.transform = 'translateX(-33.3333%)';
-
-                const onEnd = (e) => {
-                    if (e && e.propertyName !== 'transform') return;
-                    track.removeEventListener('transitionend', onEnd);
-                    track.classList.remove('sliding');
-                    track.classList.add('no-anim');
-                    track.removeChild(track.firstElementChild);
-                    track.style.transform = 'translateX(0)';
-                    void track.offsetWidth;
-                    track.classList.remove('no-anim');
-                };
-                track.addEventListener('transitionend', onEnd);
-            }
-
-            // 450ms slide + ~1050ms pause so the center item is easy to read.
-            setInterval(tick, 1500);
-        })();
 
         // Fetch latest version from GitHub releases
         fetch('https://api.github.com/repos/sinelaw/fresh/releases/latest')
