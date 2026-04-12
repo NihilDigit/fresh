@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fresh - The Terminal IDE</title>
-    <meta name="description" content="Fresh is a terminal IDE written in Rust. One static binary, ~170ms cold start, LSP for 30+ languages, magit-style diff review, project-wide search, multi-GB files, SSH remote editing, and TypeScript plugins.">
+    <meta name="description" content="Fresh is a terminal IDE. One static binary, instant startup, broad LSP coverage, magit-style diff review, project-wide search, huge-file editing, SSH remote editing, and TypeScript plugins.">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='12' y='70' font-family='monospace' font-size='60' font-weight='bold' fill='%23222'%3E%3E_%3C/text%3E%3C/svg%3E">
     <style>
         :root {
@@ -1214,20 +1214,20 @@
 
             <div class="hero-stats">
                 <div class="hero-stat">
-                    <span class="hero-stat-value">~170ms</span>
+                    <span class="hero-stat-value">Instant</span>
                     <span class="hero-stat-label">Cold start</span>
                 </div>
                 <div class="hero-stat">
-                    <span class="hero-stat-value">Rust</span>
-                    <span class="hero-stat-label">One static binary</span>
+                    <span class="hero-stat-value">Single binary</span>
+                    <span class="hero-stat-label">No runtime, no deps</span>
                 </div>
                 <div class="hero-stat">
-                    <span class="hero-stat-value">30+</span>
-                    <span class="hero-stat-label">LSP languages</span>
+                    <span class="hero-stat-value">Broad LSP</span>
+                    <span class="hero-stat-label">Out of the box</span>
                 </div>
                 <div class="hero-stat">
-                    <span class="hero-stat-value">10GB+</span>
-                    <span class="hero-stat-label">Files, no sweat</span>
+                    <span class="hero-stat-value">Huge files</span>
+                    <span class="hero-stat-label">Multi-GB, no sweat</span>
                 </div>
                 <div class="hero-stat">
                     <span class="hero-stat-value">SSH</span>
@@ -1247,25 +1247,25 @@
 
             <div class="download-section">
                 <div class="install-triple">
-                    <div class="install-pill primary" data-install="cargo" onclick="copyInstallPill(this)">
-                        <span class="install-pill-os">cargo</span>
-                        <code>cargo install --locked fresh-editor</code>
+                    <div class="install-pill primary" data-install="linux" onclick="copyInstallPill(this)">
+                        <span class="install-pill-os">Linux</span>
+                        <code>curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh</code>
                         <span class="copied-popup">Copied!</span>
                     </div>
-                    <div class="install-pill" data-install="brew" onclick="copyInstallPill(this)">
-                        <span class="install-pill-os">brew</span>
+                    <div class="install-pill" data-install="mac" onclick="copyInstallPill(this)">
+                        <span class="install-pill-os">macOS</span>
                         <code>brew install sinelaw/fresh/fresh-editor</code>
                         <span class="copied-popup">Copied!</span>
                     </div>
-                    <div class="install-pill" data-install="winget" onclick="copyInstallPill(this)">
-                        <span class="install-pill-os">winget</span>
+                    <div class="install-pill" data-install="windows" onclick="copyInstallPill(this)">
+                        <span class="install-pill-os">Windows</span>
                         <code>winget install fresh-editor</code>
                         <span class="copied-popup">Copied!</span>
                     </div>
                 </div>
                 <div class="secondary-cta">
                     <span>Try without installing: <code>npx @fresh-editor/fresh-editor</code></span>
-                    <a href="#install">All install options →</a>
+                    <a href="#install">apt · AUR · cargo · more →</a>
                 </div>
             </div>
         </div>
@@ -1287,14 +1287,14 @@
     <section class="features" id="features">
         <div class="feature-section">
             <div class="feature-content">
-                <h2>170ms cold start. Multi-GB files. No JS on the hot path.</h2>
-                <p>Syntax grammars are pre-compiled at build time. Plugin I/O and transpilation run in parallel. Buffer diffs are native Rust (no JS round-trips on edit). Search is chunked and incremental; bracket matching is bounded; line-wrap, fold and highlight pipelines are viewport-aware.</p>
+                <h2>Instant startup. Huge files. No JS on the hot path.</h2>
+                <p>Syntax grammars are pre-compiled at build time. Plugin I/O and transpilation run in parallel. Buffer diffs are native (no JS round-trips on edit). Search is chunked and incremental; bracket matching is bounded; line-wrap, fold and highlight pipelines are viewport-aware.</p>
                 <ul class="feature-list">
-                    <li>~170ms cold start (down from ~350ms)</li>
+                    <li>Cold start in a blink</li>
                     <li>Multi-GB files with on-demand line indexing</li>
-                    <li>Project-wide search &amp; replace — up to 10,000 results, works on unsaved buffers</li>
-                    <li>PieceTree with O(edit-regions) structural diffs</li>
-                    <li>256-color WCAG-enforced contrast under tmux</li>
+                    <li>Project-wide search &amp; replace across unsaved buffers</li>
+                    <li>PieceTree with structural diffs — work scales with edits, not file size</li>
+                    <li>WCAG-enforced contrast even on 256-color terminals under tmux</li>
                 </ul>
             </div>
             <div class="feature-visual">
@@ -1330,7 +1330,7 @@
                 <h2>LSP that doesn't break on a monorepo.</h2>
                 <p>Run multiple LSP servers per language (pylsp + pyright, tsserver + eslint) with feature routing and merged completions. Servers spawn once per project, not once per language. Per-language workspace roots follow your <code style="color: var(--accent-green);">Cargo.toml</code>, <code style="color: var(--accent-green);">package.json</code>, or whatever marker you configure.</p>
                 <ul class="feature-list">
-                    <li>LSP configs shipped for 30+ languages (Nix, Haskell, OCaml, Elixir, Gleam, Nushell, Solidity, Vue, Svelte, Astro, Terraform, …)</li>
+                    <li>LSP configs shipped for a huge range of languages (Nix, Haskell, OCaml, Elixir, Gleam, Nushell, Solidity, Vue, Svelte, Astro, Terraform, …)</li>
                     <li>Goto / references / hover still work inside <code style="color: var(--accent-green);">node_modules</code>, <code style="color: var(--accent-green);">site-packages</code>, <code style="color: var(--accent-green);">.cargo</code></li>
                     <li>Code actions — workspace edits, file create/rename/delete</li>
                     <li>Format-on-save falls back to LSP formatter if no external one is configured</li>
@@ -1377,7 +1377,7 @@
         <div class="feature-section">
             <div class="feature-content">
                 <h2>Edit remote boxes like they're local.</h2>
-                <p>Open a file on any SSH host: <code style="color: var(--accent-green);">fresh user@host:path</code>. Filesystem ops never block the event loop, connections auto-reconnect in the background, and saves to large files ship only the patch — a 10MB file with a 100-byte edit moves ~200 bytes over the wire.</p>
+                <p>Open a file on any SSH host: <code style="color: var(--accent-green);">fresh user@host:path</code>. Filesystem ops never block the event loop, connections auto-reconnect in the background, and saves to large files ship only the patch — small edits to huge files move a tiny diff over the wire, not the whole file.</p>
                 <ul class="feature-list">
                     <li>Password &amp; key auth, sudo save</li>
                     <li>Remote file finder (Ctrl+P) and remote grep</li>
@@ -1423,7 +1423,7 @@
         <div class="feature-section">
             <div class="feature-content">
                 <h2>Rice it. Ship it. Translate it.</h2>
-                <p>Customize every side of the status bar with a visual DualList picker — drop in <code style="color: var(--accent-green);">{clock}</code>, git branch, LSP status. Live-preview themes with a built-in editor. Whitespace indicators and rainbow brackets ship out of the box. Interface translated into 11+ languages including Japanese, Korean, Chinese, Vietnamese.</p>
+                <p>Customize every side of the status bar with a visual DualList picker — drop in <code style="color: var(--accent-green);">{clock}</code>, git branch, LSP status. Live-preview themes with a built-in editor. Whitespace indicators and rainbow brackets ship out of the box. Interface translated into many languages including Japanese, Korean, Chinese, Vietnamese.</p>
                 <ul class="feature-list">
                     <li>Configurable status bar with reorderable elements &amp; <code style="color: var(--accent-green);">{clock}</code></li>
                     <li>Live theme editor with "Inspect Theme at Cursor" (Ctrl+Right-Click)</li>
@@ -1467,21 +1467,44 @@
             <h2>Installation <a href="https://github.com/sinelaw/fresh?tab=readme-ov-file#installation" target="_blank" style="font-size: 0.6em; font-weight: 400; text-decoration: underline; text-underline-offset: 4px;">even more options →</a></h2>
             <div class="install-grid">
                 <div class="install-card">
-                    <h3>Cargo (any platform)</h3>
+                    <h3>Linux / macOS (quick install)</h3>
                     <div class="copyable">
-                        <code id="cmd-cargo">cargo install --locked fresh-editor</code>
-                        <button class="copy-btn" onclick="copyCode('cmd-cargo', this)">
+                        <code id="cmd-curl">curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh</code>
+                        <button class="copy-btn" onclick="copyCode('cmd-curl', this)">
                             <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
-                    <p class="install-card-note">Builds from source with your Rust toolchain.</p>
+                    <p class="install-card-note">One-line install. No toolchain required.</p>
                 </div>
 
                 <div class="install-card">
                     <h3>macOS (Homebrew)</h3>
                     <div class="copyable">
-                        <code id="cmd-brew">brew tap sinelaw/fresh && brew install fresh-editor</code>
+                        <code id="cmd-brew">brew install sinelaw/fresh/fresh-editor</code>
                         <button class="copy-btn" onclick="copyCode('cmd-brew', this)">
+                            <img src="public/copy-icon.svg" alt="Copy">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>Windows (winget)</h3>
+                    <div class="copyable">
+                        <code id="cmd-winget">winget install fresh-editor</code>
+                        <button class="copy-btn" onclick="copyCode('cmd-winget', this)">
+                            <img src="public/copy-icon.svg" alt="Copy">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="install-card">
+                    <h3>Debian / Ubuntu</h3>
+                    <p class="install-card-note" style="margin-top: 0;">
+                        <a href="https://github.com/sinelaw/fresh/releases" target="_blank">Grab the <code style="color: var(--accent-green); font-size: 0.85rem;">.deb</code> from Releases</a>, then:
+                    </p>
+                    <div class="copyable">
+                        <code id="cmd-deb">sudo dpkg -i fresh-editor_*.deb</code>
+                        <button class="copy-btn" onclick="copyCode('cmd-deb', this)">
                             <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
@@ -1501,47 +1524,35 @@
                 </div>
 
                 <div class="install-card">
-                    <h3>npm / npx (try it fast)</h3>
+                    <h3>npm / npx (no install)</h3>
                     <div class="copyable">
-                        <code id="cmd-npm">npm install -g @fresh-editor/fresh-editor</code>
-                        <button class="copy-btn" onclick="copyCode('cmd-npm', this)">
+                        <code id="cmd-npx">npx @fresh-editor/fresh-editor</code>
+                        <button class="copy-btn" onclick="copyCode('cmd-npx', this)">
                             <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                     <p class="install-card-note">
-                        One-shot: <code style="color: var(--accent-green); font-size: 0.85rem;">npx @fresh-editor/fresh-editor</code>
+                        Or global: <code style="color: var(--accent-green); font-size: 0.85rem;">npm install -g @fresh-editor/fresh-editor</code>
                     </p>
-                </div>
-
-                <div class="install-card">
-                    <h3>Debian / Ubuntu</h3>
-                    <p class="install-card-note">
-                        <a href="https://github.com/sinelaw/fresh/releases" target="_blank">Download .deb from releases</a>
-                    </p>
-                    <div class="copyable">
-                        <code id="cmd-deb">sudo dpkg -i fresh-editor_*.deb</code>
-                        <button class="copy-btn" onclick="copyCode('cmd-deb', this)">
-                            <img src="public/copy-icon.svg" alt="Copy">
-                        </button>
-                    </div>
-                </div>
-
-                <div class="install-card">
-                    <h3>Windows (winget)</h3>
-                    <div class="copyable">
-                        <code id="cmd-winget">winget install fresh-editor</code>
-                        <button class="copy-btn" onclick="copyCode('cmd-winget', this)">
-                            <img src="public/copy-icon.svg" alt="Copy">
-                        </button>
-                    </div>
                 </div>
 
                 <div class="install-card">
                     <h3>Pre-built Binaries</h3>
                     <p class="install-card-note" style="margin-top: 0;">
-                        Download pre-built binaries for Linux, macOS, and Windows from
-                        <a href="https://github.com/sinelaw/fresh/releases" target="_blank">GitHub Releases</a>
+                        Linux, macOS, Windows, FreeBSD binaries on
+                        <a href="https://github.com/sinelaw/fresh/releases" target="_blank">GitHub Releases</a>. Drop anywhere on <code style="color: var(--accent-green); font-size: 0.85rem;">$PATH</code>.
                     </p>
+                </div>
+
+                <div class="install-card">
+                    <h3>From source (Cargo)</h3>
+                    <div class="copyable">
+                        <code id="cmd-cargo">cargo install --locked fresh-editor</code>
+                        <button class="copy-btn" onclick="copyCode('cmd-cargo', this)">
+                            <img src="public/copy-icon.svg" alt="Copy">
+                        </button>
+                    </div>
+                    <p class="install-card-note">If you already have a Rust toolchain.</p>
                 </div>
             </div>
         </div>
@@ -1553,7 +1564,7 @@
         <div class="features-grid">
             <div class="feature-card">
                 <h3>Project-Wide Search</h3>
-                <p>Search &amp; replace across the whole project — up to 10,000 results, across unsaved buffers and multi-GB files. Live grep via ripgrep integration. Alt+Enter replaces project-wide.</p>
+                <p>Search &amp; replace across the whole project, including unsaved buffers and multi-GB files. Live grep via ripgrep integration. Alt+Enter replaces project-wide.</p>
             </div>
             <div class="feature-card">
                 <h3>Review Diff</h3>
@@ -1565,7 +1576,7 @@
             </div>
             <div class="feature-card">
                 <h3>LSP Everywhere</h3>
-                <p>Configs shipped for Nix, Haskell, OCaml, Elixir, Gleam, Nushell, Solidity, Vue, Svelte, Astro, Terraform, Bash, Lua, Ruby, PHP, YAML, TOML, Typst, and 30+ more.</p>
+                <p>Configs shipped for Nix, Haskell, OCaml, Elixir, Gleam, Nushell, Solidity, Vue, Svelte, Astro, Terraform, Bash, Lua, Ruby, PHP, YAML, TOML, Typst, and many more.</p>
             </div>
             <div class="feature-card">
                 <h3>LSP in Library Files</h3>
@@ -1589,7 +1600,7 @@
             </div>
             <div class="feature-card">
                 <h3>SSH Remote Editing</h3>
-                <p>Open remote files with <code style="color: var(--accent-green);">fresh user@host:path</code>. Auto-reconnecting. Recipe-based patched saves — a 10MB file with a 100-byte edit moves ~200 bytes.</p>
+                <p>Open remote files with <code style="color: var(--accent-green);">fresh user@host:path</code>. Auto-reconnecting. Recipe-based patched saves — small edits to huge files move a tiny diff, not the whole file.</p>
             </div>
             <div class="feature-card">
                 <h3>Code Folding</h3>
@@ -1632,7 +1643,7 @@
                 <p>Browse, install, uninstall Plugins / Themes / Languages / Bundles from the official registry. Local-path installs. Scaffold new packages with <code style="color: var(--accent-green);">--init</code>.</p>
             </div>
             <div class="feature-card">
-                <h3>i18n (11+ Languages)</h3>
+                <h3>Internationalization</h3>
                 <p>Interface translations for Japanese, Korean, Simplified &amp; Traditional Chinese, Vietnamese, and more. CJK-safe rendering. Plugin translations supported.</p>
             </div>
             <div class="feature-card">
@@ -1714,21 +1725,25 @@
         function detectOS() {
             const platform = navigator.platform.toLowerCase();
             const userAgent = navigator.userAgent.toLowerCase();
-            if (platform.includes('win')) return 'winget';
-            if (platform.includes('mac') || userAgent.includes('mac')) return 'brew';
-            return 'cargo';
+            if (platform.includes('win')) return 'windows';
+            if (platform.includes('mac') || userAgent.includes('mac')) return 'mac';
+            return 'linux';
         }
 
-        // Highlight the install pill that matches the visitor's OS.
-        // Cargo stays the default primary since it works everywhere and
-        // matches the Rust/terminal audience expectation.
+        // Highlight the install pill matching the visitor's OS, and
+        // reorder so it appears first. Linux is the static default
+        // (curl | sh is a no-prereq one-liner), so most visitors see
+        // the right thing even before JS runs.
         (function highlightDetectedOS() {
             const detected = detectOS();
             const pills = document.querySelectorAll('.install-pill');
-            if (detected === 'cargo') return; // already primary
             pills.forEach(p => {
                 if (p.dataset.install === detected) {
                     p.classList.add('primary');
+                    p.style.order = '-1';
+                } else {
+                    p.classList.remove('primary');
+                    p.style.order = '';
                 }
             });
         })();
