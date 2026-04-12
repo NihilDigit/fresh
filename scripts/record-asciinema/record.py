@@ -60,64 +60,82 @@ TIMELINE = []
 TIMELINE += [(2.2, b"")]
 
 # 1. Scroll the file a little so the audience sees more than the opening frame.
-for _ in range(2):
-    TIMELINE += [(0.55, PGDN)]
-TIMELINE += [(0.6, PGUP), (0.6, PGUP)]
+TIMELINE += [(0.55, PGDN), (0.55, PGDN), (0.6, PGUP), (0.6, PGUP)]
 
-# 2. Open command palette, skim through commands so the viewer sees how
-#    much ships in the palette.
-TIMELINE += [(0.7, CTRL("P")), (1.0, b"")]
+# 2. File explorer: Ctrl+B to open, type-to-filter, Escape to clear,
+#    Up/Down to navigate, Ctrl+B to hide.
+TIMELINE += [(0.7, CTRL("B")), (1.0, b"")]
+TIMELINE += type_text("main")                    # filter-by-typing
+TIMELINE += [(1.2, b""), (0.3, ESC), (0.6, b"")]  # clear filter
+TIMELINE += [(0.3, DOWN), (0.3, DOWN), (0.3, UP), (0.8, b"")]
+TIMELINE += [(0.5, CTRL("B")), (0.6, b"")]        # hide explorer
+
+# 3. Command palette skim — shows how much ships in the palette.
+TIMELINE += [(0.6, CTRL("P")), (1.0, b"")]
 TIMELINE += [(0.14, DOWN)] * 6
-TIMELINE += [(0.7, b"")]
-TIMELINE += [(0.14, UP)] * 4
 TIMELINE += [(0.6, b"")]
+TIMELINE += [(0.14, UP)] * 4
+TIMELINE += [(0.5, b"")]
 
-# 3. Live-preview theme picker — one of the more visually striking features.
+# 4. Live-preview theme picker — visually striking.
 TIMELINE += type_text("select theme")
-TIMELINE += [(0.6, b""), (0.5, CR), (1.0, b"")]
-# Each Down cycles to a theme and applies it immediately.
+TIMELINE += [(0.5, b""), (0.4, CR), (1.0, b"")]
 TIMELINE += [(0.55, DOWN)] * 5
-TIMELINE += [(0.8, b"")]
+TIMELINE += [(0.6, b"")]
 TIMELINE += [(0.3, UP)] * 3
-TIMELINE += [(0.6, b""), (0.4, CR), (1.0, b"")]
+TIMELINE += [(0.5, b""), (0.4, CR), (0.8, b"")]
 
-# 4. Fuzzy file finder: backspace past the default `>` prefix, type, open.
+# 5. Quick Open: Ctrl+P, Backspace to drop the `>` prefix, fuzzy-match.
 TIMELINE += [(0.6, CTRL("P")), (0.4, b""), (0.15, BS)]
 TIMELINE += type_text("not")
-TIMELINE += [(0.7, b""), (0.3, CR), (1.0, b"")]
+TIMELINE += [(0.6, b""), (0.3, CR), (1.0, b"")]
 
-# 5. Buffer switcher (# prefix) back to main.rs.
+# 6. Buffer switcher (# prefix) back to main.rs.
 TIMELINE += [(0.5, CTRL("P")), (0.3, b""), (0.15, BS)]
 TIMELINE += type_text("#main")
-TIMELINE += [(0.5, b""), (0.3, CR), (0.9, b"")]
+TIMELINE += [(0.4, b""), (0.3, CR), (0.8, b"")]
 
-# 6. Multi-cursor demo: jump to line, select a word, Ctrl+D a few times.
+# 7. Multi-cursor: jump to line, select word, Ctrl+D ×3.
 TIMELINE += [(0.4, CTRL("G")), (0.3, b"")]
 TIMELINE += type_text("7")
-TIMELINE += [(0.2, CR), (0.5, b""), (0.3, HOME), (0.3, CS_RIGHT), (0.6, b"")]
+TIMELINE += [(0.2, CR), (0.4, b""), (0.3, HOME), (0.3, CS_RIGHT), (0.5, b"")]
 TIMELINE += [(0.55, CTRL("D"))] * 3
-TIMELINE += [(1.0, b""), (0.5, ESC), (0.5, b"")]
+TIMELINE += [(0.9, b""), (0.4, ESC), (0.4, b"")]
 
-# 7. Live Grep — split preview is eye-catching.
+# 8. Live Grep with split preview.
 TIMELINE += [(0.5, CTRL("P")), (0.3, b"")]
 TIMELINE += type_text("live grep")
-TIMELINE += [(0.6, b""), (0.4, CR), (1.0, b"")]
+TIMELINE += [(0.5, b""), (0.4, CR), (0.9, b"")]
 TIMELINE += type_text("User", per_char=0.1)
-TIMELINE += [(1.8, b"")]
+TIMELINE += [(1.6, b"")]
 TIMELINE += [(0.35, DOWN)] * 4
-TIMELINE += [(0.8, b""), (0.4, ESC), (0.5, b"")]
+TIMELINE += [(0.6, b""), (0.4, ESC), (0.5, b"")]
 
-# 8. Magit-style Review Diff.
+# 9. Embedded terminal: open via palette, run a command.
+TIMELINE += [(0.5, CTRL("P")), (0.3, b"")]
+TIMELINE += type_text("open terminal")
+TIMELINE += [(0.5, b""), (0.3, CR), (1.2, b"")]
+TIMELINE += type_text("ls -la", per_char=0.08)
+TIMELINE += [(0.3, CR), (1.2, b"")]
+
+# 10. Close the terminal via the File menu: Alt+F, Down×6, Enter.
+#     Escape first to exit terminal keyboard-capture mode.
+TIMELINE += [(0.4, ESC), (0.4, b"")]
+TIMELINE += [(0.4, ESC + b"f"), (0.8, b"")]       # Alt+F
+TIMELINE += [(0.18, DOWN)] * 6                    # New File → Open File → Save → Save As → Revert → Reload → Close Buffer
+TIMELINE += [(0.6, b""), (0.3, CR), (1.0, b"")]
+
+# 11. Magit-style Review Diff.
 TIMELINE += [(0.5, CTRL("P")), (0.3, b"")]
 TIMELINE += type_text("review diff")
-TIMELINE += [(0.6, b""), (0.4, CR), (2.0, b"")]
-TIMELINE += [(0.5, TAB), (0.6, b"")]              # switch to diff panel
-TIMELINE += [(0.6, b"n"), (0.6, b"n"), (0.8, b"p"), (0.8, b"")]
-TIMELINE += [(0.7, b"s"), (1.4, b"")]              # stage a hunk
-TIMELINE += [(0.6, b"q"), (0.8, b"")]              # close review
+TIMELINE += [(0.5, b""), (0.4, CR), (1.8, b"")]
+TIMELINE += [(0.5, TAB), (0.6, b"")]
+TIMELINE += [(0.55, b"n"), (0.55, b"n"), (0.7, b"p"), (0.7, b"")]
+TIMELINE += [(0.6, b"s"), (1.3, b"")]             # stage a hunk
+TIMELINE += [(0.5, b"q"), (0.7, b"")]
 
-# 9. Calm final beat.
-TIMELINE += [(1.2, b"")]
+# 12. Calm final beat.
+TIMELINE += [(1.0, b"")]
 
 
 def find_fresh_binary():
