@@ -330,6 +330,17 @@
             text-decoration-color: var(--accent-green);
         }
 
+        /* Show only the first six benefit-led pills (Intuitive keys,
+           Fast & light, Edit multi-GB files instantly, Themes,
+           Extensible with TypeScript, Full mouse support) plus the
+           trailing "and more!" link. The rest live in the Full
+           feature list at the bottom of the page, reachable via the
+           "and more!" anchor. Keeps the hero to one row on desktop
+           and a couple rows on mobile. */
+        .feature-pills li:nth-child(n+7):not(.feature-pill-more) {
+            display: none;
+        }
+
         @media (prefers-reduced-motion: reduce) {
             .rotator-track {
                 transition: none !important;
