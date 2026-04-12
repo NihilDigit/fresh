@@ -251,32 +251,69 @@
         }
 
         /* Hero stats strip */
-        /* Hero feature list — single flowing line of items with
-           subtle "> " bullets. No cells, no boxes. */
-        .hero-list {
-            list-style: none;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 4px 18px;
-            margin: 0 auto 32px;
-            max-width: 880px;
-            padding: 0;
+        /* Loud hero claim */
+        .hero-claim {
+            font-size: clamp(1.25rem, 3vw, 1.75rem);
+            color: var(--text-light);
+            font-weight: 600;
+            margin: 0 auto 8px;
+            max-width: 780px;
+            line-height: 1.35;
+            letter-spacing: -0.01em;
+        }
+
+        .hero-claim-sub {
+            display: inline-block;
+            margin-top: 6px;
             color: var(--text-muted);
-            font-size: 0.92rem;
-            line-height: 1.8;
+            font-size: 0.85em;
+            font-weight: 400;
         }
 
-        .hero-list li {
-            display: inline-flex;
-            align-items: baseline;
-            gap: 6px;
+        /* Rotator line: "Includes <animated-feature>" */
+        .hero-rotator-line {
+            color: var(--text-muted);
+            font-size: 1rem;
+            margin: 0 auto 28px;
         }
 
-        .hero-list li::before {
-            content: '>';
+        .feature-rotator {
+            display: inline-block;
+            min-width: 16ch;
+            text-align: left;
             color: var(--accent-green);
             font-weight: 700;
+            /* Motion-blur swap animation. */
+            transition:
+                opacity 0.18s ease-out,
+                filter 0.18s ease-out,
+                transform 0.18s ease-out;
+            will-change: filter, transform, opacity;
+        }
+
+        .feature-rotator.rotator-out {
+            opacity: 0;
+            filter: blur(12px);
+            transform: translateX(22px);
+        }
+
+        .feature-rotator.rotator-in {
+            opacity: 0;
+            filter: blur(12px);
+            transform: translateX(-22px);
+        }
+
+        /* Honor reduced-motion preferences. */
+        @media (prefers-reduced-motion: reduce) {
+            .feature-rotator {
+                transition: none !important;
+            }
+            .feature-rotator.rotator-out,
+            .feature-rotator.rotator-in {
+                opacity: 1;
+                filter: none;
+                transform: none;
+            }
         }
 
         /* Single install pill with OS tabs */
@@ -870,6 +907,104 @@
             color: var(--accent-green);
         }
 
+        /* Why Fresh — short positioning strip */
+        .why-fresh {
+            padding: 60px 24px;
+            background: var(--bg-darker);
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .why-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .why-fresh h2 {
+            text-align: center;
+            font-size: 1.6rem;
+            margin-bottom: 28px;
+            color: var(--text-light);
+        }
+
+        .why-list {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .why-list li {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.7;
+            padding-left: 14px;
+            border-left: 2px solid var(--accent-green);
+        }
+
+        .why-list strong {
+            color: var(--text-light);
+            font-weight: 600;
+        }
+
+        .why-list code {
+            color: var(--accent-green);
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .why-list {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+        }
+
+        /* Full feature list — dense, comma-separated vibe,
+           no cards, no boxes. */
+        .feature-list-section {
+            padding: 60px 24px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .feature-list-section h2 {
+            text-align: center;
+            font-size: 1.6rem;
+            margin-bottom: 24px;
+            color: var(--text-light);
+        }
+
+        .full-feature-list {
+            list-style: none;
+            padding: 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px 18px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+
+        .full-feature-list li {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .full-feature-list li::before {
+            content: '>';
+            color: var(--accent-green);
+            font-weight: 700;
+        }
+
+        .full-feature-list code {
+            color: var(--accent-green);
+            font-size: 0.95em;
+            white-space: nowrap;
+        }
+
         /* All Features Grid */
         .all-features {
             padding: 80px 24px;
@@ -1129,11 +1264,15 @@
                 font-size: 0.8rem;
             }
 
-            .hero-list {
-                font-size: 0.85rem;
-                gap: 4px 14px;
-                text-align: left;
-                padding: 0 4px;
+            .hero-claim {
+                padding: 0 8px;
+            }
+            .hero-rotator-line {
+                font-size: 0.9rem;
+                padding: 0 8px;
+            }
+            .feature-rotator {
+                min-width: 12ch;
             }
         }
 
@@ -1205,28 +1344,11 @@
     <section class="hero">
         <div class="hero-content">
             <h1>Fresh</h1>
-            <p class="hero-tagline">A terminal editor with IDE features, git review, and remote editing built in.</p>
+            <p class="hero-claim">An intuitive terminal editor with IDE features.<br><span class="hero-claim-sub">LSP, git review, fuzzy finder and live grep — included, no plugins required.</span></p>
 
-            <ul class="hero-list">
-                <li>Multi-GB file support</li>
-                <li>Intuitive out of the box</li>
-                <li>No config file fiddling</li>
-                <li>Standard keybindings (Ctrl+S, Ctrl+Z, Ctrl+F)</li>
-                <li>Full mouse support</li>
-                <li>Magit-style git diff review</li>
-                <li>Fuzzy file finder</li>
-                <li>Project-wide grep</li>
-                <li>Multi-cursor &amp; block selection</li>
-                <li>LSP for many languages</li>
-                <li>SSH remote editing</li>
-                <li>Detachable sessions</li>
-                <li>Integrated terminal</li>
-                <li>Vim mode</li>
-                <li>TypeScript plugins</li>
-                <li>Live-preview themes</li>
-                <li>Single binary, no runtime</li>
-                <li>Linux, macOS, Windows</li>
-            </ul>
+            <p class="hero-rotator-line">
+                Includes <span class="feature-rotator" aria-live="polite" aria-atomic="true">multi-cursor</span>
+            </p>
 
             <div class="download-section">
                 <div class="install-single">
@@ -1262,6 +1384,18 @@
                 </div>
                 <div class="screenshot-glow"></div>
             </div>
+        </div>
+    </section>
+
+    <!-- How it differs -->
+    <section class="why-fresh">
+        <div class="why-container">
+            <h2>Why Fresh</h2>
+            <ul class="why-list">
+                <li><strong>Ships with IDE power.</strong> LSP, git review, fuzzy finder, live grep, multi-cursor, sessions, SSH remote — all built in. No plugin manager, no init.lua, no elisp.</li>
+                <li><strong>Intuitive by default.</strong> Standard keybindings (Ctrl+S, Ctrl+Z, Ctrl+F), menus, and a command palette. Vim mode is there when you want it.</li>
+                <li><strong>Zero config to start.</strong> Open a file and go. A Settings UI and <code>config.json</code> are there when you need to tweak.</li>
+            </ul>
         </div>
     </section>
 
@@ -1566,6 +1700,54 @@
         </div>
     </section>
 
+    <!-- Full feature list -->
+    <section class="feature-list-section">
+        <h2>Full feature list</h2>
+        <ul class="full-feature-list">
+            <li>Multi-GB file support</li>
+            <li>Intuitive out of the box</li>
+            <li>No config file fiddling required</li>
+            <li>Standard keybindings (Ctrl+S, Ctrl+Z, Ctrl+F)</li>
+            <li>Full mouse support</li>
+            <li>Menu bar and command palette</li>
+            <li>Fuzzy file finder (Ctrl+P)</li>
+            <li>Project-wide grep (live, via ripgrep)</li>
+            <li>Project-wide search &amp; replace</li>
+            <li>File explorer with git status</li>
+            <li>Tabs, split panes, side-by-side diff</li>
+            <li>Multi-cursor &amp; block selection</li>
+            <li>Keyboard macros</li>
+            <li>Regex find &amp; replace with capture groups</li>
+            <li>Smart home, smart backspace dedent, surround</li>
+            <li>Code folding (LSP + indent-based)</li>
+            <li>Magit-style git diff review</li>
+            <li>Git gutter, git log viewer, git grep</li>
+            <li>LSP configs shipped for many languages</li>
+            <li>Multi-LSP per language</li>
+            <li>Goto / hover / references in library paths</li>
+            <li>Code actions with workspace edits</li>
+            <li>Format-on-save</li>
+            <li>SSH remote editing</li>
+            <li>Detachable sessions (<code>fresh -a</code>)</li>
+            <li><code>--wait</code> for <code>git core.editor</code> / <code>$EDITOR</code></li>
+            <li>Hot Exit with crash recovery</li>
+            <li>Integrated terminal (mouse forwarding, scrollback)</li>
+            <li>Vim mode</li>
+            <li>TypeScript plugins (QuickJS + OXC)</li>
+            <li>Package manager for plugins, themes, languages</li>
+            <li>Live-preview theme editor</li>
+            <li>Built-in themes: Gruvbox, Dracula, Nord, Tokyo Night…</li>
+            <li>Rainbow brackets, vertical rulers, whitespace indicators</li>
+            <li>Customizable status bar with <code>{clock}</code> element</li>
+            <li>Internationalization (Japanese, Korean, Chinese, Vietnamese…)</li>
+            <li>Many text encodings (UTF-16, GBK, Shift-JIS, Latin-1…)</li>
+            <li>Settings UI with deep search</li>
+            <li>Keybinding editor with conflict detection</li>
+            <li>Single static binary, no runtime</li>
+            <li>Linux, macOS, Windows, FreeBSD</li>
+        </ul>
+    </section>
+
     <!-- Testimonials -->
     <section class="testimonials">
         <h2>User feedback</h2>
@@ -1674,6 +1856,47 @@
                 }
             });
         });
+
+        // Feature rotator: swap in/out with a motion-blur animation.
+        (function featureRotator() {
+            const el = document.querySelector('.feature-rotator');
+            if (!el) return;
+            const items = [
+                'multi-cursor',
+                'fuzzy file finder',
+                'project-wide grep',
+                'Magit-style diff review',
+                'LSP for many languages',
+                'SSH remote editing',
+                'live-preview themes',
+                'integrated terminal',
+                'detachable sessions',
+                'Vim mode',
+                'TypeScript plugins',
+                'multi-GB file support'
+            ];
+            const reduceMotion = window.matchMedia &&
+                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            let idx = 0;
+            function tick() {
+                if (reduceMotion) {
+                    idx = (idx + 1) % items.length;
+                    el.textContent = items[idx];
+                    return;
+                }
+                el.classList.add('rotator-out');
+                setTimeout(() => {
+                    idx = (idx + 1) % items.length;
+                    el.textContent = items[idx];
+                    el.classList.remove('rotator-out');
+                    el.classList.add('rotator-in');
+                    // Force reflow so the transition restarts, then drop class.
+                    void el.offsetWidth;
+                    el.classList.remove('rotator-in');
+                }, 200);
+            }
+            setInterval(tick, 1400);
+        })();
 
         // Fetch latest version from GitHub releases
         fetch('https://api.github.com/repos/sinelaw/fresh/releases/latest')
