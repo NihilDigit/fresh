@@ -437,27 +437,40 @@
             opacity: 1;
         }
 
-        .secondary-cta {
+        /* Install pill + "More installation methods" sit on one row so
+           the curl command and the alternate-install link stay visually
+           connected. The pill can shrink, the link stays at its natural
+           width; on narrow screens the link wraps below. */
+        .install-row {
             display: flex;
-            flex-wrap: wrap;
+            align-items: center;
             justify-content: center;
-            gap: 16px 28px;
-            margin-top: 16px;
-            font-size: 0.9rem;
-            color: var(--text-muted);
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
-        .secondary-cta a {
+        .install-row .install-pill {
+            /* min-width: 0 lets the flex child shrink below its intrinsic
+               content width so text-overflow: ellipsis in the <code>
+               actually kicks in. */
+            flex: 1 1 0;
+            min-width: 0;
+            max-width: 520px;
+        }
+
+        .install-more-link {
             color: var(--accent-green);
+            font-size: 0.85rem;
+            white-space: nowrap;
+            text-decoration: underline;
+            text-decoration-color: rgba(16, 185, 129, 0.35);
+            text-underline-offset: 3px;
+            flex-shrink: 0;
         }
 
-        .secondary-cta code {
+        .install-more-link:hover {
             color: var(--text-light);
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.85rem;
+            text-decoration-color: var(--accent-green);
         }
 
         /* Download Buttons */
@@ -1353,17 +1366,16 @@
                         <button type="button" class="install-tab" data-os="mac" onclick="selectInstallOS('mac')">macOS</button>
                         <button type="button" class="install-tab" data-os="windows" onclick="selectInstallOS('windows')">Windows</button>
                     </div>
-                    <div class="install-pill primary" id="install-pill" onclick="copyInstallPill(this)">
-                        <code id="install-cmd">curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh</code>
-                        <button class="copy-btn" onclick="event.stopPropagation(); copyInstallPill(document.getElementById('install-pill'))" aria-label="Copy install command">
-                            <img src="public/copy-icon.svg" alt="">
-                        </button>
-                        <span class="copied-popup">Copied</span>
+                    <div class="install-row">
+                        <div class="install-pill primary" id="install-pill" onclick="copyInstallPill(this)">
+                            <code id="install-cmd">curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh</code>
+                            <button class="copy-btn" onclick="event.stopPropagation(); copyInstallPill(document.getElementById('install-pill'))" aria-label="Copy install command">
+                                <img src="public/copy-icon.svg" alt="">
+                            </button>
+                            <span class="copied-popup">Copied</span>
+                        </div>
+                        <a href="#install" class="install-more-link">More options…</a>
                     </div>
-                </div>
-                <div class="secondary-cta">
-                    <span>No install: <code>npx @fresh-editor/fresh-editor</code></span>
-                    <a href="#install">apt · AUR · cargo · more →</a>
                 </div>
             </div>
         </div>
@@ -1387,12 +1399,14 @@
     <section class="features" id="features">
         <div class="feature-section">
             <div class="feature-content">
-                <h2>Performance</h2>
-                <p>Pre-compiled grammars, parallel plugin loading, a PieceTree buffer, and chunked, viewport-aware search, folding and highlighting.</p>
+                <h2>Fast &amp; light</h2>
+                <p>Instant startup. Text appears as you type. Small memory footprint. Stays responsive on multi-GB files and remote editing over SSH.</p>
                 <ul class="feature-list">
-                    <li>On-demand line indexing for multi-GB files</li>
-                    <li>Project-wide search &amp; replace across unsaved buffers</li>
-                    <li>Contrast-adjusted rendering on 256-color terminals</li>
+                    <li>Instant startup, low-latency input</li>
+                    <li>Low memory footprint</li>
+                    <li>Multi-GB files open without blocking the UI</li>
+                    <li>SSH remote editing transfers only the diff — small edits to huge remote files stay snappy</li>
+                    <li>Project-wide search &amp; replace, even across unsaved buffers</li>
                 </ul>
             </div>
             <div class="feature-visual">
