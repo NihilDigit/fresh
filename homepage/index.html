@@ -757,16 +757,24 @@
 
         .feature-list li {
             color: var(--text-muted);
-            padding: 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            padding: 8px 0 8px 22px;
+            position: relative;
+            line-height: 1.65;
         }
 
+        /* The "> " marker is absolutely positioned so that inline
+           children of the <li> (text, <code> spans, punctuation) can
+           flow naturally. When display: flex was here, every inline
+           child became a flex item and text wrapped one-word-per-line
+           at the container boundary. */
         .feature-list li::before {
             content: '>';
             color: var(--accent-green);
             font-weight: bold;
+            position: absolute;
+            left: 0;
+            top: 8px;
+            line-height: 1.65;
         }
 
         .feature-visual {
@@ -980,15 +988,17 @@
         }
 
         .full-feature-list li {
-            display: inline-flex;
-            align-items: baseline;
-            gap: 6px;
+            position: relative;
+            padding-left: 16px;
         }
 
         .full-feature-list li::before {
             content: '>';
             color: var(--accent-green);
             font-weight: 700;
+            position: absolute;
+            left: 0;
+            top: 0;
         }
 
         .full-feature-list code {
@@ -1359,7 +1369,7 @@
                 <h2>Language Server Protocol</h2>
                 <p>Run multiple LSP servers per language (for example pylsp + pyright) with feature routing and merged completions. Per-project workspace roots detected from configurable markers like <code style="color: var(--accent-green);">Cargo.toml</code> or <code style="color: var(--accent-green);">package.json</code>.</p>
                 <ul class="feature-list">
-                    <li>Configs shipped for Nix, Haskell, OCaml, Elixir, Gleam, Nushell, Solidity, Vue, Svelte, Astro, Terraform and more</li>
+                    <li>Configs shipped for Python, TypeScript, Rust, Go, Java, C/C++, Ruby, PHP, Bash, Vue, Svelte, Terraform, Haskell, OCaml, Elixir and many more</li>
                     <li>Goto, references and hover in library paths (<code style="color: var(--accent-green);">node_modules</code>, <code style="color: var(--accent-green);">site-packages</code>, <code style="color: var(--accent-green);">.cargo</code>)</li>
                     <li>Code actions with workspace edits</li>
                 </ul>
