@@ -13,23 +13,31 @@ on the eval host and are preserved by test number (`01_launch.txt` etc.).
 
 ## 1. Executive Summary
 
-**Overall usability score: 5 / 10 (Usable with Friction).**
+**Overall usability score: 6 / 10 (Usable with Friction).**
 
 Review Diff is functional for a simple one-file, one-hunk change but degrades
 quickly as complexity grows. The feature has visible signs of recent bug-fix
 work -- BUG-5 (deleted-file drill-down hang) from the prior combined report is
-now fixed, and resize corruption (BUG-2) is recoverable via `r`. However, three
+now fixed, and resize corruption (BUG-2) is recoverable via `r`. Two
 roadblocks remain that any real code-reviewer will hit inside the first minute:
 
 | # | Roadblock | Heuristic Violated | Severity |
 |---|-----------|--------------------|----------|
-| RB-1 | `Ctrl+C` **terminates the editor process** (no SIGINT handler) -- any muscle-memory user attempting to "cancel" inside Review Diff loses their whole session. | User Control & Freedom | **Critical** |
-| RB-2 | `n`/`p` (next/prev hunk) are **undiscoverable** on first open: File Explorer has focus, toolbar hides the shortcuts, and the keys silently do nothing. User must guess `Tab`. | Visibility of System Status + Flexibility & Efficiency | **High** |
-| RB-3 | **No "Hunk X of N" indicator, no line numbers in unified diff, and hunk headers strip line-range counts** (`@@ -1 +1 @@` instead of `@@ -1,8 +1,9 @@`). In a 10-hunk file the user loses track of location. | Visibility of System Status + Consistency & Standards | **High** |
+| RB-1 | `n`/`p` (next/prev hunk) are **undiscoverable** on first open: File Explorer has focus, toolbar hides the shortcuts, and the keys silently do nothing. User must guess `Tab`. | Visibility of System Status + Flexibility & Efficiency | **High** |
+| RB-2 | **No "Hunk X of N" indicator, no line numbers in unified diff, and hunk headers strip line-range counts** (`@@ -1 +1 @@` instead of `@@ -1,8 +1,9 @@`). In a 10-hunk file the user loses track of location. | Visibility of System Status + Consistency & Standards | **High** |
 
 Secondary annoyances -- whitespace-only diffs rendered as invisible
 add/delete pairs, cryptic side-by-side toolbar hint `[n/] next [p/[] prev`, and
 a missing "no matches" signal in the palette -- compound the friction.
+
+> **Retraction note:** An earlier draft listed `Ctrl+C` terminating the
+> editor as a Critical roadblock. That finding was a **harness artifact**,
+> not real editor behaviour. The initial test issued `C-c` to a tmux pane
+> where the foreground process had *already* been disturbed by other
+> lingering send-keys, so the shell received SIGINT and the stale status-bar
+> bytes leaked through. A clean re-run (`RECHECK_cc.txt`) confirms Fresh
+> handles `Ctrl+C` correctly -- the editor stays alive and the status bar
+> is unmodified. The finding is retracted.
 
 ---
 
@@ -45,11 +53,11 @@ a missing "no matches" signal in the palette -- compound the friction.
 | Focus owner is genuinely visible (`*files* [RO]` vs `*diff* [RO]` in the status bar) -- **good**. | `04_review_open.txt`, `05_tab_switch.txt` | Pass |
 | Side-by-side view shows `Side-by-side diff: +0 -19 ~0 \| 'q' to return` -- **excellent** diagnostic. This format should be promoted to the unified view. | `15_deleted_drilldown.txt` | Pass |
 
-### 2.2 User Control and Freedom -- **FAIL**
+### 2.2 User Control and Freedom -- **PARTIAL PASS**
 
 | Observation | Capture | Verdict |
 |-------------|---------|---------|
-| **`Ctrl+C` kills the editor process.** Verified: after `Ctrl+C` was sent the `fresh` PID disappeared (`ps` confirmed no running process) and the shell prompt leaked onto the status-bar line (`Editing disabled in this bufferroot@runsc:/tmp/fresh-uxtest#`). No `unsaved changes` prompt, no cancellation semantics -- pure process death. | `12_invalid_keys.txt`, `12b_after_cc.txt` | **Critical** |
+| `Ctrl+C` is handled correctly -- a clean re-test (`RECHECK_cc.txt`) confirms the editor stays alive, the status bar is unchanged, and no SIGINT leaks to the process. An earlier draft of this report claimed otherwise; that was a tmux send-keys timing artifact and is **retracted**. | `RECHECK_cc.txt` | Pass |
 | `q` cleanly closes the review-diff tab and returns to the prior buffer. Drill-down `q` returns to unified view. Both **good**. | `08_after_q.txt`, `16_newfile.txt` | Pass |
 | `Escape` in the palette cancels the search -- **good**. `Escape` in the file-explorer focus does **not** release focus (matches prior BUG-7). | `19_gibberish.txt` | Mixed |
 
@@ -150,7 +158,10 @@ Ctrl+P  review diff Enter   Tab     n n n n   q   Escape
 3. Invalid keys (`x`, `z`, `Y`) in the diff pane: cleanly rejected with
    `Editing disabled in this buffer` in the status bar. No panic. **Good
    graceful degradation.**
-4. `Ctrl+C`: **fatal.** See RB-1 in executive summary.
+4. `Ctrl+C`: handled correctly -- editor stays alive, status bar unchanged.
+   (An earlier draft of this report claimed `Ctrl+C` killed the process;
+   that was a harness artifact and has been retracted. See the retraction
+   note in the executive summary.)
 5. Terminal resize from 160x45 to 100x30 during Review Diff: layout
    immediately corrupts (file-explorer pane collapses to pipe separators
    only, toolbar vanishes). Pressing `r` does restore the full layout --
@@ -189,34 +200,28 @@ reveal further misalignment (not tested this pass).
 
 Ordered by impact / effort.
 
-1. **Install a SIGINT handler (or trap `Ctrl+C` in the input layer) so the
-   editor cannot be killed by muscle memory.** Map `Ctrl+C` to "copy
-   selection if any, else cancel current prompt, else show 'Press q to quit'
-   toast". One-file change in `app/input.rs`; prevents total session loss.
-   *(RB-1; fixes User Control & Freedom violation.)*
-
-2. **Add a "Hunk X of N" indicator to the status bar and restore the
+1. **Add a "Hunk X of N" indicator to the status bar and restore the
    standard hunk-header format.** In the audit_mode plugin's render path,
    emit `@@ -A,B +C,D @@ <context>` instead of stripping the range counts;
    maintain a `currentHunkIndex` as `n`/`p` moves and surface it as
    `Hunk 4/10 - src/auth.ts`. Solves two heuristic violations at once.
-   *(RB-3; fixes Visibility of System Status + Consistency.)*
+   *(RB-2; fixes Visibility of System Status + Consistency.)*
 
-3. **Auto-focus the diff pane on `start_review_diff`, and promote `n`/`p`
+2. **Auto-focus the diff pane on `start_review_diff`, and promote `n`/`p`
    into the default toolbar regardless of focus.** Also show a
    first-run toast `Tip: Tab toggles focus, n/p jump hunks.`  Without
    this, 100% of first-time users silently fail on hunk navigation
    (already flagged as BUG-3 in the prior combined report; still present).
-   *(RB-2; fixes Flexibility & Efficiency + Visibility.)*
+   *(RB-1; fixes Flexibility & Efficiency + Visibility.)*
 
-4. **Render visible glyphs for whitespace-only differences** (e.g. `·`
+3. **Render visible glyphs for whitespace-only differences** (e.g. `·`
    for trailing space, `→` for tab) on added/removed lines, and add a
    command `Review Diff: Toggle Whitespace-Only` bound to `W` that
    collapses whitespace-only hunks. Without this, whitespace-only changes
    are a UX dead-end: user sees two identical-looking lines flagged as
    changed and learns to distrust the tool. *(fixes Consistency & Aesthetic.)*
 
-5. **Fix the resize handler and the side-by-side toolbar hint.** The
+4. **Fix the resize handler and the side-by-side toolbar hint.** The
    resize path does not re-layout until `r` is pressed -- hook the
    `resize` event to call the same refresh routine. The hint string
    `[n/] next  [p/[] prev  [q] close` is almost certainly a key-alias
@@ -240,11 +245,11 @@ Ordered by impact / effort.
 | NN/g Heuristic | Score (1-5) | Dominant finding |
 |----------------|-------------|-----------------|
 | Visibility of System Status | 2 | No hunk index, stripped hunk header, no gutter line numbers |
-| User Control and Freedom | 1 | `Ctrl+C` kills the process; escape gaps in File Explorer focus |
+| User Control and Freedom | 3 | `q` / `Escape` mostly clean; File-Explorer focus trap remains |
 | Consistency and Standards | 3 | Colour conventions good; hunk header & side-by-side hint text broken |
 | Flexibility and Efficiency | 2 | `Tab` hidden tax, no numeric jump, good fuzzy match |
 | Aesthetic & Minimalist Design | 4 | Clean layout; small empty-pane / toolbar-truncation artefacts |
-| **Overall** | **2.4 / 5** | Usable but friction-heavy |
+| **Overall** | **2.8 / 5** | Usable but friction-heavy |
 
 ---
 
