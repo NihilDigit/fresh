@@ -13,31 +13,49 @@ on the eval host and are preserved by test number (`01_launch.txt` etc.).
 
 ## 1. Executive Summary
 
-**Overall usability score: 6 / 10 (Usable with Friction).**
+**Overall usability score: 6.5 / 10 (Usable with Friction).**
 
 Review Diff is functional for a simple one-file, one-hunk change but degrades
 quickly as complexity grows. The feature has visible signs of recent bug-fix
 work -- BUG-5 (deleted-file drill-down hang) from the prior combined report is
-now fixed, and resize corruption (BUG-2) is recoverable via `r`. Two
-roadblocks remain that any real code-reviewer will hit inside the first minute:
+now fixed, and resize corruption (BUG-2) is recoverable via `r`. One
+roadblock remains that any real code-reviewer will hit inside the first minute:
 
 | # | Roadblock | Heuristic Violated | Severity |
 |---|-----------|--------------------|----------|
-| RB-1 | `n`/`p` (next/prev hunk) are **undiscoverable** on first open: File Explorer has focus, toolbar hides the shortcuts, and the keys silently do nothing. User must guess `Tab`. | Visibility of System Status + Flexibility & Efficiency | **High** |
-| RB-2 | **No "Hunk X of N" indicator, no line numbers in unified diff, and hunk headers strip line-range counts** (`@@ -1 +1 @@` instead of `@@ -1,8 +1,9 @@`). In a 10-hunk file the user loses track of location. | Visibility of System Status + Consistency & Standards | **High** |
+| RB-1 | **No "Hunk X of N" indicator, no line numbers in unified diff, and hunk headers strip line-range counts** (`@@ -1 +1 @@` instead of `@@ -1,8 +1,9 @@`). In a 10-hunk file the user loses track of location. The tool has all of this data and chooses not to display it. | Visibility of System Status + Consistency & Standards | **High** |
 
-Secondary annoyances -- whitespace-only diffs rendered as invisible
-add/delete pairs, cryptic side-by-side toolbar hint `[n/] next [p/[] prev`, and
-a missing "no matches" signal in the palette -- compound the friction.
+Secondary annoyances -- a silent no-op when `n`/`p` are pressed in the file
+list (no hint that `Tab` would unlock them), whitespace-only diffs rendered
+as invisible add/delete pairs, the cryptic side-by-side toolbar hint
+`[n/] next [p/[] prev`, and a missing "no matches" signal in the palette --
+compound the friction.
 
-> **Retraction note:** An earlier draft listed `Ctrl+C` terminating the
-> editor as a Critical roadblock. That finding was a **harness artifact**,
+> **Retraction note (Ctrl+C):** An earlier draft listed `Ctrl+C` terminating
+> the editor as a Critical roadblock. That finding was a **harness artifact**,
 > not real editor behaviour. The initial test issued `C-c` to a tmux pane
 > where the foreground process had *already* been disturbed by other
 > lingering send-keys, so the shell received SIGINT and the stale status-bar
 > bytes leaked through. A clean re-run (`RECHECK_cc.txt`) confirms Fresh
 > handles `Ctrl+C` correctly -- the editor stays alive and the status bar
 > is unmodified. The finding is retracted.
+>
+> **Retraction note (focus-on-launch):** An earlier draft listed
+> File-Explorer-steals-focus as a High-severity roadblock and recommended
+> auto-focusing the diff pane at launch. On reflection this framing was
+> wrong for the actual workflow. Review Diff is a **PR review tool**: the
+> file list is the primary artifact (the "table of contents"), the diff
+> pane is the detail view for whichever file is selected. Starting focus
+> on the file list is consistent with every other multi-file review UI
+> (GitHub, `tig`, `lazygit`, `gh pr diff`) and is the right default. Forcing
+> focus to the diff on open would *break* that workflow -- the reviewer
+> would land inside file 1 of N instead of surveying the full change set.
+>
+> What remains legitimate from the original finding is narrower and
+> downgraded to **Minor**: when the user presses `n` or `p` in the file
+> list, the key is silently dropped with no hint that `Tab` switches to
+> the diff pane where those bindings live. That is a small discoverability
+> gap, not a workflow roadblock.
 
 ---
 
@@ -71,7 +89,7 @@ a missing "no matches" signal in the palette -- compound the friction.
 | Side-by-side toolbar hint reads `[n/] next  [p/[] prev  [q] close` -- the `[n/]` and `[p/[]` look like typos where two key aliases (`n`/`.`, `p`/`,` or similar) collapsed with mismatched delimiters. Confusing. | `15_deleted_drilldown.txt` | Violation |
 | File-status prefixes (`M`/`D`/`A`) are standard git-porcelain shorthand -- good. But the "current file" marker is `>` prepended to the prefix (`>M  main.rs`) which collides with the `D` of `Deleted` and `A` of `Added` visually. A distinct highlight row would be clearer. | `13_edge_open.txt` | Minor |
 
-### 2.4 Flexibility and Efficiency of Use -- **FAIL**
+### 2.4 Flexibility and Efficiency of Use -- **PARTIAL PASS**
 
 Keystroke budget for the **minimum useful review** (open diff, move to 5th hunk,
 close) with a cold editor:
@@ -82,12 +100,15 @@ Ctrl+P  review diff Enter   Tab     n n n n   q   Escape
 ```
 
 - `Ctrl+P + "review diff" + Enter` (12) is unavoidable -- ok.
-- `Tab` (1) is **hidden cost**: without it `n`/`p` are silently ignored
-  because File Explorer holds focus. Discovered only by reading docs or by
-  trial-and-error.
+- `Tab` (1) to move focus from the file list to the diff pane. This is
+  **not** hidden cost in the sense of bad design -- every multi-file review
+  tool requires a similar gesture (`gh pr diff`, `tig`, `lazygit`, GitHub
+  Files Changed tab). It *is* a minor discoverability gap: when the user
+  presses `n` or `p` in the file list, the key is silently dropped instead
+  of hinting "press Tab to switch to the diff for hunk nav."
 - `n` pressed 4 times (4) to reach the 5th hunk -- no "jump to hunk N" command.
-- `q` + `Escape` to close -- `Escape` needed because of lingering
-  File-Explorer focus (compound of BUG-3/BUG-7).
+- `q` + `Escape` to close -- minor polish gap (Escape shouldn't be needed
+  if focus is already clean).
 
 **Missing accelerators observed:**
 
@@ -115,10 +136,11 @@ Ctrl+P  review diff Enter   Tab     n n n n   q   Escape
 1. Open → `Ctrl+P` → `review diff` → Enter. (≈3 s on debug build, acceptable.)
 2. Diff renders correctly, colours correct, word-level diff highlights token
    changes (cyan `universe` vs red `world`).
-3. **Friction:** User presses `j` expecting to move to next hunk (vi-muscle
-   memory); cursor moves one line -- no audible feedback that this is *not*
-   hunk-navigation. The user doesn't learn `Tab` is required first because
-   `j` *does* move the cursor in files panel too (as list navigation).
+3. **Minor friction:** pressing `n` or `p` while focus is on the file list
+   is a silent no-op. A one-shot hint in the status bar ("press Tab to
+   switch to the diff pane for hunk navigation") would close the
+   discoverability gap without changing the workflow default of starting
+   on the file list (which is correct for a PR review tool).
 
 ### Flow 2 -- Monolith (1000 lines / 10 hunks)
 1. Opening the review diff takes about 3 s; no visible input lag during `n`
@@ -205,14 +227,14 @@ Ordered by impact / effort.
    emit `@@ -A,B +C,D @@ <context>` instead of stripping the range counts;
    maintain a `currentHunkIndex` as `n`/`p` moves and surface it as
    `Hunk 4/10 - src/auth.ts`. Solves two heuristic violations at once.
-   *(RB-2; fixes Visibility of System Status + Consistency.)*
+   *(RB-1; fixes Visibility of System Status + Consistency.)*
 
-2. **Auto-focus the diff pane on `start_review_diff`, and promote `n`/`p`
-   into the default toolbar regardless of focus.** Also show a
-   first-run toast `Tip: Tab toggles focus, n/p jump hunks.`  Without
-   this, 100% of first-time users silently fail on hunk navigation
-   (already flagged as BUG-3 in the prior combined report; still present).
-   *(RB-1; fixes Flexibility & Efficiency + Visibility.)*
+2. **Add line numbers to the unified diff gutter.** Side-by-side already
+   has them; unified does not. The data is available (the `@@ -A,B +C,D @@`
+   counts give the starting line, then it's a running count). Closes the
+   gap that makes "comment on line 652" impossible without leaving the
+   feature. *(extends RB-1; fixes Consistency between unified and
+   side-by-side views.)*
 
 3. **Render visible glyphs for whitespace-only differences** (e.g. `·`
    for trailing space, `→` for tab) on added/removed lines, and add a
@@ -228,6 +250,14 @@ Ordered by impact / effort.
    formatter bug (a mismatched `[`/`]`); auditing
    `plugins/audit_mode.ts` for the hint builder should fix it. Low
    effort, high polish. *(fixes Aesthetic & Consistency.)*
+
+5. **Close the `n`/`p`-in-files-pane discoverability gap.** When the user
+   presses a hunk-navigation key while focus is on the file list, either
+   (a) forward the key to the diff pane transparently, or (b) show a
+   one-shot status-bar hint like "Tab switches to the diff pane for hunk
+   navigation." Do **not** auto-move focus to the diff on launch -- the
+   file list is the correct starting point for a PR review workflow.
+   *(minor; fixes Visibility gap without changing the workflow default.)*
 
 ### Secondary polish (nice-to-have)
 
@@ -245,11 +275,11 @@ Ordered by impact / effort.
 | NN/g Heuristic | Score (1-5) | Dominant finding |
 |----------------|-------------|-----------------|
 | Visibility of System Status | 2 | No hunk index, stripped hunk header, no gutter line numbers |
-| User Control and Freedom | 3 | `q` / `Escape` mostly clean; File-Explorer focus trap remains |
+| User Control and Freedom | 4 | `q` / `Escape` clean; minor: Escape doesn't release File-Explorer focus |
 | Consistency and Standards | 3 | Colour conventions good; hunk header & side-by-side hint text broken |
-| Flexibility and Efficiency | 2 | `Tab` hidden tax, no numeric jump, good fuzzy match |
+| Flexibility and Efficiency | 3 | `Tab`-to-switch is a normal multi-pane review gesture; no numeric jump; good fuzzy match |
 | Aesthetic & Minimalist Design | 4 | Clean layout; small empty-pane / toolbar-truncation artefacts |
-| **Overall** | **2.8 / 5** | Usable but friction-heavy |
+| **Overall** | **3.2 / 5** | Usable; one real roadblock (hunk orientation), rest is polish |
 
 ---
 
