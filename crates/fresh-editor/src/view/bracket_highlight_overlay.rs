@@ -10,6 +10,7 @@ use crate::view::overlay::{Overlay, OverlayFace, OverlayManager, OverlayNamespac
 use ratatui::style::Color;
 
 /// Default rainbow bracket colors (cycle through these based on nesting depth)
+// CR: should use theme keys, not hard-coded colors
 pub const DEFAULT_BRACKET_COLORS: [Color; 6] = [
     Color::Rgb(255, 215, 0),   // Gold
     Color::Rgb(218, 112, 214), // Orchid
@@ -115,11 +116,14 @@ impl BracketHighlightOverlay {
             return true;
         }
 
+        // CR: should use unicode. expand the slice to get complete encoded characters (read a few more bytes on both sides if needed, maybe that should a feature of TextBuffer, slice_as_string?).
+        // Anyway - the code below should operate on the unicode level not byte level. 
         let bytes = buffer.slice_bytes(cursor_position..cursor_position + 1);
         if bytes.is_empty() {
             return true;
         }
 
+        // CR: 'as char' is evil
         let ch = bytes[0] as char;
 
         // Get bracket pair info

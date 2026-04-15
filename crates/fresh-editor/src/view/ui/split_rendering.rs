@@ -739,6 +739,7 @@ fn compute_char_style(ctx: &CharStyleContext) -> CharStyleOutput {
         Vec::new()
     };
 
+    // CR: this means that tokens that have no bg set will get the terminal-default? e.g. fold indicators ...
     // Start with token style if present (for injected content like annotation headers)
     // Otherwise use ANSI/syntax/theme default
     let mut style = if let Some(ts) = ctx.token_style {
@@ -3269,6 +3270,7 @@ impl SplitRenderer {
             }
         }
 
+        // CR: can we dedup this block of code with the next one?
         let mut col = line.visual_to_char.len();
         for ch in text.chars() {
             let char_idx = line.char_source_bytes.len();
@@ -4522,7 +4524,7 @@ impl SplitRenderer {
         highlight_context_bytes: usize,
         view_mode: &ViewMode,
         diagnostics_inline_text: bool,
-        view_lines: &[ViewLine],
+        view_lines: &[ViewLine], // CR: can we iterate over these just once and do all the stuff in-line? e.g. maybe exposing prev + cur + line in each iteration step so the downstream pipeline consumers can make decisions based on inter-line relations like relative indent, etc. the idea is just to reduce work by iterating once and doing all the work in one go. make it more like a stream pipeline?
     ) -> DecorationContext {
         use crate::view::folding::indent_folding;
 
@@ -4672,6 +4674,8 @@ impl SplitRenderer {
             line_indicators.entry(key).or_insert(diff_ind);
         }
 
+        // CR: why do we pass all view_lines here, can't we incorporate this into the iteration, i.e. avoid double iteration over view lines?
+        // CR: another question - can we store fold indicators using the marker system (interval tree) so they naturally move around with the insert/delete in the text? as reclaculating seems to happen in a delay
         let fold_indicators = Self::fold_indicators_for_viewport(state, folds, view_lines);
 
         DecorationContext {

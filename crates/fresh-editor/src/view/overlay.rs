@@ -316,6 +316,7 @@ impl OverlayManager {
     }
 
     /// Remove all overlays in a namespace
+    // CR: should be lazy, i.e. bump a version on the namespace and opportunistically discard old overlays when iterating during query time?
     pub fn clear_namespace(&mut self, namespace: &OverlayNamespace, marker_list: &mut MarkerList) {
         // Collect markers to delete
         let markers_to_delete: Vec<_> = self
