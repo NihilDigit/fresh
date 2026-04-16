@@ -11,12 +11,14 @@ the four highest-leverage UX gaps in the current review-diff:
    "This PR" preset is preselected; Enter opens the review immediately.
 2. **No blind commits** — the picker has a live preview pane that
    re-renders the diff as the user moves through the list.
-3. **"Since `<sha>` (N new)"** — the picker remembers the HEAD you
-   last saw for this `(branch, base)` and offers `<stored-sha>..HEAD`
-   as a preset. The row label literally names the stored SHA, so the
-   user sees exactly what the comparison is and doesn't have to
-   guess what "last reviewed" or "last close" or "last fetch" means.
-   See *Watermarks* below.
+3. **"New changes"** — the common PR-review pain: you reviewed the
+   whole PR, the author pushed fixes, now you want just the fixes.
+   The picker offers a `New changes` preset that is a **two-tree
+   diff** between the branch HEAD you last saw and the current HEAD.
+   A two-tree diff (not a commit range) is the only mechanic that
+   survives force-push / rebase / squash — the reviewer gets the
+   same clean "what changed since last time" view regardless of how
+   the author updated the branch. See *Watermarks* below.
 4. **Comment-count badges** — saved comments become discoverable from
    the picker, not only after opening a range.
 
@@ -90,9 +92,9 @@ hook.
 List pane content:
 
 ```
- ★ This PR  (main..HEAD)             7 commits  +52/−12   (3)
-   Since 7e2a9f1  (7e2a9f1..HEAD)               3 new     (1)
-   Working tree                                 16 files  (2)
+ ★ This PR  (main..HEAD)              7 commits  +52/−12   (3)
+   New changes                                    5 files  +12/−4   (1)
+   Working tree                                  16 files  +40/−77  (2)
  ─── COMMITS ─────────────────────────────────────────────
    bca083a  feat: farewell
    9e478d5  feat: f-strings                               (1)
@@ -155,12 +157,18 @@ cursor falls through to `Working tree`.
 
 ### Live preview
 
-Every cursor move in the list pane debounces a `git diff <from>..<to>`
-(trailing debounce, 150 ms) and re-renders the right pane using the
-same `buildListLines` / `parseDiffOutput` pipeline the real review
-uses. Per-range cache; cleared when the picker closes. Result:
-scrolling through commits feels instant on revisits, and what the
-user sees in the preview is byte-identical to what they get on Enter.
+Every cursor move in the list pane debounces a diff fetch (trailing
+debounce, 150 ms) and re-renders the right pane using the same
+`buildListLines` / `parseDiffOutput` pipeline the real review uses.
+The diff command depends on the row:
+
+- Preset rows, commits, branches, custom revspecs → `git diff <from>..<to>`.
+- `New changes` → `git diff <stored-tip> HEAD` (two-tree, no `..`).
+- `Working tree` → `git diff HEAD`.
+
+Per-row cache keyed by the exact command; cleared when the picker
+closes. What the user sees in the preview is byte-identical to what
+they get on Enter.
 
 **Fast-scroll behaviour** (holding `j` down the list):
 
@@ -183,19 +191,35 @@ unstaged combined). File counts and `+N/−M` stats in the picker and
 ribbon are computed against the same command, so they never
 disagree with the diff the user actually sees.
 
-### Watermarks — "Since `<sha>`"
+### Watermarks — "New changes"
 
-**Label.** The row is titled `Since <short-sha>` where the SHA is
-substituted at render time from the stored tip. The label names the
-exact thing the comparison is built from — no verb ("reviewed",
-"closed", "pushed") for the user to second-guess. If the stored SHA
-is `7e2a9f1`, the row reads `Since 7e2a9f1` and the resolved range
-is `7e2a9f1..HEAD`.
+**The scenario.** Reviewer opens `★ This PR` on Monday, reads it,
+leaves comments, closes. Tuesday the author pushes fixes (possibly
+as a clean append, possibly as a rebase, possibly as a squash).
+Reviewer comes back. They want two options:
 
-The preview pane and ribbon both carry the full revspec
-(`7e2a9f1..HEAD`) so the baseline is visible in two places: the
-list label names the anchor point, the preview shows what's in the
-range.
+1. `★ This PR` — re-read the whole PR, same range as before.
+2. `New changes` — show only what the author did since Monday.
+
+The watermark exists to make option 2 one keystroke away without
+the reviewer having to remember, type, or scroll for an old SHA.
+
+**Mechanic: two-tree diff, not a commit range.** On picker open, if
+a watermark exists for `(branch, base)` and the stored tip differs
+from the current HEAD, the `New changes` row resolves to:
+
+```
+git diff <stored-tip> HEAD
+```
+
+Plain two-tree diff, no `..` range. This is deliberate and
+load-bearing. A commit range (`old..HEAD`) breaks exactly when it
+matters most — the moment the author force-pushes, rebases, or
+squashes. A two-tree diff works identically in all four scenarios
+(append / amend / rebase / squash) because it only compares
+snapshots, not history. The reviewer always sees "what's different
+from the version I last had in front of me," which is the honest
+answer to the question they're asking.
 
 **Key.** Watermarks are keyed by `(branch, base)`, not by branch
 alone. Reviewing `main..feature/x` and reviewing
@@ -213,35 +237,41 @@ activities and should advance independent markers.
 }
 ```
 
+The stored SHA is never shown to the user. It's an implementation
+detail of "the last version you saw."
+
 **Write policy.** The watermark for `(branch, base)` is rewritten
-only on review close (`q` or `stop_review_diff`). `p` (pick another
-slice) does *not* advance the watermark: it's a navigation action,
-not a "done" action, and the user may come right back. A SIGKILL'd
-review leaves the watermark at its prior value, which is the honest
-answer to "where was I up to?"
+only on review close (`q` or `stop_review_diff`) for reviews whose
+range *was* `base..HEAD` (i.e. the user reviewed the whole PR, not
+a slice of it). `p` (pick another slice) does *not* advance the
+watermark — it's navigation, not "done." A review on `New changes`
+itself *does* advance the watermark on close: the user has now
+seen the current HEAD, so the next `New changes` should be relative
+to this one.
 
-**Read.** When the picker opens, for each watermark entry whose
-`tip` differs from `HEAD` **and** whose `tip` is still reachable
-from `HEAD` (i.e. ancestor), render a `Since <short-sha> (N new)`
-row resolving to `<tip>..HEAD`. Show at most one such row (the
-`(branch, base)` that matches the currently-defaulting base).
+**Read.** On picker open: if `<stored-tip>` is present, differs
+from HEAD, and the blob is still in the object database, render
+`New changes (N files, +A/−B)` resolving to `git diff <stored-tip> HEAD`.
+Otherwise hide the row.
 
-**Dangling watermarks (force-push / rebase).** If `tip` is *not*
-reachable from `HEAD` — typical after a rebase/force-push — the
-stored SHA no longer names a meaningful range on the current
-history. Fall back to `git merge-base <tip> HEAD`; if non-empty,
-render the row with the merge-base SHA in the label
-(`Since <merge-base-short>`) and `<merge-base>..HEAD` as the range.
-If the merge-base is empty or equals `HEAD`, drop the row entirely.
-The label always matches the SHA actually used in the diff — we
-never show a row whose name differs from its comparison baseline.
+**Edge cases.**
 
-**No watermark yet.** Freshly-checked-out branch, never reviewed:
-hide the row rather than render a confusing `Since HEAD (0 new)`.
+- *No watermark yet* (freshly-checked-out branch, never reviewed):
+  hide the row.
+- *Watermark equals HEAD* (you already reviewed up to now, author
+  hasn't pushed anything): hide the row.
+- *Stored tip was garbage-collected* (months-old watermark, repo
+  was pruned): the `git diff` fails with "bad object". Hide the
+  row with a dim `new changes (old snapshot unavailable)` status
+  line under the preview pane — the honest answer is "we can't
+  compute this anymore." Do not fall back to merge-base: a
+  merge-base-based diff is a different comparison and would
+  silently mislead.
 
-This is the unique-value-prop feature. Most reviewers come back to a
-PR after the author pushes follow-up commits; today they have to find
-the old SHA themselves.
+This is the unique-value-prop feature. Most reviewers come back to
+a PR after the author pushes follow-up commits; today they have to
+find the old SHA themselves, and nothing they can do from the CLI
+survives a force-push.
 
 ### Comment badges
 
@@ -308,12 +338,17 @@ split v 0.02
 
 Ribbon content (mode-aware):
 
-| Mode      | Ribbon text                                                      |
-|-----------|------------------------------------------------------------------|
-| worktree  | `Working tree · 16 files · +40/−77 · 0 comments         p: pick` |
-| range     | `★ main..HEAD · 2 files · +10/−1 · 0 comments           p: pick` |
-| commit    | `bca083a feat: farewell · 1 file · +3/−0 · 0 comments   p: pick` |
-| since     | `7e2a9f1..HEAD · 3 new · +12/−4 · 1 comment             p: pick` |
+| Mode        | Ribbon text                                                       |
+|-------------|-------------------------------------------------------------------|
+| worktree    | `Working tree · 16 files · +40/−77 · 0 comments          p: pick` |
+| range       | `★ main..HEAD · 2 files · +10/−1 · 0 comments            p: pick` |
+| commit      | `bca083a feat: farewell · 1 file · +3/−0 · 0 comments    p: pick` |
+| new-changes | `New changes · 5 files · +12/−4 · 1 comment              p: pick` |
+
+The `new-changes` mode shows the friendly name, not the SHA. The
+stored-tip SHA is an implementation detail; the ribbon tells the
+reviewer *what slice of the PR they are reading*, which is "the
+author's updates since last time."
 
 Always visible. The "what am I reviewing?" question never requires a
 keystroke to answer.
@@ -354,6 +389,7 @@ to the range you just left, so `p`-then-Enter is a no-op refresh.
 | Ribbon row                       | `audit_mode.ts`: extend `REVIEW_LAYOUT`, add `buildRibbonEntries()` + truncation helper | **modified** |
 | `p: pick` keybind                | `audit_mode.ts`: add `p` to `review-mode` keymap; new handler `review_open_picker` | **modified** (~3 lines) |
 | Open review with picked range    | reuses `bootstrapRangeReview` (`audit_mode.ts:3886`) and the worktree path of `start_review_diff` | **reused** |
+| Open review with two-tree diff (`New changes`) | thin variant alongside `bootstrapRangeReview` that invokes `git diff <a> <b>` instead of `git diff <a>..<b>`; everything downstream (parse + render + comment persistence) is identical | **new** (small) |
 
 ## Lifecycle
 
@@ -372,8 +408,11 @@ to the range you just left, so `p`-then-Enter is a no-op refresh.
    current range pre-selected. No watermark change (user may return
    to the same slice). Comments are persisted continuously already,
    so nothing is lost.
-7. `q` from review → advance watermark for `(branch, base)` to
-   current `HEAD`; close review.
+7. `q` from review → close review. If the review's range was
+   `★ This PR` (full `base..HEAD`) or `New changes`, advance the
+   `(branch, base)` watermark to current `HEAD`. `q` from a commit-
+   or worktree-scoped review does not advance the watermark — those
+   are slices, not a claim that the whole PR was seen.
 8. `q` from picker → close picker; return to the editor (no review
    was opened, no watermark change).
 
@@ -385,9 +424,10 @@ to the range you just left, so `p`-then-Enter is a no-op refresh.
   than HEAD. Power users still have `:` inside the picker.
 - **The "I have to open it to know if I have comments"** dance — the
   comment-count badges expose this in the picker.
-- **The "what's new since I last looked at this branch?" hunt** —
-  the `Since <sha>` row resolves the range for you, and names the
-  exact SHA it's comparing against.
+- **The "what did the author push since I last looked?" hunt** —
+  `New changes` gives you a two-tree diff against your last-seen
+  HEAD; it survives rebase / squash / force-push, which is exactly
+  when the reviewer has no other way to find the answer.
 - **The "what am I reviewing again?" check** — the ribbon names it.
 
 ## Out of scope (good follow-ups, not blockers)
@@ -411,11 +451,13 @@ to the range you just left, so `p`-then-Enter is a no-op refresh.
   150 ms debounce, per-range cache, cancel any in-flight fetch when
   the cursor moves again.
 - **Freshly-checked-out branch**: there is no watermark yet. Hide
-  the `Since <sha>` row rather than render a confusing
-  `Since HEAD (0 new)`.
-- **Force-pushed / rebased branch**: the stored `tip` is no longer
-  reachable from `HEAD`. Handled by the "Dangling watermarks" rule
-  under *Watermarks*: fall back to `merge-base`, else drop the row.
+  the `New changes` row rather than render a "0 new" stub.
+- **GC'd watermark tip**: the stored SHA is no longer in the object
+  database (repo was pruned, watermark is old). `git diff <tip> HEAD`
+  will error. Hide the `New changes` row and surface the reason in
+  the picker status line. Not "fall back to merge-base" — that would
+  quietly change the comparison to something the user didn't ask
+  for.
 - **Default detection on detached HEAD**: no upstream, no branch.
   Fall through to merge-base with default branch; if that also
   fails, the default becomes "Working tree" rather than a broken
@@ -456,6 +498,6 @@ Phase-by-phase sequencing:
    tree`, `:custom`). Live preview wired in. Replaces
    `start_review_range`.
 3. Comment-count badges on preset rows.
-4. Watermark write on close + `Since <sha>` preset.
+4. Watermark write on close + `New changes` preset (two-tree diff).
 5. Commit list section + per-row badges.
 6. Branch list section.
