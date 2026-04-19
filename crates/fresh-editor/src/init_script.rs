@@ -84,8 +84,88 @@ const editor = getEditor();
 // });
 "#;
 
+/// `tsconfig.json` for the user's init.ts. Matches the plugin-dev
+/// workspace (no DOM, no ambient types) so LSP behaviour is consistent
+/// with plugins.
+const INIT_TSCONFIG: &str = r#"{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2020"],
+    "types": []
+  },
+  "files": ["init.ts", "types/fresh.d.ts"]
+}
+"#;
+
+/// Resolve the path to `fresh.d.ts` inside the embedded-plugins cache.
+/// Only embedded content is used — never an on-disk copy that isn't
+/// guaranteed to match this binary — so the types always track the
+/// running build.
+#[cfg(feature = "embed-plugins")]
+fn embedded_fresh_dts_path() -> Option<PathBuf> {
+    let embedded = crate::services::plugins::embedded::get_embedded_plugins_dir()?;
+    let p = embedded.join("lib").join("fresh.d.ts");
+    p.exists().then_some(p)
+}
+
+#[cfg(not(feature = "embed-plugins"))]
+fn embedded_fresh_dts_path() -> Option<PathBuf> {
+    None
+}
+
+/// Refresh `~/.config/fresh/types/fresh.d.ts` from the embedded copy and
+/// write `tsconfig.json` if it isn't already present.
+///
+/// `fresh.d.ts` is **always overwritten** — it's an auto-generated API
+/// mirror that must track the running binary. Keeping a stale copy in
+/// `~/.config/fresh/types/` would silently hide drift between the API
+/// the user's `init.ts` was written against and the one the running
+/// binary actually exposes. `tsconfig.json` is treated as user-editable
+/// and only written on first run.
+///
+/// Errors are logged but not returned: type scaffolding is best-effort
+/// and must not block opening or loading init.ts.
+pub fn refresh_types_scaffolding(config_dir: &Path) {
+    let Some(source) = embedded_fresh_dts_path() else {
+        tracing::warn!(
+            "init.ts: embedded fresh.d.ts unavailable; \
+             LSP completions in init.ts will be unavailable"
+        );
+        return;
+    };
+
+    let types_dir = config_dir.join("types");
+    if let Err(e) = std::fs::create_dir_all(&types_dir) {
+        tracing::warn!("init.ts: failed to create {}: {e}", types_dir.display());
+        return;
+    }
+    let dest_dts = types_dir.join("fresh.d.ts");
+    if let Err(e) = std::fs::copy(&source, &dest_dts) {
+        tracing::warn!(
+            "init.ts: failed to copy fresh.d.ts from {} to {}: {e}",
+            source.display(),
+            dest_dts.display()
+        );
+    }
+
+    let tsconfig = config_dir.join("tsconfig.json");
+    if !tsconfig.exists() {
+        if let Err(e) = std::fs::write(&tsconfig, INIT_TSCONFIG) {
+            tracing::warn!("init.ts: failed to write {}: {e}", tsconfig.display());
+        }
+    }
+}
+
 /// Ensure `~/.config/fresh/init.ts` exists. If absent, writes the starter
-/// template. Returns the (possibly newly-created) file's path.
+/// template. Also refreshes `types/fresh.d.ts` + `tsconfig.json` so the
+/// template's `/// <reference path=...` directive resolves and
+/// `getEditor()` type-checks in any TS-aware editor.
+/// Returns the (possibly newly-created) `init.ts` path.
 pub fn ensure_starter(config_dir: &Path) -> std::io::Result<PathBuf> {
     let path = init_ts_path(config_dir);
     if !path.exists() {
@@ -94,6 +174,7 @@ pub fn ensure_starter(config_dir: &Path) -> std::io::Result<PathBuf> {
         }
         std::fs::write(&path, STARTER_TEMPLATE)?;
     }
+    refresh_types_scaffolding(config_dir);
     Ok(path)
 }
 

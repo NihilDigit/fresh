@@ -822,10 +822,39 @@ impl Editor {
     /// plugin pipeline under the stable name `crate::init_script::INIT_PLUGIN_NAME`.
     pub fn load_init_script(&mut self, enabled: bool) {
         use crate::init_script::{
-            decide_load, describe, record_success, InitOutcome, LoadDecision,
+            check, decide_load, describe, record_success, refresh_types_scaffolding, CheckSeverity,
+            InitOutcome, LoadDecision,
         };
 
         let config_dir = self.dir_context.config_dir.clone();
+
+        if enabled {
+            // Refresh the types mirror from the embedded copy before anything
+            // reads init.ts. Guarantees the declarations the user sees match
+            // the running build — stale types would hide API drift.
+            refresh_types_scaffolding(&config_dir);
+
+            // Re-check init.ts right after the refresh so drift between the
+            // user's script and the current API surface (at least syntax-level
+            // fallout like unterminated blocks from a botched rename) shows up
+            // in the log immediately rather than only at eval time.
+            let report = check(&config_dir);
+            if !report.ok {
+                for d in &report.diagnostics {
+                    let level = match d.severity {
+                        CheckSeverity::Error => "error",
+                        CheckSeverity::Warning => "warning",
+                    };
+                    tracing::warn!(
+                        "init.ts pre-load {level} at {}:{}: {}",
+                        d.line,
+                        d.column,
+                        d.message
+                    );
+                }
+            }
+        }
+
         let outcome = match decide_load(&config_dir, enabled) {
             LoadDecision::Skip(outcome) => outcome,
             LoadDecision::Load { source } => {
