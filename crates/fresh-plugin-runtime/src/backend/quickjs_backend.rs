@@ -1994,17 +1994,40 @@ impl JsEditorApi {
         _ctx: rquickjs::Ctx<'js>,
         overrides: Value<'js>,
     ) -> rquickjs::Result<bool> {
-        let map: std::collections::HashMap<String, [i32; 3]> =
-            rquickjs_serde::from_value(overrides).map_err(|e| {
-                rquickjs::Error::new_from_js_message("deserialize", "", &e.to_string())
-            })?;
-        let clamped = map
-            .into_iter()
-            .map(|(k, [r, g, b])| {
-                let clamp = |v: i32| v.clamp(0, 255) as u8;
-                (k, [clamp(r), clamp(g), clamp(b)])
-            })
-            .collect();
+        // rquickjs_serde can't deserialize a fixed-size `[i32; 3]` from a
+        // JS Array at the nested-map position (it asks for a "top level
+        // sequence value" and fails). Round-trip through serde_json::Value
+        // instead — same pattern as `set_setting` — and hand-roll the
+        // triple validation.
+        let json: serde_json::Value = rquickjs_serde::from_value(overrides).map_err(|e| {
+            rquickjs::Error::new_from_js_message("deserialize", "", &e.to_string())
+        })?;
+        let Some(obj) = json.as_object() else {
+            return Err(rquickjs::Error::new_from_js_message(
+                "type",
+                "",
+                "overrideThemeColors expects an object of \"key\": [r, g, b]",
+            ));
+        };
+        let to_u8 = |n: &serde_json::Value| -> Option<u8> {
+            n.as_i64()
+                .or_else(|| n.as_f64().map(|f| f as i64))
+                .map(|v| v.clamp(0, 255) as u8)
+        };
+        let mut clamped: std::collections::HashMap<String, [u8; 3]> =
+            std::collections::HashMap::with_capacity(obj.len());
+        for (key, value) in obj {
+            let Some(arr) = value.as_array() else {
+                continue;
+            };
+            if arr.len() != 3 {
+                continue;
+            }
+            let Some(r) = to_u8(&arr[0]) else { continue };
+            let Some(g) = to_u8(&arr[1]) else { continue };
+            let Some(b) = to_u8(&arr[2]) else { continue };
+            clamped.insert(key.clone(), [r, g, b]);
+        }
         Ok(self
             .command_sender
             .send(PluginCommand::OverrideThemeColors { overrides: clamped })
@@ -7033,6 +7056,96 @@ mod tests {
                 assert_eq!(theme_name, "dark");
             }
             _ => panic!("Expected ApplyTheme, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_override_theme_colors_round_trip() {
+        // Drives the JS → Rust deserialization path that regressed in
+        // production: a plain object of "section.field" → [r,g,b] arrays.
+        let (mut backend, rx) = create_test_backend();
+
+        backend
+            .execute_js(
+                r#"
+            const editor = getEditor();
+            editor.overrideThemeColors({
+                "editor.bg": [10, 20, 30],
+                "editor.fg": [220, 221, 222],
+            });
+        "#,
+                "test.js",
+            )
+            .unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::OverrideThemeColors { overrides } => {
+                assert_eq!(overrides.get("editor.bg").copied(), Some([10, 20, 30]));
+                assert_eq!(overrides.get("editor.fg").copied(), Some([220, 221, 222]));
+                assert_eq!(overrides.len(), 2);
+            }
+            _ => panic!("Expected OverrideThemeColors, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_override_theme_colors_clamps_out_of_range() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend
+            .execute_js(
+                r#"
+            const editor = getEditor();
+            editor.overrideThemeColors({
+                "editor.bg": [-5, 300, 128],
+            });
+        "#,
+                "test.js",
+            )
+            .unwrap();
+
+        match rx.try_recv().unwrap() {
+            PluginCommand::OverrideThemeColors { overrides } => {
+                assert_eq!(overrides.get("editor.bg").copied(), Some([0, 255, 128]));
+            }
+            other => panic!("Expected OverrideThemeColors, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_api_override_theme_colors_drops_malformed_entries() {
+        // Wrong-shape values should be ignored without erroring so a fast
+        // animation loop with a single typo keeps running.
+        let (mut backend, rx) = create_test_backend();
+
+        backend
+            .execute_js(
+                r#"
+            const editor = getEditor();
+            editor.overrideThemeColors({
+                "editor.bg": [1, 2, 3],
+                "not_an_array": "oops",
+                "wrong_length": [1, 2],
+                "floats_are_fine": [10.7, 20.2, 30.9],
+            });
+        "#,
+                "test.js",
+            )
+            .unwrap();
+
+        match rx.try_recv().unwrap() {
+            PluginCommand::OverrideThemeColors { overrides } => {
+                assert_eq!(overrides.get("editor.bg").copied(), Some([1, 2, 3]));
+                assert!(!overrides.contains_key("not_an_array"));
+                assert!(!overrides.contains_key("wrong_length"));
+                // serde_json::Number::as_i64 truncates floats toward zero.
+                assert_eq!(
+                    overrides.get("floats_are_fine").copied(),
+                    Some([10, 20, 30])
+                );
+            }
+            other => panic!("Expected OverrideThemeColors, got {other:?}"),
         }
     }
 
