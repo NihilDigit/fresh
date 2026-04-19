@@ -797,6 +797,88 @@ impl Editor {
                 }
             }
 
+            PluginCommand::SpawnHostProcess {
+                command,
+                args,
+                cwd,
+                callback_id,
+            } => {
+                // Bypass the active authority on purpose: this is
+                // reserved for plugin internals that must run host-side
+                // work (e.g. `devcontainer up`) before the authority
+                // they want is even built. Uses the same callback shape
+                // as `SpawnProcess` so the plugin-facing API is
+                // symmetric.
+                if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
+                    let effective_cwd = cwd.or_else(|| {
+                        std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .ok()
+                    });
+                    let sender = bridge.sender();
+                    let host_spawner: std::sync::Arc<dyn crate::services::remote::ProcessSpawner> =
+                        std::sync::Arc::new(crate::services::remote::LocalProcessSpawner);
+
+                    runtime.spawn(async move {
+                        #[allow(clippy::let_underscore_must_use)]
+                        match host_spawner.spawn(command, args, effective_cwd).await {
+                            Ok(result) => {
+                                let _ = sender.send(AsyncMessage::PluginProcessOutput {
+                                    process_id: callback_id.as_u64(),
+                                    stdout: result.stdout,
+                                    stderr: result.stderr,
+                                    exit_code: result.exit_code,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = sender.send(AsyncMessage::PluginProcessOutput {
+                                    process_id: callback_id.as_u64(),
+                                    stdout: String::new(),
+                                    stderr: e.to_string(),
+                                    exit_code: -1,
+                                });
+                            }
+                        }
+                    });
+                } else {
+                    self.plugin_manager
+                        .reject_callback(callback_id, "Async runtime not available".to_string());
+                }
+            }
+
+            PluginCommand::SetAuthority { payload } => {
+                // Payload is an opaque `serde_json::Value` at the
+                // fresh-core layer; the concrete schema lives in
+                // `services::authority::AuthorityPayload` and is only
+                // deserialized here, so core stays ignorant of backend
+                // kinds.
+                match serde_json::from_value::<crate::services::authority::AuthorityPayload>(
+                    payload,
+                ) {
+                    Ok(parsed) => {
+                        match crate::services::authority::Authority::from_plugin_payload(parsed) {
+                            Ok(auth) => {
+                                tracing::info!("Plugin installed new authority");
+                                self.install_authority(auth);
+                            }
+                            Err(e) => {
+                                tracing::warn!("setAuthority: invalid payload: {}", e);
+                                self.set_status_message(format!("setAuthority rejected: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("setAuthority: failed to parse payload: {}", e);
+                        self.set_status_message(format!("setAuthority rejected: {}", e));
+                    }
+                }
+            }
+
+            PluginCommand::ClearAuthority => {
+                tracing::info!("Plugin cleared authority; restoring local");
+                self.clear_authority();
+            }
+
             PluginCommand::SpawnProcessWait {
                 process_id,
                 callback_id,

@@ -264,6 +264,56 @@ mod tests {
     }
 
     #[test]
+    fn payload_roundtrips_through_serde_json() {
+        // The plugin op carries the payload as opaque JSON through
+        // `fresh-core`; this test nails down the wire shape so we
+        // don't silently break plugins when the struct evolves.
+        let json = serde_json::json!({
+            "filesystem": { "kind": "local" },
+            "spawner": {
+                "kind": "docker-exec",
+                "container_id": "abc123",
+                "user": "vscode",
+                "workspace": "/workspaces/proj"
+            },
+            "terminal_wrapper": {
+                "kind": "explicit",
+                "command": "docker",
+                "args": ["exec", "-it", "abc123", "bash", "-l"],
+                "manages_cwd": true
+            },
+            "display_label": "Container:abc123"
+        });
+        let payload: AuthorityPayload =
+            serde_json::from_value(json).expect("json matches payload schema");
+        let auth = Authority::from_plugin_payload(payload).expect("docker payload is valid");
+        assert_eq!(auth.terminal_wrapper.command, "docker");
+        assert!(auth.terminal_wrapper.manages_cwd);
+        assert_eq!(auth.display_label, "Container:abc123");
+    }
+
+    #[test]
+    fn payload_defaults_manages_cwd_to_true_for_explicit_wrapper() {
+        // Per the schema, `manages_cwd` is optional in the JSON and
+        // defaults to true because re-parented shells almost always
+        // want it that way.
+        let json = serde_json::json!({
+            "filesystem": { "kind": "local" },
+            "spawner": { "kind": "local" },
+            "terminal_wrapper": {
+                "kind": "explicit",
+                "command": "bash",
+                "args": []
+            }
+        });
+        let payload: AuthorityPayload =
+            serde_json::from_value(json).expect("manages_cwd is optional");
+        let auth = Authority::from_plugin_payload(payload).expect("payload is valid");
+        assert!(auth.terminal_wrapper.manages_cwd);
+        assert_eq!(auth.display_label, "");
+    }
+
+    #[test]
     fn from_plugin_payload_docker_exec_carries_label() {
         let payload = AuthorityPayload {
             filesystem: FilesystemSpec::Local,

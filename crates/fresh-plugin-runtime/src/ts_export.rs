@@ -117,9 +117,45 @@ fn get_type_decl(type_name: &str) -> Option<String> {
         "OverlayColorSpec" => Some(OverlayColorSpec::decl(&cfg)),
         "InlineOverlay" => Some(InlineOverlay::decl(&cfg)),
 
+        // Authority — payload schema for `editor.setAuthority(...)`.
+        // Hand-written because the authoritative struct lives in
+        // `fresh-editor` and this crate must not depend on it
+        // (principle 3: core is opaque to backend kinds). Keep this in
+        // sync with `crates/fresh-editor/src/services/authority/mod.rs`.
+        "AuthorityPayload" => Some(AUTHORITY_PAYLOAD_DECL.to_string()),
+
         _ => None,
     }
 }
+
+/// Hand-written declaration for `AuthorityPayload` and its helpers.
+/// See the doc comment on the match arm for why this isn't ts-rs.
+const AUTHORITY_PAYLOAD_DECL: &str = r#"export type AuthorityFilesystem = { kind: "local" };
+
+export type AuthoritySpawner =
+  | { kind: "local" }
+  | {
+      kind: "docker-exec";
+      container_id: string;
+      user?: string | null;
+      workspace?: string | null;
+    };
+
+export type AuthorityTerminalWrapper =
+  | { kind: "host-shell" }
+  | {
+      kind: "explicit";
+      command: string;
+      args: string[];
+      manages_cwd?: boolean;
+    };
+
+export type AuthorityPayload = {
+  filesystem: AuthorityFilesystem;
+  spawner: AuthoritySpawner;
+  terminal_wrapper: AuthorityTerminalWrapper;
+  display_label?: string;
+};"#;
 
 /// Types that are dependencies of other types and must always be included.
 /// These are types referenced inside option structs or other complex types
@@ -892,6 +928,9 @@ mod tests {
             "getTextPropertiesAtCursor",
             "spawnProcess",
             "spawnProcessWait",
+            "spawnHostProcess",
+            "setAuthority",
+            "clearAuthority",
             "getBufferText",
             "delay",
             "sendLspRequest",

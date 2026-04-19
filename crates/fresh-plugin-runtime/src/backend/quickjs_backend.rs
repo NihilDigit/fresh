@@ -3803,6 +3803,77 @@ impl JsEditorApi {
         id
     }
 
+    /// Spawn a process on the host regardless of the active authority.
+    ///
+    /// Intended for plugin internals that must run host-side work
+    /// (e.g. `devcontainer up`) before installing an authority that
+    /// would otherwise route the spawn elsewhere. Same calling shape
+    /// as `spawnProcess`.
+    #[plugin_api(
+        async_thenable,
+        js_name = "spawnHostProcess",
+        ts_return = "SpawnResult"
+    )]
+    #[qjs(rename = "_spawnHostProcessStart")]
+    pub fn spawn_host_process_start(
+        &self,
+        _ctx: rquickjs::Ctx<'_>,
+        command: String,
+        args: Vec<String>,
+        cwd: rquickjs::function::Opt<String>,
+    ) -> u64 {
+        let id = {
+            let mut id_ref = self.next_request_id.borrow_mut();
+            let id = *id_ref;
+            *id_ref += 1;
+            self.callback_contexts
+                .borrow_mut()
+                .insert(id, self.plugin_name.clone());
+            id
+        };
+        let effective_cwd = cwd.0.or_else(|| {
+            self.state_snapshot
+                .read()
+                .ok()
+                .map(|s| s.working_dir.to_string_lossy().to_string())
+        });
+        let _ = self.command_sender.send(PluginCommand::SpawnHostProcess {
+            callback_id: JsCallbackId::new(id),
+            command,
+            args,
+            cwd: effective_cwd,
+        });
+        id
+    }
+
+    /// Install a new authority via an opaque payload.
+    ///
+    /// The payload is a JS object describing filesystem + spawner +
+    /// terminal wrapper + display label. The canonical schema lives in
+    /// the `AuthorityPayload` type in `fresh-editor`; plugins should
+    /// hand-build objects that match it. Fire-and-forget: the editor
+    /// restarts as part of the transition, so the plugin is reloaded
+    /// before any follow-up work can run on this call's return value.
+    #[plugin_api(js_name = "setAuthority")]
+    pub fn set_authority(
+        &self,
+        ctx: rquickjs::Ctx<'_>,
+        #[plugin_api(ts_type = "AuthorityPayload")] payload: rquickjs::Value<'_>,
+    ) -> bool {
+        let json = js_to_json(&ctx, payload);
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SetAuthority { payload: json });
+        true
+    }
+
+    /// Restore the default local authority. Same restart semantics as
+    /// `setAuthority`.
+    #[plugin_api(js_name = "clearAuthority")]
+    pub fn clear_authority(&self) {
+        let _ = self.command_sender.send(PluginCommand::ClearAuthority);
+    }
+
     /// Wait for a process to complete and get its result (async)
     #[plugin_api(async_promise, js_name = "spawnProcessWait", ts_return = "SpawnResult")]
     #[qjs(rename = "_spawnProcessWaitStart")]
@@ -4789,6 +4860,7 @@ impl QuickJsBackend {
 
                 // Apply wrappers to async functions on editor
                 editor.spawnProcess = _wrapAsyncThenable("_spawnProcessStart", "spawnProcess");
+                editor.spawnHostProcess = _wrapAsyncThenable("_spawnHostProcessStart", "spawnHostProcess");
                 editor.delay = _wrapAsync("_delayStart", "delay");
                 editor.createVirtualBuffer = _wrapAsync("_createVirtualBufferStart", "createVirtualBuffer");
                 editor.createVirtualBufferInSplit = _wrapAsync("_createVirtualBufferInSplitStart", "createVirtualBufferInSplit");

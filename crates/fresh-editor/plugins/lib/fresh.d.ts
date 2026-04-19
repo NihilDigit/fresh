@@ -593,6 +593,31 @@ type GrammarInfoSnapshot = {
 	*/
 	short_name: string | null;
 };
+export type AuthorityFilesystem = {
+	kind: "local";
+};
+export type AuthoritySpawner = {
+	kind: "local";
+} | {
+	kind: "docker-exec";
+	container_id: string;
+	user?: string | null;
+	workspace?: string | null;
+};
+export type AuthorityTerminalWrapper = {
+	kind: "host-shell";
+} | {
+	kind: "explicit";
+	command: string;
+	args: string[];
+	manages_cwd?: boolean;
+};
+export type AuthorityPayload = {
+	filesystem: AuthorityFilesystem;
+	spawner: AuthoritySpawner;
+	terminal_wrapper: AuthorityTerminalWrapper;
+	display_label?: string;
+};
 type BackgroundProcessResult = {
 	/**
 	* Unique process ID for later reference
@@ -1668,6 +1693,31 @@ interface EditorAPI {
 	* Spawn a process (async, returns request_id)
 	*/
 	spawnProcess(command: string, args: string[], cwd?: string): ProcessHandle<SpawnResult>;
+	/**
+	* Spawn a process on the host regardless of the active authority.
+	* 
+	* Intended for plugin internals that must run host-side work
+	* (e.g. `devcontainer up`) before installing an authority that
+	* would otherwise route the spawn elsewhere. Same calling shape
+	* as `spawnProcess`.
+	*/
+	spawnHostProcess(command: string, args: string[], cwd?: string): ProcessHandle<SpawnResult>;
+	/**
+	* Install a new authority via an opaque payload.
+	* 
+	* The payload is a JS object describing filesystem + spawner +
+	* terminal wrapper + display label. The canonical schema lives in
+	* the `AuthorityPayload` type in `fresh-editor`; plugins should
+	* hand-build objects that match it. Fire-and-forget: the editor
+	* restarts as part of the transition, so the plugin is reloaded
+	* before any follow-up work can run on this call's return value.
+	*/
+	setAuthority(payload: AuthorityPayload): boolean;
+	/**
+	* Restore the default local authority. Same restart semantics as
+	* `setAuthority`.
+	*/
+	clearAuthority(): void;
 	/**
 	* Wait for a process to complete and get its result (async)
 	*/

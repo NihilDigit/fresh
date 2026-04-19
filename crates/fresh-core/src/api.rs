@@ -1923,6 +1923,45 @@ pub enum PluginCommand {
         /// Callback ID for async response
         callback_id: JsCallbackId,
     },
+
+    /// Install a new authority.
+    ///
+    /// Authority is opaque to core. The payload is a tagged JSON object
+    /// (filesystem kind + spawner kind + terminal wrapper + display
+    /// label) that `fresh-editor` deserializes into its concrete
+    /// `AuthorityPayload` type. Using `serde_json::Value` here keeps
+    /// fresh-core from growing backend-specific knowledge; see
+    /// `crates/fresh-editor/src/services/authority/mod.rs` for the
+    /// canonical schema.
+    ///
+    /// Fire-and-forget: the transition piggy-backs on the existing
+    /// editor restart flow, so the plugin that sent this command will
+    /// be re-loaded as part of the restart. Any follow-up work the
+    /// plugin wants to do after the switch belongs in its post-restart
+    /// init code, not in a callback here.
+    SetAuthority {
+        #[ts(type = "unknown")]
+        payload: JsonValue,
+    },
+
+    /// Restore the default local authority. Same semantics as
+    /// `SetAuthority` with a local payload — triggers an editor
+    /// restart.
+    ClearAuthority,
+
+    /// Spawn a process on the host, regardless of the currently
+    /// installed authority.
+    ///
+    /// Intended for plugin internals that must run host-side work
+    /// (e.g. `devcontainer up`) before installing an authority that
+    /// would otherwise route the spawn elsewhere. Behaves like
+    /// `SpawnProcess` but always uses `LocalProcessSpawner`.
+    SpawnHostProcess {
+        command: String,
+        args: Vec<String>,
+        cwd: Option<String>,
+        callback_id: JsCallbackId,
+    },
 }
 
 impl PluginCommand {
