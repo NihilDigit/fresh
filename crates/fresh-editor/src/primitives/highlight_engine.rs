@@ -109,16 +109,22 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
         return Some(HighlightCategory::Operator);
     }
 
-    // Punctuation brackets ({, }, (, ), [, ], <, >)
-    // Covers punctuation.section.*, punctuation.bracket.*,
-    // and punctuation.definition.{array,block,brackets,group,inline-table,section,table,tag}
+    // Punctuation brackets ({, }, (, ), [, ], <, >, | for block params, etc.)
+    // Covers punctuation.section.*, punctuation.bracket.*, and
+    // punctuation.definition.{array,block,brackets,generic,group,
+    // inline-table,link,mapping,metadata,parameters,section,table,tag}.
     if scope_lower.starts_with("punctuation.section")
         || scope_lower.starts_with("punctuation.bracket")
         || scope_lower.starts_with("punctuation.definition.array")
         || scope_lower.starts_with("punctuation.definition.block")
         || scope_lower.starts_with("punctuation.definition.brackets")
+        || scope_lower.starts_with("punctuation.definition.generic")
         || scope_lower.starts_with("punctuation.definition.group")
         || scope_lower.starts_with("punctuation.definition.inline-table")
+        || scope_lower.starts_with("punctuation.definition.link")
+        || scope_lower.starts_with("punctuation.definition.mapping")
+        || scope_lower.starts_with("punctuation.definition.metadata")
+        || scope_lower.starts_with("punctuation.definition.parameters")
         || scope_lower.starts_with("punctuation.definition.section")
         || scope_lower.starts_with("punctuation.definition.table")
         || scope_lower.starts_with("punctuation.definition.tag")
@@ -135,8 +141,12 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
     }
 
     // Functions
+    // entity.name.macro + support.macro cover Rust macros (`macro_rules! foo`
+    // and invocations like `todo!` / `format!`).
     if scope_lower.starts_with("entity.name.function")
+        || scope_lower.starts_with("entity.name.macro")
         || scope_lower.starts_with("support.function")
+        || scope_lower.starts_with("support.macro")
         || scope_lower.starts_with("meta.function-call")
         || scope_lower.starts_with("variable.function")
     {
@@ -144,15 +154,26 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
     }
 
     // Types
+    // meta.generic covers identifiers inside <...> that the grammar doesn't
+    // otherwise tag (e.g. `Option` in `Option<T>`). Primitives/stdlib types
+    // inside generics get more specific scopes and still match via
+    // storage.type / support.type higher in the stack.
+    // entity.other.inherited-class covers base classes in class declarations
+    // across Python/JS/C++/Ruby. entity.name.impl / entity.name.namespace
+    // cover Rust `impl Foo` / C++ namespaces.
     if scope_lower.starts_with("entity.name.type")
         || scope_lower.starts_with("entity.name.class")
         || scope_lower.starts_with("entity.name.struct")
         || scope_lower.starts_with("entity.name.enum")
         || scope_lower.starts_with("entity.name.interface")
         || scope_lower.starts_with("entity.name.trait")
+        || scope_lower.starts_with("entity.name.impl")
+        || scope_lower.starts_with("entity.name.namespace")
+        || scope_lower.starts_with("entity.other.inherited-class")
         || scope_lower.starts_with("support.type")
         || scope_lower.starts_with("support.class")
         || scope_lower.starts_with("storage.type")
+        || scope_lower.starts_with("meta.generic")
     {
         return Some(HighlightCategory::Type);
     }
@@ -168,14 +189,19 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
     {
         return Some(HighlightCategory::Number);
     }
-    if scope_lower.starts_with("constant") {
+    // entity.name.constant covers C preprocessor defines and Rust `const` names.
+    if scope_lower.starts_with("constant") || scope_lower.starts_with("entity.name.constant") {
         return Some(HighlightCategory::Constant);
     }
 
     // Variables
+    // entity.name.other.anchor covers YAML anchor names (&name).
+    // support.other.package covers Java package-path segments.
     if scope_lower.starts_with("variable.parameter")
         || scope_lower.starts_with("variable.other")
         || scope_lower.starts_with("variable.language")
+        || scope_lower.starts_with("entity.name.other.anchor")
+        || scope_lower.starts_with("support.other.package")
     {
         return Some(HighlightCategory::Variable);
     }
@@ -191,8 +217,15 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
     }
 
     // Attributes (decorators, annotations)
+    // meta.annotation + variable.annotation + punctuation.definition.annotation
+    // cover Rust attributes like `#[arg(long)]` (sublime default grammar tags
+    // the whole span as meta.annotation, the name as variable.annotation, and
+    // the `#` as punctuation.definition.annotation).
     if scope_lower.starts_with("entity.other.attribute")
         || scope_lower.starts_with("meta.attribute")
+        || scope_lower.starts_with("meta.annotation")
+        || scope_lower.starts_with("variable.annotation")
+        || scope_lower.starts_with("punctuation.definition.annotation")
         || scope_lower.starts_with("entity.name.decorator")
     {
         return Some(HighlightCategory::Attribute);
@@ -1637,6 +1670,142 @@ mod tests {
         assert_eq!(
             scope_to_category("punctuation.accessor"),
             Some(HighlightCategory::PunctuationDelimiter)
+        );
+    }
+
+    #[test]
+    fn test_rust_attribute_scopes() {
+        // Syntect's default Rust grammar emits these scopes for `#[arg(...)]`.
+        assert_eq!(
+            scope_to_category("meta.annotation.rust"),
+            Some(HighlightCategory::Attribute)
+        );
+        assert_eq!(
+            scope_to_category("meta.annotation.parameters.rust"),
+            Some(HighlightCategory::Attribute)
+        );
+        assert_eq!(
+            scope_to_category("variable.annotation.rust"),
+            Some(HighlightCategory::Attribute)
+        );
+        assert_eq!(
+            scope_to_category("punctuation.definition.annotation.rust"),
+            Some(HighlightCategory::Attribute)
+        );
+    }
+
+    #[test]
+    fn test_inherited_class_scopes() {
+        assert_eq!(
+            scope_to_category("entity.other.inherited-class.python"),
+            Some(HighlightCategory::Type)
+        );
+        assert_eq!(
+            scope_to_category("entity.other.inherited-class.js"),
+            Some(HighlightCategory::Type)
+        );
+        assert_eq!(
+            scope_to_category("entity.other.inherited-class.c++"),
+            Some(HighlightCategory::Type)
+        );
+        assert_eq!(
+            scope_to_category("entity.other.inherited-class.ruby"),
+            Some(HighlightCategory::Type)
+        );
+    }
+
+    #[test]
+    fn test_rust_macro_and_impl_scopes() {
+        // `macro_rules! foo` — the name and invocations
+        assert_eq!(
+            scope_to_category("entity.name.macro.rust"),
+            Some(HighlightCategory::Function)
+        );
+        assert_eq!(
+            scope_to_category("support.macro.rust"),
+            Some(HighlightCategory::Function)
+        );
+        // `impl Foo` — the type name gets entity.name.impl.rust
+        assert_eq!(
+            scope_to_category("entity.name.impl.rust"),
+            Some(HighlightCategory::Type)
+        );
+    }
+
+    #[test]
+    fn test_namespace_and_constant_scopes() {
+        // C++ namespace names
+        assert_eq!(
+            scope_to_category("entity.name.namespace.c++"),
+            Some(HighlightCategory::Type)
+        );
+        // C preprocessor `#define FOO` and Rust `const NAME`
+        assert_eq!(
+            scope_to_category("entity.name.constant.preprocessor.c"),
+            Some(HighlightCategory::Constant)
+        );
+    }
+
+    #[test]
+    fn test_yaml_and_markdown_punctuation() {
+        // YAML flow-mapping braces and anchor names
+        assert_eq!(
+            scope_to_category("punctuation.definition.mapping.begin.yaml"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+        assert_eq!(
+            scope_to_category("entity.name.other.anchor.yaml"),
+            Some(HighlightCategory::Variable)
+        );
+        // Markdown link brackets `[text](url)`
+        assert_eq!(
+            scope_to_category("punctuation.definition.link.begin.markdown"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+        assert_eq!(
+            scope_to_category("punctuation.definition.metadata.begin.markdown"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+    }
+
+    #[test]
+    fn test_ruby_block_parameters() {
+        // Ruby `|n|` block parameter pipes
+        assert_eq!(
+            scope_to_category("punctuation.definition.parameters.begin.ruby"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+        assert_eq!(
+            scope_to_category("punctuation.definition.parameters.end.ruby"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+    }
+
+    #[test]
+    fn test_java_package_path() {
+        assert_eq!(
+            scope_to_category("support.other.package.java"),
+            Some(HighlightCategory::Variable)
+        );
+    }
+
+    #[test]
+    fn test_rust_generic_scopes() {
+        // Syntect's default Rust grammar tags identifiers inside <...> as
+        // `meta.generic.rust` (e.g. `Option` in `Option<T>`), without a
+        // type-specific scope. Treat these as types.
+        assert_eq!(
+            scope_to_category("meta.generic.rust"),
+            Some(HighlightCategory::Type)
+        );
+        // The `<` and `>` delimiters themselves should still render as brackets.
+        assert_eq!(
+            scope_to_category("punctuation.definition.generic.begin.rust"),
+            Some(HighlightCategory::PunctuationBracket)
+        );
+        assert_eq!(
+            scope_to_category("punctuation.definition.generic.end.rust"),
+            Some(HighlightCategory::PunctuationBracket)
         );
     }
 }
