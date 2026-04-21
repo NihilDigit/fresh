@@ -74,6 +74,30 @@ fn is_suppressed_error_code(code: i64) -> bool {
         || code == LSP_ERROR_METHOD_NOT_FOUND
 }
 
+/// Log an LSP JSON-RPC error response at the appropriate level.
+///
+/// Suppressed codes (see `is_suppressed_error_code`) emit a debug record; every
+/// other code emits a warning so genuine server misbehaviour stays visible.
+fn log_response_error(code: i64, message: &str, server_name: &str, language: &str) {
+    if is_suppressed_error_code(code) {
+        tracing::debug!(
+            "LSP response from '{}' ({}): {} (code {}), discarding",
+            server_name,
+            language,
+            message,
+            code
+        );
+    } else {
+        tracing::warn!(
+            "LSP response error from '{}' ({}): {} (code {})",
+            server_name,
+            language,
+            message,
+            code
+        );
+    }
+}
+
 /// Check if a document is already open and should skip didOpen.
 /// Returns true if the document is already open (should skip), false if it should proceed.
 fn should_skip_did_open(
@@ -3509,23 +3533,7 @@ async fn handle_message_dispatch(
             tracing::trace!("Received LSP response for request id={}", response.id);
             if let Some(tx) = pending.lock().unwrap().remove(&response.id) {
                 let result = if let Some(error) = response.error {
-                    if is_suppressed_error_code(error.code) {
-                        tracing::debug!(
-                            "LSP response from '{}' ({}): {} (code {}), discarding",
-                            server_name,
-                            language,
-                            error.message,
-                            error.code
-                        );
-                    } else {
-                        tracing::warn!(
-                            "LSP response error from '{}' ({}): {} (code {})",
-                            server_name,
-                            language,
-                            error.message,
-                            error.code
-                        );
-                    }
+                    log_response_error(error.code, &error.message, server_name, language);
                     Err(format!(
                         "LSP error from '{}' ({}): {} (code {})",
                         server_name, language, error.message, error.code
@@ -4750,6 +4758,92 @@ mod tests {
         assert!(!is_suppressed_error_code(-32603)); // Internal error
         assert!(!is_suppressed_error_code(-32700)); // Parse error
         assert!(!is_suppressed_error_code(0));
+    }
+
+    /// Scope a `WarningLogLayer` to the current thread and run `body`. Returns
+    /// whether the layer observed a WARN/ERROR record, plus the captured log
+    /// file contents for assertion on the formatted message.
+    fn capture_warn_logs(body: impl FnOnce()) -> (bool, String) {
+        use std::time::Duration;
+        use tempfile::NamedTempFile;
+        use tracing_subscriber::prelude::*;
+
+        let log_file = NamedTempFile::new().unwrap();
+        let log_path = log_file.into_temp_path();
+        let (layer, handle) =
+            crate::services::warning_log::create_with_path(log_path.to_path_buf()).unwrap();
+        let subscriber = tracing_subscriber::registry().with(layer);
+
+        tracing::subscriber::with_default(subscriber, body);
+
+        let emitted = handle
+            .receiver
+            .recv_timeout(Duration::from_millis(100))
+            .is_ok();
+        let contents = std::fs::read_to_string(&log_path).unwrap_or_default();
+        (emitted, contents)
+    }
+
+    #[test]
+    fn test_method_not_found_is_not_logged_as_warn() {
+        // Regression: opening a JSON file with vscode-json-language-server
+        // used to surface `Unhandled method textDocument/inlayHint (code
+        // -32601)` at WARN. The user can't act on it, so it should be debug.
+        let (emitted, contents) = capture_warn_logs(|| {
+            log_response_error(
+                LSP_ERROR_METHOD_NOT_FOUND,
+                "Unhandled method textDocument/inlayHint",
+                "vscode-json-language-server",
+                "json",
+            );
+        });
+        assert!(
+            !emitted,
+            "MethodNotFound must not notify the WARN channel; got log:\n{}",
+            contents
+        );
+        assert!(
+            !contents.contains("code -32601"),
+            "WARN log file should not record -32601; got:\n{}",
+            contents
+        );
+    }
+
+    #[test]
+    fn test_content_modified_and_server_cancelled_are_not_logged_as_warn() {
+        for code in [LSP_ERROR_CONTENT_MODIFIED, LSP_ERROR_SERVER_CANCELLED] {
+            let (emitted, contents) = capture_warn_logs(|| {
+                log_response_error(code, "expected during editing", "rust-analyzer", "rust");
+            });
+            assert!(
+                !emitted,
+                "code {} must not notify the WARN channel; got log:\n{}",
+                code, contents
+            );
+        }
+    }
+
+    #[test]
+    fn test_non_suppressed_errors_still_warn() {
+        // InternalError (-32603) and other unexpected codes must continue
+        // to surface so genuine server misbehaviour stays visible.
+        let (emitted, contents) = capture_warn_logs(|| {
+            log_response_error(-32603, "internal error", "rust-analyzer", "rust");
+        });
+        assert!(
+            emitted,
+            "non-suppressed error codes should notify the WARN channel"
+        );
+        assert!(
+            contents.contains("code -32603"),
+            "WARN log should record the error code; got:\n{}",
+            contents
+        );
+        assert!(
+            contents.contains("rust-analyzer"),
+            "WARN log should record the server name; got:\n{}",
+            contents
+        );
     }
 
     #[test]
