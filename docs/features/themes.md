@@ -9,9 +9,9 @@ Use the command palette (`Ctrl+P`) and search for "Select Theme" to choose from 
 
 ## Setting a Theme in `config.json`
 
-The `theme` field in `config.json` accepts several forms, so you can point at a built-in, a local file, or a theme hosted somewhere else:
+The `theme` field in `config.json` accepts several forms, so you can point at a built-in, a local file, or a theme hosted somewhere else (Fresh's config parser accepts JSONC, so `//` comments are fine):
 
-```json
+```jsonc
 { "theme": "dark" }                              // built-in, by name
 { "theme": "builtin://dark" }                    // same thing, explicit
 

@@ -14,7 +14,7 @@ Fresh shells out to `devcontainer` for build/up/exec — if it's not on `PATH`, 
 
 ## Using it
 
-Open a project that contains `.devcontainer/devcontainer.json`. Run **Devcontainer: Attach** from the command palette (`Ctrl+P`). The first attach builds and starts the container; subsequent attaches reuse it. **Devcontainer: Rebuild** forces a full rebuild — reach for it after changing the Dockerfile or `devcontainer.json`.
+Open a project that contains `.devcontainer/devcontainer.json`. Run **Dev Container: Attach** from the command palette (`Ctrl+P`). The first attach builds and starts the container; subsequent attaches reuse it. **Dev Container: Rebuild** forces a full rebuild — reach for it after changing the Dockerfile or `devcontainer.json`.
 
 While attached:
 
@@ -22,7 +22,7 @@ While attached:
 - Opening files through the file explorer or `Ctrl+P` pulls them from the container's filesystem.
 - LSP servers that Fresh spawns run in the container (install them there, not on your host).
 
-Use **Devcontainer: Detach** to return to host filesystem and process authority without quitting Fresh.
+Use **Dev Container: Detach** to return to host filesystem and process authority without quitting Fresh.
 
 ## Related
 

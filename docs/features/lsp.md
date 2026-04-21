@@ -12,7 +12,7 @@ All LSP operations are available as palette commands (search for "LSP"). Use the
 
 ## Status Bar
 
-The status bar shows a single `LSP` indicator — colour-coded, with a spinner during startup and indexing. Click it to open a popup with per-server status, live progress, and per-server actions (restart, stop, view log). Servers that are configured but whose binary isn't on `PATH` are flagged so Fresh doesn't quietly spawn failing processes. You can also mute a language from the popup.
+The status bar shows a single `LSP` indicator — colour-coded, with a spinner during startup and indexing. Activate it (click, or run **LSP: Server Status** from the command palette) to open a popup with per-server status, live progress, and per-server actions (restart, stop, view log). Servers that are configured but whose binary isn't on `PATH` are flagged so Fresh doesn't quietly spawn failing processes. You can also mute a language from the popup.
 
 ## Hover and Diagnostics
 
