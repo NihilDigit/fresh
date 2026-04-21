@@ -46,32 +46,27 @@ use tokio::sync::{mpsc, oneshot};
 /// This gives the LSP server time to process didOpen before receiving changes
 const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
 
-/// LSP / JSON-RPC error codes that should not surface as user-visible warnings.
+/// LSP error codes that should not surface as user-visible warnings.
 ///
 /// From [LSP 3.17 specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/):
 /// - ContentModified (-32801): "If clients receive a ContentModified error,
 ///   it generally should not show it in the UI for the end-user."
 /// - ServerCancelled (-32802): Server cancelled the request (e.g. due to newer request).
 ///
-/// From the JSON-RPC 2.0 specification:
-/// - MethodNotFound (-32601): The method does not exist / is not available.
-///   Servers commonly return this for optional LSP methods they don't implement
-///   (e.g. vscode-json-language-server returning it for textDocument/inlayHint),
-///   including for methods they didn't advertise in their initialize response.
-///   Not user-actionable, so treat it like the other non-fatal errors.
-///
-/// These are expected during normal operation and all major editors (VS Code,
+/// These are expected during normal editing and all major editors (VS Code,
 /// Neovim) suppress them.
+///
+/// Other JSON-RPC errors — including MethodNotFound (-32601) — are NOT
+/// suppressed: we want genuine protocol mismatches to surface so they can
+/// be diagnosed. The correct way to avoid MethodNotFound is to check the
+/// server's advertised capabilities before sending the request.
 const LSP_ERROR_CONTENT_MODIFIED: i64 = -32801;
 const LSP_ERROR_SERVER_CANCELLED: i64 = -32802;
-const LSP_ERROR_METHOD_NOT_FOUND: i64 = -32601;
 
 /// Whether a JSON-RPC error response should be logged at debug rather than warn.
 /// See `LSP_ERROR_*` constants above for the rationale behind each suppressed code.
 fn is_suppressed_error_code(code: i64) -> bool {
-    code == LSP_ERROR_CONTENT_MODIFIED
-        || code == LSP_ERROR_SERVER_CANCELLED
-        || code == LSP_ERROR_METHOD_NOT_FOUND
+    code == LSP_ERROR_CONTENT_MODIFIED || code == LSP_ERROR_SERVER_CANCELLED
 }
 
 /// Log an LSP JSON-RPC error response at the appropriate level.
@@ -4746,14 +4741,13 @@ mod tests {
         // ContentModified and ServerCancelled are normal during editing.
         assert!(is_suppressed_error_code(LSP_ERROR_CONTENT_MODIFIED));
         assert!(is_suppressed_error_code(LSP_ERROR_SERVER_CANCELLED));
-        // MethodNotFound is expected from servers that don't implement an
-        // optional LSP method (e.g. vscode-json-language-server returning
-        // -32601 for textDocument/inlayHint). Surfacing this as a warning
-        // is noise since the user can't act on it.
-        assert!(is_suppressed_error_code(LSP_ERROR_METHOD_NOT_FOUND));
 
-        // Other JSON-RPC / LSP errors should still surface.
+        // Every other JSON-RPC / LSP error must still surface so genuine
+        // protocol mismatches stay debuggable — including MethodNotFound
+        // (-32601), which signals "we sent a request the server doesn't
+        // handle" and should be fixed with a capability check, not a filter.
         assert!(!is_suppressed_error_code(-32600)); // Invalid request
+        assert!(!is_suppressed_error_code(-32601)); // Method not found
         assert!(!is_suppressed_error_code(-32602)); // Invalid params
         assert!(!is_suppressed_error_code(-32603)); // Internal error
         assert!(!is_suppressed_error_code(-32700)); // Parse error
@@ -4785,31 +4779,6 @@ mod tests {
     }
 
     #[test]
-    fn test_method_not_found_is_not_logged_as_warn() {
-        // Regression: opening a JSON file with vscode-json-language-server
-        // used to surface `Unhandled method textDocument/inlayHint (code
-        // -32601)` at WARN. The user can't act on it, so it should be debug.
-        let (emitted, contents) = capture_warn_logs(|| {
-            log_response_error(
-                LSP_ERROR_METHOD_NOT_FOUND,
-                "Unhandled method textDocument/inlayHint",
-                "vscode-json-language-server",
-                "json",
-            );
-        });
-        assert!(
-            !emitted,
-            "MethodNotFound must not notify the WARN channel; got log:\n{}",
-            contents
-        );
-        assert!(
-            !contents.contains("code -32601"),
-            "WARN log file should not record -32601; got:\n{}",
-            contents
-        );
-    }
-
-    #[test]
     fn test_content_modified_and_server_cancelled_are_not_logged_as_warn() {
         for code in [LSP_ERROR_CONTENT_MODIFIED, LSP_ERROR_SERVER_CANCELLED] {
             let (emitted, contents) = capture_warn_logs(|| {
@@ -4821,6 +4790,30 @@ mod tests {
                 code, contents
             );
         }
+    }
+
+    #[test]
+    fn test_method_not_found_still_surfaces_as_warn() {
+        // MethodNotFound must WARN so we notice when we're sending requests a
+        // server doesn't support. The fix for that class of bug belongs in the
+        // caller (check capabilities first), not in the error filter.
+        let (emitted, contents) = capture_warn_logs(|| {
+            log_response_error(
+                -32601,
+                "Unhandled method textDocument/inlayHint",
+                "vscode-json-language-server",
+                "json",
+            );
+        });
+        assert!(
+            emitted,
+            "MethodNotFound should notify the WARN channel so the mismatch is visible"
+        );
+        assert!(
+            contents.contains("code -32601"),
+            "WARN log should record the error code; got:\n{}",
+            contents
+        );
     }
 
     #[test]
