@@ -723,8 +723,18 @@ impl Editor {
                     tracing::warn!("Failed to refresh directory: {}", e);
                 }
             }
+            // Restore the cursor. If its path survives the reload we
+            // re-resolve to the new NodeId; otherwise (the cursor was
+            // sitting on a file that got deleted externally, for
+            // instance) fall back to the root so the cursor stays live
+            // and visible — a stale id is effectively no cursor at all.
             if let Some(path) = cursor_path {
-                explorer.navigate_to_path(&path);
+                if explorer.tree().get_node_by_path(&path).is_some() {
+                    explorer.navigate_to_path(&path);
+                } else {
+                    let root_id = explorer.tree().root_id();
+                    explorer.set_selected(Some(root_id));
+                }
             }
         }
         let fs = self.authority.filesystem.clone();

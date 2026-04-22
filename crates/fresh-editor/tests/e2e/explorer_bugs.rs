@@ -1232,3 +1232,89 @@ fn test_poll_after_cut_paste_preserves_expansion_and_cursor() {
          stays put."
     );
 }
+
+/// If the cursor was sitting on a node whose path is gone after the poll
+/// refresh (file deleted in another terminal, directory pruned, …), the
+/// cursor must reset to the tree root rather than hang on a stale NodeId.
+/// A stale id is invisible — nothing renders as selected — and Up/Down
+/// are no-ops because `select_next`/`select_prev` can't locate the id in
+/// the visible list. "Cursor on root" is always a safe, recoverable state.
+#[test]
+fn test_poll_resets_cursor_to_root_when_path_disappears() {
+    let mut config = Config::default();
+    config.editor.file_tree_poll_interval_ms = 50;
+
+    let mut harness = EditorTestHarness::with_temp_project_and_config(120, 30, config).unwrap();
+    let project_root = harness.project_dir().unwrap();
+    fs::write(project_root.join("doomed.txt"), "d").unwrap();
+    fs::write(project_root.join("survivor.txt"), "s").unwrap();
+
+    harness.editor_mut().focus_file_explorer();
+    harness.wait_for_file_explorer().unwrap();
+    harness.wait_for_file_explorer_item("doomed.txt").unwrap();
+
+    // Put cursor on doomed.txt.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap(); // doomed.txt
+    let before = harness
+        .editor()
+        .file_explorer()
+        .and_then(|e| e.get_selected_entry())
+        .map(|e| e.path.clone());
+    assert_eq!(
+        before.as_ref().and_then(|p| p.file_name()),
+        Some(std::ffi::OsStr::new("doomed.txt")),
+        "test precondition: cursor should be on doomed.txt"
+    );
+
+    // Delete the file outside the editor. The parent dir's mtime changes,
+    // so the background poll will refresh root and drop doomed.txt from
+    // the tree.
+    fs::remove_file(project_root.join("doomed.txt")).unwrap();
+
+    // Drive the poll to completion.
+    harness.advance_time(Duration::from_millis(200));
+    for _ in 0..20 {
+        harness.editor_mut().process_async_messages();
+        std::thread::sleep(Duration::from_millis(20));
+        harness.advance_time(Duration::from_millis(100));
+    }
+    harness.render().unwrap();
+
+    // doomed.txt must be gone from the rendered tree.
+    let after = harness.screen_to_string();
+    assert!(
+        !after.contains("doomed.txt"),
+        "poll should have dropped the deleted file. Screen:\n{}",
+        after
+    );
+
+    // Cursor must now point at a live node — specifically the root (a
+    // safe fallback), so it stays visible and navigation still works.
+    let selected = harness
+        .editor()
+        .file_explorer()
+        .and_then(|e| e.get_selected_entry())
+        .map(|e| e.path.clone());
+    assert_eq!(
+        selected.as_deref(),
+        Some(project_root.as_path()),
+        "cursor should reset to the tree root when its path is gone. \
+         Actual selected path: {:?}",
+        selected
+    );
+
+    // Sanity: Up/Down still navigate — if the cursor were stuck on a
+    // stale id, select_next would no-op and the selection wouldn't move.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    let after_down = harness
+        .editor()
+        .file_explorer()
+        .and_then(|e| e.get_selected_entry())
+        .map(|e| e.path.clone());
+    assert_ne!(
+        selected, after_down,
+        "arrow-down must move the cursor off of the root once it's been \
+         reset there"
+    );
+}
