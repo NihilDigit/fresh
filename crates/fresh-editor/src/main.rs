@@ -1953,6 +1953,13 @@ fn init_package_command(package_type: Option<String>) -> AnyhowResult<()> {
 
     std::fs::create_dir_all(&pkg_dir)?;
 
+    let registry_file = match pkg_type {
+        "plugin" => "plugins.json",
+        "theme" => "themes.json",
+        "language" => "languages.json",
+        _ => unreachable!(),
+    };
+
     // Generate files based on package type
     match pkg_type {
         "plugin" => create_plugin_package(&pkg_dir, &name, &description, &author)?,
@@ -1986,12 +1993,7 @@ fn init_package_command(package_type: Option<String>) -> AnyhowResult<()> {
     println!("  1. Push your package to a public Git repository");
     println!("  2. Submit a PR to: https://github.com/sinelaw/fresh-plugins-registry");
     println!("     Add your package to the appropriate registry file:");
-    match pkg_type {
-        "plugin" => println!("     - plugins.json"),
-        "theme" => println!("     - themes.json"),
-        "language" => println!("     - languages.json"),
-        _ => unreachable!(),
-    }
+    println!("     - {}", registry_file);
     println!("\nDocumentation: https://github.com/sinelaw/fresh-plugins-registry#readme");
 
     Ok(())
@@ -2057,6 +2059,14 @@ fn write_script_file(dir: &Path, name: &str, content: &str) -> AnyhowResult<()> 
     Ok(())
 }
 
+fn effective_description<'a>(description: &'a str, default: &'a str) -> &'a str {
+    if description.is_empty() {
+        default
+    } else {
+        description
+    }
+}
+
 fn write_package_json(
     dir: &Path,
     name: &str,
@@ -2066,11 +2076,7 @@ fn write_package_json(
     default_description: &str,
     fresh_section: &str,
 ) -> AnyhowResult<()> {
-    let desc = if description.is_empty() {
-        default_description
-    } else {
-        description
-    };
+    let desc = effective_description(description, default_description);
     let content = format!(
         r#"{{
   "$schema": "https://raw.githubusercontent.com/sinelaw/fresh/main/crates/fresh-editor/plugins/schemas/package.schema.json",
@@ -2170,11 +2176,7 @@ This plugin adds the following commands:
 MIT
 "#,
         name,
-        if description.is_empty() {
-            "A Fresh plugin."
-        } else {
-            description
-        },
+        effective_description(description, "A Fresh plugin."),
         name,
         name
     );
@@ -2269,11 +2271,7 @@ Or add to your Fresh config:
 MIT
 "#,
         name,
-        if description.is_empty() {
-            "A Fresh theme."
-        } else {
-            description
-        },
+        effective_description(description, "A Fresh theme."),
         name,
         name,
         name
@@ -2426,11 +2424,7 @@ If using an existing grammar, check its license and include a copy in `grammars/
 MIT
 "#,
         name,
-        if description.is_empty() {
-            "Language support for Fresh."
-        } else {
-            description
-        },
+        effective_description(description, "Language support for Fresh."),
         name
     );
     std::fs::write(dir.join("README.md"), readme)?;
