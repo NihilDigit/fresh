@@ -180,6 +180,13 @@ impl Editor {
                         return Ok(state.search_scroll_up(3));
                     }
                 }
+                // Wheel over the categories panel scrolls it independently.
+                if self.over_categories_panel(col, row) {
+                    if let Some(ref mut state) = self.settings_state {
+                        state.categories_scroll.scroll.scroll_by(-3);
+                        return Ok(true);
+                    }
+                }
                 return Ok(self.settings_scroll_up(3));
             }
             MouseEventKind::ScrollDown => {
@@ -192,6 +199,12 @@ impl Editor {
                     // If search is active and we have results, scroll search results
                     if state.search_active && !state.search_results.is_empty() {
                         return Ok(state.search_scroll_down(3));
+                    }
+                }
+                if self.over_categories_panel(col, row) {
+                    if let Some(ref mut state) = self.settings_state {
+                        state.categories_scroll.scroll.scroll_by(3);
+                        return Ok(true);
                     }
                 }
                 return Ok(self.settings_scroll_down(3));
@@ -464,6 +477,21 @@ impl Editor {
         }
 
         Ok(true)
+    }
+
+    /// Whether the given screen coords sit inside the categories panel —
+    /// used to route mouse-wheel events to the correct scroll target.
+    fn over_categories_panel(&self, col: u16, row: u16) -> bool {
+        self.cached_layout
+            .settings_layout
+            .as_ref()
+            .and_then(|layout| layout.categories_panel_area)
+            .is_some_and(|area| {
+                col >= area.x
+                    && col < area.x.saturating_add(area.width)
+                    && row >= area.y
+                    && row < area.y.saturating_add(area.height)
+            })
     }
 
     fn settings_scroll_up(&mut self, delta: usize) -> bool {

@@ -628,6 +628,34 @@ impl SettingsState {
                 self.select_next();
                 InputResult::Consumed
             }
+            KeyCode::PageUp => {
+                // Page up in the tree view scrolls by viewport height.
+                let viewport = self.categories_scroll.scroll.viewport.max(1) as i32;
+                self.tree_step(-viewport);
+                InputResult::Consumed
+            }
+            KeyCode::PageDown => {
+                let viewport = self.categories_scroll.scroll.viewport.max(1) as i32;
+                self.tree_step(viewport);
+                InputResult::Consumed
+            }
+            KeyCode::Home => {
+                let rows = self.visible_tree();
+                let cur = self.tree_cursor_index(&rows) as i32;
+                if cur > 0 {
+                    self.tree_step(-cur);
+                }
+                InputResult::Consumed
+            }
+            KeyCode::End => {
+                let rows = self.visible_tree();
+                let cur = self.tree_cursor_index(&rows) as i32;
+                let last = rows.len() as i32 - 1;
+                if last > cur {
+                    self.tree_step(last - cur);
+                }
+                InputResult::Consumed
+            }
             KeyCode::Tab => {
                 self.toggle_focus();
                 InputResult::Consumed
@@ -649,33 +677,22 @@ impl SettingsState {
                 InputResult::Consumed
             }
             KeyCode::Right => {
-                // On an expandable, not-yet-expanded category: expand it.
-                // Otherwise (already expanded or single-section/no-section
-                // category) Right moves focus into the body panel — the
-                // existing behavior.
+                // Right ONLY expands an expandable category. Does not move
+                // focus into the body panel — that's Tab's job.
                 let cat_idx = self.selected_category;
                 if self.is_category_expandable(cat_idx)
                     && !self.expanded_categories.contains(&cat_idx)
                 {
                     self.expanded_categories.insert(cat_idx);
-                } else {
-                    self.focus.set(FocusPanel::Settings);
                 }
                 InputResult::Consumed
             }
             KeyCode::Left => {
-                // Left collapses the focused category if it's currently
-                // expanded; otherwise it's a no-op (Categories is already
-                // the leftmost panel).
+                // Left ONLY collapses an expanded category. No-op otherwise.
                 let cat_idx = self.selected_category;
                 if self.expanded_categories.contains(&cat_idx) {
                     self.expanded_categories.remove(&cat_idx);
                 }
-                InputResult::Consumed
-            }
-            KeyCode::Enter => {
-                // Enter on categories: move focus to settings panel
-                self.focus.set(FocusPanel::Settings);
                 InputResult::Consumed
             }
             _ => InputResult::Ignored, // Let modal catch it

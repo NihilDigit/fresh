@@ -11,7 +11,7 @@ use super::search::{search_settings, DeepMatch, SearchResult};
 use crate::config::Config;
 use crate::config_io::ConfigLayer;
 use crate::view::controls::FocusState;
-use crate::view::ui::{FocusManager, ScrollablePanel};
+use crate::view::ui::{FocusManager, ScrollItem, ScrollablePanel};
 use std::collections::HashMap;
 
 /// Info needed to open a nested dialog (extracted before mutable borrow)
@@ -268,6 +268,55 @@ impl SettingsState {
         self.pages.get_mut(self.selected_category)
     }
 
+    /// Index of the item currently sitting at the top of the body
+    /// viewport, computed from the scroll offset and per-item heights. The
+    /// left-panel section indicator follows this so scrolling visibly moves
+    /// the highlight in the tree, not just keyboard navigation.
+    pub fn topmost_visible_item_index(&self) -> Option<usize> {
+        let page = self.pages.get(self.selected_category)?;
+        if page.items.is_empty() {
+            return None;
+        }
+        let target = self.scroll_panel.scroll.offset;
+        let width = self.layout_width;
+        let mut y: u16 = 0;
+        for (idx, item) in page.items.iter().enumerate() {
+            let h = <SettingItem as ScrollItem>::height(item, width);
+            if y + h > target {
+                return Some(idx);
+            }
+            y += h;
+        }
+        Some(page.items.len() - 1)
+    }
+
+    /// Section currently displayed in the body — the section whose item
+    /// range contains either the focused item or the topmost visible item
+    /// (whichever is later). Returns `None` when the page has no sections
+    /// or when the cursor is above the first section.
+    pub fn current_section_index(&self) -> Option<usize> {
+        let page = self.pages.get(self.selected_category)?;
+        if page.sections.is_empty() {
+            return None;
+        }
+        // Use the topmost visible item index when scrolling, falling back
+        // to the focused item — both are "where the user is looking now".
+        let item_idx = self
+            .topmost_visible_item_index()
+            .unwrap_or(self.selected_item)
+            .max(self.selected_item);
+        // Walk sections in order and pick the last one whose first_item_index <= item_idx.
+        let mut current: Option<usize> = None;
+        for (s_idx, section) in page.sections.iter().enumerate() {
+            if section.first_item_index <= item_idx {
+                current = Some(s_idx);
+            } else {
+                break;
+            }
+        }
+        current
+    }
+
     /// Whether a category should render with a chevron + be expandable in
     /// the tree view. We require strictly more than one section, since one
     /// section adds no information beyond the category itself.
@@ -275,6 +324,84 @@ impl SettingsState {
         self.pages
             .get(cat_idx)
             .is_some_and(|p| p.sections.len() > 1)
+    }
+
+    /// Move the cursor in the categories tree by `delta` rows (positive =
+    /// down, negative = up). The cursor walks every visible row — both
+    /// category rows and the section rows under any expanded category — so
+    /// users can step into discovered sections without leaving the keyboard.
+    ///
+    /// Maps the new row to state:
+    /// * Category row → `selected_category = idx`, `selected_item = 0`.
+    /// * Section row → category + first item of that section (same effect
+    ///   as clicking the section).
+    pub fn tree_step(&mut self, delta: i32) {
+        let rows = self.visible_tree();
+        if rows.is_empty() {
+            return;
+        }
+        let cur = self.tree_cursor_index(&rows);
+        let len = rows.len() as i32;
+        let target = (cur as i32 + delta).clamp(0, len - 1) as usize;
+        if target == cur {
+            return;
+        }
+        self.update_control_focus(false);
+        match rows[target] {
+            TreeRow::Category { idx, .. } => {
+                self.selected_category = idx;
+                self.selected_item = 0;
+                self.scroll_panel = ScrollablePanel::new();
+                self.sub_focus = None;
+                self.update_control_focus(true);
+            }
+            TreeRow::Section {
+                cat_idx,
+                section_idx,
+            } => {
+                let first = self.pages[cat_idx].sections[section_idx].first_item_index;
+                self.selected_category = cat_idx;
+                self.selected_item = first;
+                self.scroll_panel = ScrollablePanel::new();
+                self.sub_focus = None;
+                self.init_map_focus(true);
+                self.update_control_focus(true);
+            }
+        }
+        // Keep the cursor row visible in the categories scroll viewport.
+        let width = self.layout_width;
+        let new_rows = self.visible_tree();
+        self.categories_scroll
+            .ensure_focused_visible(&new_rows, target, None, width);
+    }
+
+    /// Find the visible-tree index for the current selection. Prefers the
+    /// section row when `selected_item` matches a section's first item
+    /// (so the cursor "lives" on a section after a click/jump); otherwise
+    /// falls back to the category row.
+    pub(super) fn tree_cursor_index(&self, rows: &[TreeRow]) -> usize {
+        let cat = self.selected_category;
+        let item = self.selected_item;
+        for (i, row) in rows.iter().enumerate() {
+            if let TreeRow::Section {
+                cat_idx,
+                section_idx,
+            } = *row
+            {
+                if cat_idx == cat && self.pages[cat].sections[section_idx].first_item_index == item
+                {
+                    return i;
+                }
+            }
+        }
+        for (i, row) in rows.iter().enumerate() {
+            if let TreeRow::Category { idx, .. } = *row {
+                if idx == cat {
+                    return i;
+                }
+            }
+        }
+        0
     }
 
     /// Toggle whether a category is expanded in the tree view. No-op for
@@ -443,14 +570,7 @@ impl SettingsState {
     pub fn select_prev(&mut self) {
         match self.focus_panel() {
             FocusPanel::Categories => {
-                if self.selected_category > 0 {
-                    self.update_control_focus(false); // Unfocus old item
-                    self.selected_category -= 1;
-                    self.selected_item = 0;
-                    self.scroll_panel = ScrollablePanel::new();
-                    self.sub_focus = None;
-                    self.update_control_focus(true); // Focus new item
-                }
+                self.tree_step(-1);
             }
             FocusPanel::Settings => {
                 // Try to navigate within current Map control first
@@ -487,14 +607,7 @@ impl SettingsState {
     pub fn select_next(&mut self) {
         match self.focus_panel() {
             FocusPanel::Categories => {
-                if self.selected_category + 1 < self.pages.len() {
-                    self.update_control_focus(false); // Unfocus old item
-                    self.selected_category += 1;
-                    self.selected_item = 0;
-                    self.scroll_panel = ScrollablePanel::new();
-                    self.sub_focus = None;
-                    self.update_control_focus(true); // Focus new item
-                }
+                self.tree_step(1);
             }
             FocusPanel::Settings => {
                 // Try to navigate within current Map control first

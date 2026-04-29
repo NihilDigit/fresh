@@ -488,8 +488,11 @@ fn render_categories(
 
     let focus_panel = state.focus_panel();
     let selected_category = state.selected_category;
-    let selected_item = state.selected_item;
     let hover_hit = state.hover_hit;
+    // Which section is "current" for the body panel — follows scrolling and
+    // selection so the left-panel indicator tracks what the user is looking
+    // at, not just what they last clicked.
+    let current_section = state.current_section_index();
 
     // Snapshot the data each row needs so we don't hold a borrow on `state`
     // through the render callback.
@@ -543,11 +546,14 @@ fn render_categories(
                 section_idx,
             } => {
                 let section = &state.pages[cat_idx].sections[section_idx];
-                let first = section.first_item_index;
+                // Highlight the section that contains the body's current
+                // viewport position — tracks scrolling, not just clicks.
+                let is_current = cat_idx == selected_category
+                    && current_section == Some(section_idx);
                 RowData {
                     chevron: " ",
                     is_expandable: false,
-                    is_selected: cat_idx == selected_category && selected_item == first,
+                    is_selected: is_current,
                     is_hovered: matches!(
                         hover_hit,
                         Some(SettingsHit::CategorySection(c, s)) if c == cat_idx && s == section_idx
@@ -998,31 +1004,21 @@ fn render_setting_item_pure(
             .saturating_sub(2 * style.card_border_cols);
         let inner_area = Rect::new(inner_x, content_rect.y, inner_width, content_rect.height);
 
-        // Highlight background for focused/hovered items.
-        if is_focused_or_hovered && inner_width > 0 {
+        // Highlight background for focused/hovered items. Only the label
+        // row gets the bg color — painting the whole card interior collides
+        // with theme colors that re-use the highlight bg for other roles
+        // (e.g. Nostalgia's bright green menu_hover_bg makes the green
+        // ACTIVE chip illegible). Limiting to the label row gives a clear
+        // focus indicator without nuking text contrast inside the card.
+        let label_visible = skip_top <= content_logical_top;
+        if is_focused_or_hovered && inner_width > 0 && label_visible {
             let bg_style = if is_selected {
                 Style::default().bg(theme.settings_selected_bg)
             } else {
                 Style::default().bg(theme.menu_hover_bg)
             };
-            // Multi-row controls only highlight the label row.
-            let is_multi_row_control = matches!(
-                item.control,
-                SettingControl::Map(_)
-                    | SettingControl::ObjectArray(_)
-                    | SettingControl::TextList(_)
-                    | SettingControl::DualList(_)
-            );
-            let label_visible = skip_top <= content_logical_top;
-            let highlight_rows = if is_multi_row_control && label_visible {
-                1
-            } else {
-                inner_area.height
-            };
-            for row in 0..highlight_rows {
-                let row_area = Rect::new(inner_area.x, inner_area.y + row, inner_area.width, 1);
-                frame.render_widget(Paragraph::new("").style(bg_style), row_area);
-            }
+            let row_area = Rect::new(inner_area.x, inner_area.y, inner_area.width, 1);
+            frame.render_widget(Paragraph::new("").style(bg_style), row_area);
         }
 
         // skip_top relative to the start of the control band — used by
