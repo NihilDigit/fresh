@@ -762,18 +762,13 @@ fn render_setting_item_pure(
                 let header_y = area.y;
                 let _header_area_height = header_visible_height.min(area.height);
 
-                // First row: section title (bold)
+                // First row: section title (bold, accent color, no trailing rule)
                 if header_visible_start == 0 {
                     let header_style = Style::default()
-                        .fg(theme.editor_fg)
+                        .fg(theme.menu_active_fg)
                         .add_modifier(Modifier::BOLD);
-                    // Render section name with underline characters
-                    let header_text = format!("── {} ", section_name);
-                    // Fill remaining width with underline
-                    let remaining = area.width.saturating_sub(header_text.len() as u16);
-                    let full_header = format!("{}{}", header_text, "─".repeat(remaining as usize));
                     frame.render_widget(
-                        Paragraph::new(full_header).style(header_style),
+                        Paragraph::new(section_name.as_str()).style(header_style),
                         Rect::new(area.x, header_y, area.width, 1),
                     );
                 }
