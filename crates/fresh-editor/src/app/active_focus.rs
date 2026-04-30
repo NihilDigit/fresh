@@ -120,8 +120,11 @@ impl Editor {
         // Ensure the newly active tab is visible
         self.ensure_active_tab_visible(active_split, buffer_id, self.effective_tabs_width());
 
-        // Note: We don't sync file explorer here to avoid flicker during tab switches.
-        // File explorer syncs when explicitly focused via focus_file_explorer().
+        if self.file_explorer_visible
+            && self.key_context != crate::input::keybindings::KeyContext::FileExplorer
+        {
+            self.sync_file_explorer_to_active_file();
+        }
 
         // Update plugin state snapshot BEFORE firing the hook so that
         // the handler sees the new active buffer, not the old one.
