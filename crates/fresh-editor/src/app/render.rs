@@ -1870,12 +1870,44 @@ impl Editor {
 
         // Replicate the layout computation that produces editor_content_area.
         // Same constraints as render(): [menu_bar, main_content, status_bar, search_options, prompt_line]
+        let show_search_options = self.prompt.as_ref().is_some_and(|p| {
+            matches!(
+                p.prompt_type,
+                PromptType::Search
+                    | PromptType::ReplaceSearch
+                    | PromptType::Replace { .. }
+                    | PromptType::QueryReplaceSearch
+                    | PromptType::QueryReplace { .. }
+            )
+        });
+
+        let has_suggestions = self
+            .prompt
+            .as_ref()
+            .is_some_and(|p| !p.suggestions.is_empty());
+        let has_file_browser = self.prompt.as_ref().is_some_and(|p| {
+            matches!(
+                p.prompt_type,
+                PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs
+            )
+        }) && self.file_open_state.is_some();
+
         let constraints = vec![
             Constraint::Length(if self.menu_bar_visible { 1 } else { 0 }),
             Constraint::Min(0),
-            Constraint::Length(if self.status_bar_visible { 1 } else { 0 }), // status bar
-            Constraint::Length(0), // search options (doesn't matter for layout)
-            Constraint::Length(if self.prompt_line_visible { 1 } else { 0 }), // prompt line
+            Constraint::Length(
+                if !self.status_bar_visible || has_suggestions || has_file_browser {
+                    0
+                } else {
+                    1
+                },
+            ), // status bar
+            Constraint::Length(if show_search_options { 1 } else { 0 }), // search options
+            Constraint::Length(if self.prompt_line_visible || self.prompt.is_some() {
+                1
+            } else {
+                0
+            }), // prompt line
         ];
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)

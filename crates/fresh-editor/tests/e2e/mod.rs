@@ -67,6 +67,7 @@ pub mod issue_1620_split_terminal_click_panic;
 pub mod issue_1718_settings_search_utf8_panic;
 pub mod issue_779_after_eof_shade;
 pub mod redraw_screen;
+pub mod repro_popup_layout;
 pub mod suspend_process;
 
 pub mod keybinding_editor;
