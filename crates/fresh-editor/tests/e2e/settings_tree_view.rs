@@ -587,3 +587,340 @@ fn wheel_up_after_click_syncs_tree_highlight_to_earlier_section() {
         harness.screen_to_string()
     );
 }
+
+// ─── Keyboard-only navigation tests (per user's bug report) ──────────────────
+
+/// Helper: send Tab repeatedly until focus lands back on Categories.
+/// Mouse clicks can move focus to Settings; the tree-cursor tests want
+/// to verify keyboard behavior with focus on Categories.
+fn focus_categories(harness: &mut EditorTestHarness) {
+    // Send BackTab once — settings → categories (one step in the focus
+    // cycle). For other starting panels this also lands eventually
+    // because the cycle has only 3 elements.
+    for _ in 0..4 {
+        let screen = harness.screen_to_string();
+        // Heuristic: when categories is focused, the cursor row in the
+        // tree shows '>'. We stop when we see a `│>` substring (tree
+        // panel left edge plus marker).
+        if screen.contains("│>") {
+            return;
+        }
+        harness
+            .send_key(KeyCode::BackTab, KeyModifiers::NONE)
+            .unwrap();
+        harness.render().unwrap();
+    }
+}
+
+/// Bug A: Right key MUST NOT switch focus to the Settings panel. After
+/// the user previously locked in "only Tab switches panels", pressing
+/// Right on a category should ONLY expand it; pressing Right on a
+/// non-expandable category or an already-expanded one should be a no-op
+/// — the tree cursor stays put and the body panel doesn't take focus.
+#[test]
+fn right_key_never_moves_focus_to_settings() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    harness.open_settings().unwrap();
+
+    // Right on General (no sections / non-expandable) — must stay in tree.
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("│>"),
+        "Right on a non-expandable category must keep focus in the \
+         tree (the `>` cursor marker should still be visible). Screen:\n{}",
+        screen
+    );
+
+    // Walk to Editor (expandable) and press Right twice — first expands,
+    // second should be a no-op (already expanded), neither should move
+    // focus.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("│>") && screen.contains("▼"),
+        "Right on expandable category: must expand AND keep focus in tree. \
+         Screen:\n{}",
+        screen
+    );
+
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("│>"),
+        "Right on already-expanded category: focus must stay in tree. \
+         Screen:\n{}",
+        screen
+    );
+}
+
+/// Bug B: pressing Right to expand a category must NOT visually jump
+/// the cursor to the first section row. The cursor stays on the
+/// CATEGORY row; sections appear *below* it. A subsequent Down then
+/// walks into the sections.
+#[test]
+fn right_to_expand_does_not_jump_cursor_to_first_section() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    harness.open_settings().unwrap();
+
+    // Walk to Editor and expand it.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Cursor must still be on the Editor row, not on Bracket Matchi.
+    // Look for `>` immediately followed (after some spaces) by the
+    // chevron and 'Editor' — that's the category row indicator.
+    let screen = harness.screen_to_string();
+    let editor_row_has_cursor = screen
+        .lines()
+        .any(|l| l.contains(">▼") && l.contains("Editor"));
+    assert!(
+        editor_row_has_cursor,
+        "After Right to expand, cursor should remain on the 'Editor' \
+         category row. Screen:\n{}",
+        screen
+    );
+
+    // And the section rows in the tree should NOT be marked as the cursor.
+    let any_section_has_cursor = screen.lines().any(|l| {
+        l.contains(">         ") // 9 spaces of indent before section name
+            && (l.contains("Bracket Matchi") || l.contains("Completion"))
+    });
+    assert!(
+        !any_section_has_cursor,
+        "After Right to expand, no section row should be marked with `>`. \
+         Screen:\n{}",
+        screen
+    );
+}
+
+/// Bug C: After Right to expand, pressing Down must walk the cursor
+/// into the first section row. (Pre-fix, the cursor was stuck on the
+/// category because tree_cursor_index derived from scroll state.)
+#[test]
+fn down_after_expand_walks_into_first_section() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    harness.open_settings().unwrap();
+
+    // General → Clipboard → Editor.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    // Expand Editor.
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    // Step into the first section.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    let screen = harness.screen_to_string();
+    let on_first_section = screen
+        .lines()
+        .any(|l| l.contains(">         Bracket Matchi"));
+    assert!(
+        on_first_section,
+        "After Down past an expanded category, cursor must land on the \
+         first section ('Bracket Matchi'). Screen:\n{}",
+        screen
+    );
+    // And exactly one row is visually highlighted.
+    assert_eq!(
+        count_highlighted_tree_rows(&harness, 120),
+        1,
+        "single-highlight invariant"
+    );
+}
+
+/// Bug D: With a category expanded, repeated Down walks through every
+/// section row in order, then to the next category. Up walks back the
+/// other way. (Pre-fix, the cursor was stuck because the scroll-derived
+/// `current_section_index` clamped the indicator.)
+#[test]
+fn down_then_up_walks_every_visible_tree_row() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    harness.open_settings().unwrap();
+
+    // General → Clipboard → Editor → expand.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    // Editor (cursor) → Bracket Matchi → Completion → Diagnostics.
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    assert!(
+        harness
+            .screen_to_string()
+            .lines()
+            .any(|l| l.contains(">         Diagnostics")),
+        "After Editor + 3xDown, cursor should be on Diagnostics. Screen:\n{}",
+        harness.screen_to_string()
+    );
+
+    // Up x2 → Bracket Matchi.
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    assert!(
+        harness
+            .screen_to_string()
+            .lines()
+            .any(|l| l.contains(">         Bracket Matchi")),
+        "After 2xUp, cursor should be back on Bracket Matchi. Screen:\n{}",
+        harness.screen_to_string()
+    );
+
+    // One more Up → Editor (the category row).
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    assert!(
+        harness
+            .screen_to_string()
+            .lines()
+            .any(|l| l.contains(">▼") && l.contains("Editor")),
+        "Up from first section should land on the parent category. Screen:\n{}",
+        harness.screen_to_string()
+    );
+
+    // Up again → Clipboard (previous category). Accept any whitespace
+    // between the `>` cursor marker and the category name (the chevron
+    // column for non-expandable categories is rendered as a plain
+    // space, and the icon adds a variable-width glyph).
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    let screen = harness.screen_to_string();
+    let on_clipboard = screen.lines().any(|l| {
+        if let Some(arrow_idx) = l.find('>') {
+            if let Some(label_idx) = l.find("Clipboard") {
+                return label_idx > arrow_idx && (label_idx - arrow_idx) < 12;
+            }
+        }
+        false
+    });
+    assert!(
+        on_clipboard,
+        "Up from category should land on previous category (Clipboard). \
+         Screen:\n{}",
+        screen
+    );
+}
+
+/// Bug E (user-reported addition): click a middle section in the tree
+/// under a category with >3 sections, then mouse-wheel scroll UP in
+/// the body. The left-panel highlight must auto-sync to an EARLIER
+/// section.
+#[test]
+fn click_middle_section_then_wheel_up_syncs_to_earlier_section() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    open_editor_expanded(&mut harness);
+
+    // Click on a section deep into the list (Editor has > 3 sections).
+    let middle = &EDITOR_SECTIONS[5]; // Keyboard
+    let (col, row) = find_tree_row(&harness, middle.0, 120).expect("Keyboard row");
+    harness.mouse_click(col, row).unwrap();
+    harness.render().unwrap();
+    assert_eq!(
+        highlighted_section_name(&harness, 120).as_deref(),
+        Some(middle.0),
+        "after click, tree should highlight Keyboard"
+    );
+
+    // Mouse-wheel UP on the body panel (col past the divider).
+    let body_col: u16 = 100;
+    let body_row: u16 = 20;
+    for _ in 0..40 {
+        harness.mouse_scroll_up(body_col, body_row).unwrap();
+    }
+    harness.render().unwrap();
+
+    // The highlight must have moved to an EARLIER section than Keyboard.
+    let after = highlighted_section_name(&harness, 120);
+    let after_idx = after
+        .as_deref()
+        .and_then(|n| EDITOR_SECTIONS.iter().position(|s| s.0 == n));
+    assert!(
+        matches!(after_idx, Some(idx) if idx < 5),
+        "after wheel-up from Keyboard (idx 5), highlight should be on \
+         a section BEFORE it; got {:?}. Screen:\n{}",
+        after,
+        harness.screen_to_string()
+    );
+
+    // Single-highlight invariant still holds.
+    assert_eq!(
+        count_highlighted_tree_rows(&harness, 120),
+        1,
+        "single-highlight invariant after wheel-up sync"
+    );
+}
+
+/// Resuming keyboard nav after body scroll: scroll the body, Tab back
+/// to the tree, press Up — the cursor should walk relative to where
+/// the body is now (i.e. starting from the synced section), not where
+/// the user last clicked.
+#[test]
+fn keyboard_up_after_body_scroll_starts_from_synced_section() {
+    let mut harness = EditorTestHarness::new(120, 40).unwrap();
+    open_editor_expanded(&mut harness);
+
+    // Click an early section, then wheel-down so the body is in a later
+    // section; the tree cursor follows.
+    let start = &EDITOR_SECTIONS[1]; // Completion
+    let (col, row) = find_tree_row(&harness, start.0, 120).expect("Completion row");
+    harness.mouse_click(col, row).unwrap();
+    harness.render().unwrap();
+
+    let body_col: u16 = 100;
+    let body_row: u16 = 20;
+    for _ in 0..30 {
+        harness.mouse_scroll_down(body_col, body_row).unwrap();
+    }
+    harness.render().unwrap();
+    let synced = highlighted_section_name(&harness, 120);
+    let synced_idx = synced
+        .as_deref()
+        .and_then(|n| EDITOR_SECTIONS.iter().position(|s| s.0 == n))
+        .expect("synced section");
+    assert!(
+        synced_idx > 1,
+        "after wheel-down, highlight should be past Completion"
+    );
+
+    // BackTab into the categories panel, press Up: cursor should now
+    // step from the synced section (not from Completion).
+    focus_categories(&mut harness);
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    let after = highlighted_section_name(&harness, 120);
+    let after_idx = after
+        .as_deref()
+        .and_then(|n| EDITOR_SECTIONS.iter().position(|s| s.0 == n))
+        .expect("highlighted after Up");
+    assert_eq!(
+        after_idx,
+        synced_idx - 1,
+        "Up should step from the synced section ({}) to {} (one earlier), got {}",
+        synced_idx,
+        synced_idx - 1,
+        after_idx
+    );
+}

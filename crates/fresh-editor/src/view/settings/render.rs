@@ -487,10 +487,11 @@ fn render_categories(
 
     let focus_panel = state.focus_panel();
     let selected_category = state.selected_category;
-    // Which section is "current" for the body panel — follows scrolling and
-    // selection so the left-panel indicator tracks what the user is looking
-    // at, not just what they last clicked.
-    let current_section = state.current_section_index();
+    // Where the keyboard cursor lives in the tree. `None` = on the
+    // category row; `Some(s_idx)` = on the s-th section row inside the
+    // currently-selected category. This is the single source of truth
+    // for the `>` indicator and the row-bg highlight.
+    let tree_cursor = state.tree_cursor_section;
 
     // Snapshot the data each row needs so we don't hold a borrow on `state`
     // through the render callback.
@@ -526,12 +527,9 @@ fn render_categories(
                         " "
                     },
                     is_expandable: expandable,
-                    // The cursor row is the SECTION row when there's a
-                    // current section in this category — don't also flag
-                    // the parent category as selected, otherwise the `>`
-                    // marker shows up twice.
-                    is_selected: idx == selected_category
-                        && !(expanded && current_section.is_some()),
+                    // Category row is "selected" iff the keyboard cursor
+                    // is sitting on it (no section is the cursor target).
+                    is_selected: idx == selected_category && tree_cursor.is_none(),
                     has_changes: page.items.iter().any(|i| i.modified),
                     indent_cols: 0,
                     is_category: true,
@@ -546,10 +544,12 @@ fn render_categories(
                 section_idx,
             } => {
                 let section = &state.pages[cat_idx].sections[section_idx];
-                // Highlight the section that contains the body's current
-                // viewport position — tracks scrolling, not just clicks.
-                let is_current =
-                    cat_idx == selected_category && current_section == Some(section_idx);
+                // Section row is "selected" iff the explicit tree cursor
+                // points at it. The cursor follows the user's keyboard
+                // navigation AND syncs to body scroll (handled by the
+                // sync-on-scroll path), so this single check covers
+                // both keyboard and wheel-driven highlight updates.
+                let is_current = cat_idx == selected_category && tree_cursor == Some(section_idx);
                 RowData {
                     chevron: " ",
                     is_expandable: false,

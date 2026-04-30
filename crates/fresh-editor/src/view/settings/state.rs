@@ -131,6 +131,18 @@ pub struct SettingsState {
     /// Scroll state for the categories panel itself, separate from the body
     /// panel's `scroll_panel`. Drives mouse-wheel + page-up/down on the left.
     pub categories_scroll: ScrollablePanel,
+    /// Cursor position inside the currently-selected category's tree row.
+    /// `None` = cursor is on the category row itself (the category row
+    /// shows the `>` indicator).
+    /// `Some(s)` = cursor is on the s-th section row of the current
+    /// category (that section row shows the `>` indicator).
+    ///
+    /// Tracked explicitly so it is independent of the body's scroll
+    /// position — pressing Right to expand a category keeps the cursor
+    /// on the category, pressing Down then walks into the sections,
+    /// and scrolling the body updates this so Up/Down resumes from the
+    /// section the user is actually looking at.
+    pub tree_cursor_section: Option<usize>,
 }
 
 /// One row of the left-panel tree. Either a top-level category, or a section
@@ -208,6 +220,7 @@ impl SettingsState {
             item_style: super::items::ItemBoxStyle::default(),
             expanded_categories: std::collections::HashSet::new(),
             categories_scroll: ScrollablePanel::new(),
+            tree_cursor_section: None,
         })
     }
 
@@ -355,8 +368,12 @@ impl SettingsState {
         self.update_control_focus(false);
         match rows[target] {
             TreeRow::Category { idx, .. } => {
+                // Cursor on a category row: body shows the page's first
+                // item but the tree highlight stays on the category
+                // header (no section is "current" yet).
                 self.selected_category = idx;
                 self.selected_item = 0;
+                self.tree_cursor_section = None;
                 if idx != prev_category {
                     self.scroll_panel = ScrollablePanel::new();
                 }
@@ -370,6 +387,7 @@ impl SettingsState {
                 let first = self.pages[cat_idx].sections[section_idx].first_item_index;
                 self.selected_category = cat_idx;
                 self.selected_item = first;
+                self.tree_cursor_section = Some(section_idx);
                 if cat_idx != prev_category {
                     self.scroll_panel = ScrollablePanel::new();
                 }
@@ -386,15 +404,28 @@ impl SettingsState {
         let width = self.layout_width;
         if let Some(page) = self.pages.get(self.selected_category) {
             self.scroll_panel.update_content_height(&page.items, width);
-            // Drive the body scroll directly here — the public
-            // `ensure_visible()` is a no-op while focus lives in the
-            // categories panel, but tree Up/Down explicitly *should*
-            // scroll the body so the user can preview sections without
-            // tabbing into the body first.
-            let selected_item = self.selected_item;
-            let sub_focus = self.sub_focus;
-            self.scroll_panel
-                .ensure_focused_visible(&page.items, selected_item, sub_focus, width);
+            // When the cursor lands on a section, snap the body's scroll
+            // to that section's first item — same UX as clicking a
+            // section in the tree. Without this, `ensure_focused_visible`
+            // would only scroll *just enough* for the item to be in
+            // view, leaving `topmost_visible_item_index` pointing at an
+            // earlier section and making the cursor visually "stick" on
+            // the previous section row.
+            if matches!(rows[target], TreeRow::Section { .. }) {
+                let item_y =
+                    self.scroll_panel
+                        .item_y_offset(&page.items, self.selected_item, width);
+                self.scroll_panel.scroll.offset = item_y;
+            } else {
+                let selected_item = self.selected_item;
+                let sub_focus = self.sub_focus;
+                self.scroll_panel.ensure_focused_visible(
+                    &page.items,
+                    selected_item,
+                    sub_focus,
+                    width,
+                );
+            }
         }
         let new_rows = self.visible_tree();
         let new_cur = self.tree_cursor_index(&new_rows);
@@ -403,14 +434,15 @@ impl SettingsState {
     }
 
     /// Find the visible-tree index for the current selection. Prefers the
-    /// section row that matches `current_section_index()` — i.e. the
-    /// section the body is actually showing right now (which follows
-    /// scroll, not just clicks). Falls back to a section whose first
-    /// item is exactly `selected_item`, then to the category row.
+    /// section row matching the explicit `tree_cursor_section` cursor
+    /// (when set), or the category row otherwise. The cursor is
+    /// independent of body scroll position, so pressing Right to expand
+    /// a category does NOT make the cursor jump to the first section.
+    /// `Up`/`Down` walks the visible rows linearly; clicks and section
+    /// jumps update `tree_cursor_section` directly.
     pub(super) fn tree_cursor_index(&self, rows: &[TreeRow]) -> usize {
         let cat = self.selected_category;
-        let current_section = self.current_section_index();
-        if let Some(s_idx) = current_section {
+        if let Some(s_idx) = self.tree_cursor_section {
             for (i, row) in rows.iter().enumerate() {
                 if let TreeRow::Section {
                     cat_idx,
@@ -420,19 +452,6 @@ impl SettingsState {
                     if cat_idx == cat && section_idx == s_idx {
                         return i;
                     }
-                }
-            }
-        }
-        let item = self.selected_item;
-        for (i, row) in rows.iter().enumerate() {
-            if let TreeRow::Section {
-                cat_idx,
-                section_idx,
-            } = *row
-            {
-                if cat_idx == cat && self.pages[cat].sections[section_idx].first_item_index == item
-                {
-                    return i;
                 }
             }
         }
@@ -485,6 +504,7 @@ impl SettingsState {
         self.update_control_focus(false);
         self.selected_category = cat_idx;
         self.selected_item = target_item;
+        self.tree_cursor_section = Some(section_idx);
         self.focus.set(FocusPanel::Settings);
         let width = self.layout_width;
         if let Some(page) = self.pages.get(self.selected_category) {
@@ -805,9 +825,16 @@ impl SettingsState {
         let selected_item = self.selected_item;
         let sub_focus = self.sub_focus;
         let width = self.layout_width;
+        let prev_offset = self.scroll_panel.scroll.offset;
         if let Some(page) = self.pages.get(self.selected_category) {
             self.scroll_panel
                 .ensure_focused_visible(&page.items, selected_item, sub_focus, width);
+        }
+        // If body Up/Down moved the scroll, the tree cursor must follow
+        // so the left-panel highlight tracks the section the user is
+        // looking at — same contract as wheel/scrollbar scroll.
+        if self.scroll_panel.scroll.offset != prev_offset {
+            self.sync_tree_cursor_to_body_scroll();
         }
     }
 
@@ -1265,6 +1292,10 @@ impl SettingsState {
 
         self.update_control_focus(true); // Focus the new item
         self.auto_expand_current_category();
+        // Whichever section the matched item lives in becomes the tree
+        // cursor — so when the user closes search and Tabs to the
+        // categories panel, Up/Down resumes from the right place.
+        self.tree_cursor_section = self.current_section_index();
         self.ensure_visible();
         self.cancel_search();
     }
@@ -1772,7 +1803,11 @@ impl SettingsState {
     pub fn scroll_up(&mut self, delta: usize) -> bool {
         let old = self.scroll_panel.scroll.offset;
         self.scroll_panel.scroll_up(delta as u16);
-        old != self.scroll_panel.scroll.offset
+        let changed = old != self.scroll_panel.scroll.offset;
+        if changed {
+            self.sync_tree_cursor_to_body_scroll();
+        }
+        changed
     }
 
     /// Scroll down by a given number of rows
@@ -1780,7 +1815,11 @@ impl SettingsState {
     pub fn scroll_down(&mut self, delta: usize) -> bool {
         let old = self.scroll_panel.scroll.offset;
         self.scroll_panel.scroll_down(delta as u16);
-        old != self.scroll_panel.scroll.offset
+        let changed = old != self.scroll_panel.scroll.offset;
+        if changed {
+            self.sync_tree_cursor_to_body_scroll();
+        }
+        changed
     }
 
     /// Scroll to a position based on a ratio (0.0 to 1.0)
@@ -1788,7 +1827,26 @@ impl SettingsState {
     pub fn scroll_to_ratio(&mut self, ratio: f32) -> bool {
         let old = self.scroll_panel.scroll.offset;
         self.scroll_panel.scroll_to_ratio(ratio);
-        old != self.scroll_panel.scroll.offset
+        let changed = old != self.scroll_panel.scroll.offset;
+        if changed {
+            self.sync_tree_cursor_to_body_scroll();
+        }
+        changed
+    }
+
+    /// After the body scroll position changes, snap the tree cursor to
+    /// the section that now contains the topmost visible item — so the
+    /// left-panel highlight follows wheel/scrollbar interaction in both
+    /// directions, and a subsequent Up/Down on the tree resumes from
+    /// the section the user is actually looking at.
+    pub(super) fn sync_tree_cursor_to_body_scroll(&mut self) {
+        if let Some(section_idx) = self.current_section_index() {
+            self.tree_cursor_section = Some(section_idx);
+        }
+        // No section under the topmost visible item (e.g. above the
+        // first section) → leave the cursor where it is. Forcing it to
+        // None would be a worse UX: the user typically wants the
+        // highlight to *track* something, not blink off entirely.
     }
 
     /// Start text editing mode for TextList, Text, or Map controls

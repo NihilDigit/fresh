@@ -692,6 +692,11 @@ impl SettingsState {
                 let cat_idx = self.selected_category;
                 if self.expanded_categories.contains(&cat_idx) {
                     self.expanded_categories.remove(&cat_idx);
+                    // Sections aren't visible anymore — pull the cursor
+                    // back to the category row so the next Down step
+                    // walks to the *next* category, not into the
+                    // (now-hidden) sections.
+                    self.tree_cursor_section = None;
                 }
                 InputResult::Consumed
             }

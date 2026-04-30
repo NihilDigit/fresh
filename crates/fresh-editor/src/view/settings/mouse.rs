@@ -258,6 +258,11 @@ impl Editor {
                     state.selected_item = 0;
                     state.scroll_panel = crate::view::ui::ScrollablePanel::new();
                     state.sub_focus = None;
+                    // Click lands the cursor on the category row itself
+                    // (not on a section), even after auto-expand reveals
+                    // child sections — matches keyboard Up/Down arriving
+                    // here.
+                    state.tree_cursor_section = None;
                     // Deliberate click on a category — auto-expand so the
                     // user immediately sees its sections.
                     state.auto_expand_current_category();
