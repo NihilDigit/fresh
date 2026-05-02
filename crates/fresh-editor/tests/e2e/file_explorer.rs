@@ -3471,3 +3471,130 @@ fn test_file_explorer_side_workspace_serialization() {
     // Save the workspace and reload
     harness.editor_mut().save_workspace().unwrap();
 }
+
+/// Reproduces issue #611: when switching files via the file explorer, the
+/// new file's content should be visible without requiring the user to scroll.
+/// The reported symptom is that switching from a file scrolled deep into a
+/// large buffer to a smaller file leaves the editor's content area blank
+/// until the user scrolls slightly.
+#[test]
+fn test_issue_611_explorer_switch_to_smaller_file_shows_content() {
+    let mut harness = EditorTestHarness::with_temp_project(120, 30).unwrap();
+    let project_root = harness.project_dir().unwrap();
+
+    let big_path = project_root.join("big.txt");
+    let small_path = project_root.join("small.txt");
+
+    let mut big_content = String::new();
+    for i in 1..=200 {
+        big_content.push_str(&format!("big line {}\n", i));
+    }
+    fs::write(&big_path, &big_content).unwrap();
+
+    let mut small_content = String::new();
+    for i in 1..=10 {
+        small_content.push_str(&format!("small line {}\n", i));
+    }
+    fs::write(&small_path, &small_content).unwrap();
+
+    // Open big.txt in the editor.
+    harness.editor_mut().open_file(&big_path).unwrap();
+    harness.render().unwrap();
+
+    // Jump deep into big.txt so the viewport's `top_byte` points well past
+    // the entire small.txt — this is the precondition the issue describes.
+    harness.editor_mut().goto_line_col(180, None);
+    harness.render().unwrap();
+    harness
+        .wait_until(|h| h.screen_to_string().contains("big line 180"))
+        .unwrap();
+
+    // Open the file explorer and navigate to small.txt — going through the
+    // explorer's preview path is what the issue specifically calls out.
+    harness.editor_mut().focus_file_explorer();
+    harness.wait_for_file_explorer_item("small.txt").unwrap();
+    // Move selection from the root (or big.txt) down until small.txt is
+    // selected. Each Down triggers a preview switch through `open_file_preview`.
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::empty())
+        .unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::empty())
+        .unwrap();
+    harness.render().unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("small line 1"),
+        "After switching to small.txt via the file explorer, its content should \
+         render immediately (not require a manual scroll). Screen:\n{}",
+        screen
+    );
+}
+
+/// Variant of issue #611 where we deliberately put the smaller buffer's view
+/// state into a "scrolled past end" state via a previous deeper visit. If the
+/// editor doesn't sanitize the cached viewport on switch, the smaller buffer
+/// will render blank until the user scrolls.
+#[test]
+fn test_issue_611_explorer_switch_keeps_cached_oob_viewport_invisible() {
+    let mut harness = EditorTestHarness::with_temp_project(120, 30).unwrap();
+    let project_root = harness.project_dir().unwrap();
+
+    let big_path = project_root.join("big.txt");
+    let small_path = project_root.join("small.txt");
+
+    let mut big_content = String::new();
+    for i in 1..=200 {
+        big_content.push_str(&format!("big line {}\n", i));
+    }
+    fs::write(&big_path, &big_content).unwrap();
+
+    // small.txt starts large — we'll prime its cached scroll position deep
+    // into the buffer, then truncate it on disk so its saved viewport is
+    // out-of-range when we revisit it.
+    let mut large_small = String::new();
+    for i in 1..=200 {
+        large_small.push_str(&format!("small line {}\n", i));
+    }
+    fs::write(&small_path, &large_small).unwrap();
+
+    // Visit small.txt and scroll deep so the split caches a high `top_byte`.
+    harness.editor_mut().open_file(&small_path).unwrap();
+    harness.editor_mut().goto_line_col(180, None);
+    harness.render().unwrap();
+
+    // Now open big.txt and scroll deep too.
+    harness.editor_mut().open_file(&big_path).unwrap();
+    harness.editor_mut().goto_line_col(180, None);
+    harness.render().unwrap();
+
+    // Truncate small.txt on disk so its cached viewport is now well past EOF.
+    let mut tiny_small = String::new();
+    for i in 1..=10 {
+        tiny_small.push_str(&format!("small line {}\n", i));
+    }
+    fs::write(&small_path, &tiny_small).unwrap();
+
+    // Reopen small.txt via the explorer's preview flow.
+    harness.editor_mut().focus_file_explorer();
+    harness.wait_for_file_explorer_item("small.txt").unwrap();
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::empty())
+        .unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::empty())
+        .unwrap();
+    harness.render().unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("small line 1"),
+        "After switching to a smaller file via the explorer, its content \
+         should render immediately even when the cached viewport was deeper \
+         than the new file. Screen:\n{}",
+        screen
+    );
+}
