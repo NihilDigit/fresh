@@ -415,6 +415,64 @@ impl Editor {
             self.flush_pending_grammars();
         }
 
+        // The plugin-command drain above can mutate `self.prompt`
+        // (e.g. a plugin's `lines_changed` handler kicks off a Save-As
+        // prompt via `editor.startPrompt` + `editor.setPromptSuggestions`).
+        // The bottom-row chunks (`status_bar_idx`, `search_options_idx`,
+        // `prompt_line_idx`) computed at the top of `render()` would then
+        // reflect the pre-drain state — typically `prompt` height 0 and
+        // y past the visible area — so the prompt input row wouldn't
+        // render and the suggestions popup, anchored to `prompt_area.y`,
+        // would land one row too low (clipping the prompt row entirely).
+        // Re-derive the layout-affecting flags and `main_chunks` here so
+        // every later renderer sees a chunk geometry consistent with the
+        // post-drain `self.prompt`. See issue #1847.
+        let prompt_is_overlay = self.prompt.as_ref().is_some_and(|p| p.overlay);
+        let has_suggestions = self
+            .prompt
+            .as_ref()
+            .is_some_and(|p| !p.suggestions.is_empty())
+            && !prompt_is_overlay;
+        let has_file_browser = self.prompt.as_ref().is_some_and(|p| {
+            matches!(
+                p.prompt_type,
+                PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs
+            )
+        }) && self.file_open_state.is_some();
+        let show_search_options = self.prompt.as_ref().is_some_and(|p| {
+            matches!(
+                p.prompt_type,
+                PromptType::Search
+                    | PromptType::ReplaceSearch
+                    | PromptType::Replace { .. }
+                    | PromptType::QueryReplaceSearch
+                    | PromptType::QueryReplace { .. }
+            )
+        });
+        let constraints = vec![
+            Constraint::Length(if self.menu_bar_visible { 1 } else { 0 }),
+            Constraint::Min(0),
+            Constraint::Length(
+                if !self.status_bar_visible || has_suggestions || has_file_browser {
+                    0
+                } else {
+                    1
+                },
+            ),
+            Constraint::Length(if show_search_options { 1 } else { 0 }),
+            Constraint::Length(
+                if (self.prompt_line_visible || self.prompt.is_some()) && !prompt_is_overlay {
+                    1
+                } else {
+                    0
+                },
+            ),
+        ];
+        let main_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(size);
+
         // Render editor content (same for both layouts)
         let lsp_waiting = !self.pending_completion_requests.is_empty()
             || self.pending_goto_definition_request.is_some();

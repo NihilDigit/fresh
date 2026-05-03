@@ -2291,6 +2291,27 @@ fn test_builtin_theme_requires_save_as() {
             screen.contains("Save theme as") || screen.contains("save as")
         })
         .unwrap();
+
+    // Regression check for #1847: when the suggestions popup is showing
+    // (e.g. the current theme name as a starting suggestion), the prompt
+    // input row must remain visible at the bottom of the screen. The
+    // bug was a layout race in which a plugin's StartPrompt /
+    // SetPromptSuggestions commands drained inside `render()`'s
+    // post-`lines_changed` plugin-command sweep mutated `self.prompt`
+    // after the bottom-row chunks were already laid out for the
+    // pre-prompt state, so the prompt-line chunk landed off-screen
+    // (height 0, y past the visible area). The popup, anchored to
+    // `prompt_area.y`, then moved one row down and clipped the prompt
+    // input row entirely.
+    let height = harness.buffer().area.height;
+    let bottom_row = harness.screen_row_text(height - 1);
+    assert!(
+        bottom_row.trim_start().starts_with("Save theme as"),
+        "Expected the prompt input row at the bottom of the screen \
+         while the suggestions popup is shown, got: {:?}\nFull screen:\n{}",
+        bottom_row,
+        harness.screen_to_string()
+    );
 }
 
 /// Test that color swatches are displayed next to color values
