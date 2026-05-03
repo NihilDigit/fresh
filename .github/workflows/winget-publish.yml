@@ -1,4 +1,9 @@
-# Publish to winget-pkgs after a release is created
+# Publish to winget-pkgs after a release is created.
+#
+# Requires the WINGET_TOKEN secret. Cross-repo PR creation against
+# microsoft/winget-pkgs needs a CLASSIC PAT with the `public_repo` scope --
+# fine-grained PATs cannot open PRs against repos they aren't scoped to,
+# and you can't scope a PAT to a repo you don't own.
 
 name: Publish to winget
 
@@ -96,10 +101,9 @@ jobs:
             echo
             echo "::error::Token cannot write to ${REPO} (HTTP $create_status)."
             echo
-            echo "Fix: regenerate WINGET_TOKEN with one of:"
-            echo "  - Fine-grained PAT scoped to ${REPO} with"
-            echo "    Contents: read & write and Pull requests: read & write"
-            echo "  - Classic PAT with public_repo scope"
+            echo "Fix: regenerate WINGET_TOKEN as a CLASSIC PAT with public_repo scope."
+            echo "Fine-grained PATs work for git push but cannot open cross-repo PRs"
+            echo "against microsoft/winget-pkgs, which is required by this workflow."
             exit 1
           fi
 

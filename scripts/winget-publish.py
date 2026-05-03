@@ -27,7 +27,15 @@ WINGET_REPO = "microsoft/winget-pkgs"
 def run(cmd: list[str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
     """Run a command and optionally capture output."""
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    try:
+        return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    except subprocess.CalledProcessError as e:
+        if capture:
+            if e.stdout:
+                print(e.stdout, end="")
+            if e.stderr:
+                print(e.stderr, end="", file=sys.stderr)
+        raise
 
 
 def get_sha256(url: str) -> str:
