@@ -143,15 +143,6 @@ pub struct LspTraffic {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Plugin log observable (Phase 11)
-// ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct PluginLog {
-    pub messages: Vec<String>,
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Round-trip terminal grid (Phase 8)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -219,16 +210,3 @@ pub enum CellRole {
     Whitespace,
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// GUI snapshot (Phase 12) — placeholder until the wgpu test API is
-// designed.
-// ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct GuiSnapshot {
-    /// Window dimensions in CSS pixels.
-    pub window_size: (u32, u32),
-    /// Cell grid rasterised by the GUI front-end (best-effort
-    /// projection).
-    pub grid_rows: Vec<String>,
-}

@@ -42,10 +42,13 @@ pub mod input_scenario;
 pub mod temporal_scenario;
 
 // ── Skeleton phases — types + JSON shape, runners panic with the
-// concrete production hook the phase still needs.
-pub mod gui_scenario;
+// concrete production hook the phase still needs. Each surviving
+// skeleton has an inline TODO with the prerequisite.
+//
+// Phase 11 (PluginScenario) and Phase 12 (GuiScenario) were
+// dropped: only ~5 plugin tests and 1 GUI test would target them,
+// and their production hooks are heavy. See the design doc §12.
 pub mod lsp_scenario;
 pub mod persistence_scenario;
-pub mod plugin_scenario;
 pub mod style_scenario;
 pub mod terminal_io_scenario;

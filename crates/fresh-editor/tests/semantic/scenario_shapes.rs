@@ -10,20 +10,17 @@
 use crate::common::scenario::buffer_scenario::{BufferScenario, CursorExpect};
 use crate::common::scenario::context::{
     LspExchange, LspIncoming, LspScript, MockClock, MouseButton, MouseEvent, NamedBuffer,
-    PluginScript, PromptKind, ThemeRef, VirtualFile, VirtualFs, WorkspaceContext,
+    PromptKind, ThemeRef, VirtualFile, VirtualFs, WorkspaceContext,
 };
-use crate::common::scenario::gui_scenario::GuiScenario;
 use crate::common::scenario::input_event::InputEvent;
 use crate::common::scenario::input_scenario::InputScenario;
 use crate::common::scenario::layout_scenario::LayoutScenario;
 use crate::common::scenario::lsp_scenario::LspScenario;
 use crate::common::scenario::modal_scenario::ModalScenario;
 use crate::common::scenario::observable::{
-    FsState, GuiSnapshot, LspTraffic, ModalState, PluginLog, PopupSnapshot, RoundTripGrid,
-    StyledFrame, WorkspaceState,
+    FsState, LspTraffic, ModalState, PopupSnapshot, RoundTripGrid, StyledFrame, WorkspaceState,
 };
 use crate::common::scenario::persistence_scenario::PersistenceScenario;
-use crate::common::scenario::plugin_scenario::PluginScenario;
 use crate::common::scenario::render_snapshot::{RenderSnapshot, RenderSnapshotExpect};
 use crate::common::scenario::style_scenario::{Inspect, StyleScenario};
 use crate::common::scenario::temporal_scenario::TemporalScenario;
@@ -282,41 +279,9 @@ fn json_roundtrip_terminal_io_scenario() {
     );
 }
 
-#[test]
-fn json_roundtrip_plugin_scenario() {
-    round_trip_no_eq(
-        "PluginScenario",
-        PluginScenario {
-            description: "rt".into(),
-            initial_text: String::new(),
-            script: PluginScript {
-                source: "console.log('hi')".into(),
-                expected_messages: vec!["hi".into()],
-            },
-            events: vec![],
-            expected_buffer: Default::default(),
-            expected_log: PluginLog {
-                messages: vec!["hi".into()],
-            },
-        },
-    );
-}
-
-#[test]
-fn json_roundtrip_gui_scenario() {
-    round_trip_no_eq(
-        "GuiScenario",
-        GuiScenario {
-            description: "rt".into(),
-            initial_text: String::new(),
-            events: vec![],
-            expected: GuiSnapshot {
-                window_size: (1024, 768),
-                grid_rows: vec![],
-            },
-        },
-    );
-}
+// PluginScenario / GuiScenario JSON-shape tests removed when
+// those scenario types were dropped from the framework — see
+// `docs/internal/e2e-test-migration-design.md` §12.
 
 #[test]
 fn caret_round_trips() {

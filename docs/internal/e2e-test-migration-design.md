@@ -182,8 +182,6 @@ pub type StyleScenario        = Scenario<StyledFrame>;
 pub type InputScenario        = Scenario<RenderSnapshot>;
 pub type TemporalScenario     = Scenario<Vec<RenderSnapshot>>;
 pub type TerminalIoScenario   = Scenario<RoundTripGrid>;
-pub type PluginScenario       = Scenario<(BufferState, PluginLog)>;
-pub type GuiScenario          = Scenario<GuiSnapshot>;
 ```
 
 The runner is a single entry point parameterized by `Obs`; the
@@ -194,7 +192,7 @@ proptest-strategy specialization, not because the runner branches.
 
 ## 6. Scenario taxonomy — covering every e2e
 
-### 6.1 The twelve scenario types
+### 6.1 The ten scenario types
 
 | Type | Primary observable | Files (~) |
 |---|---|---|
@@ -208,10 +206,8 @@ proptest-strategy specialization, not because the runner branches.
 | `InputScenario` | mouse/composition events as data | 7 |
 | `TemporalScenario` | timed sequence of frames (`MockClock`) | 3 |
 | `TerminalIoScenario` | ANSI bytes via vt100 round-trip | 7 |
-| `PluginScenario` | plugin-driven actions + plugin script | 5 |
-| `GuiScenario` | wgpu/winit observables | 1 |
 
-Total ≈ 231; some files are dual-category. Unique e2e file count
+Total ≈ 225; some files are dual-category. Unique e2e file count
 is 227.
 
 ### 6.2 Per-category file mapping
@@ -325,19 +321,16 @@ Files: `ansi_cursor`, `terminal`, `terminal_close`,
 through `render_real` / `render_real_incremental`; the migration
 formalizes it into a scenario type.
 
-**`PluginScenario` (~5)** — `PluginScript` carries plugin source +
-expected message log. Plugin actions dispatch through the existing
-`process_async_messages` path. Files: anything under
-`tests/e2e/plugins/`.
-
-**`GuiScenario` (~1)** — `gui.rs`. The wgpu/winit front-end shares
-the `Editor` core but has its own input layer (raw mouse, IME) and
-output layer (rasterized cells). Most editor-level behavior in
-`gui.rs` is already covered by `BufferScenario` / `LayoutScenario`;
-what remains is a thin layer of GUI-specific asserts (font
-fallback, sub-pixel positioning). Lowest priority; may stay
-imperative if its single file doesn't justify the framework
-investment.
+**Dropped scenario types — `PluginScenario`, `GuiScenario`.** The
+plugin scenarios (~5 files) and `gui.rs` (1 file) were originally
+in scope but have been removed: their production hooks (plugin
+runtime test entry, wgpu/winit test API) are heavy and the test
+volumes don't justify the cost. Plugin test claims that reduce to
+buffer state can fold into `BufferScenario` with an optional
+context field if/when needed; `gui.rs` stays imperative — its
+editor-level claims migrate to `BufferScenario` /
+`LayoutScenario`, and the GUI-specific bits (font fallback, IME)
+are properly imperative.
 
 ### 6.3 Cross-cutting observables
 
@@ -410,11 +403,11 @@ Today's `render()` is the composition. Production stays unchanged
 | `StyleScenario` | theme contrast, role-to-color mapping, modifier flags, syntax-highlight color regressions | terminal-emulator quirks |
 | `TerminalIoScenario` | escape emission bugs, optimization regressions (e.g., redundant SGR resets), incremental redraw correctness | terminal-side bugs (xterm vs kitty) |
 | `TemporalScenario` | animation frame correctness, fade/flash duration, blink phase, scroll smoothing | wall-clock drift |
-| `GuiScenario` | font fallback, sub-pixel positioning, IME interaction | wgpu driver bugs |
 
 Together these cover everything except actual terminal-emulator
 and GPU-driver behavior, which are correctly outside the editor's
-responsibility.
+responsibility. (`gui.rs`, the wgpu/winit front-end, stays
+imperative — see §6.2.)
 
 ### 7.3 Visual regression as a `StyleScenario`
 
@@ -566,8 +559,8 @@ parallelizable; ordering below is by ROI.
 | 8 | `TerminalIoScenario` | **landed** (real `RoundTripGrid` via existing vt100 parser) | `EditorTestHarness::vt100_cursor_position` |
 | 9 | `InputScenario` | **landed minimal** (mouse Click(Left) routes through `Editor::handle_mouse`) | `EditorTestApi::dispatch_mouse_click` |
 | 10 | `TemporalScenario` | **landed** (`AdvanceClock(d)` calls `harness.advance_time(d)` which advances the existing `services::time_source::TestTimeSource` the editor already reads) | none — the `TimeSource` trait + `TestTimeSource` already exist |
-| 11 | `PluginScenario` | **skeleton** | needs plugin runtime test entry |
-| 12 | `GuiScenario` | **skeleton** | needs wgpu/winit test API; lowest priority |
+| ~~11~~ | ~~`PluginScenario`~~ | **dropped** (low test volume vs heavy production hook); fold into `BufferScenario` if needed | n/a |
+| ~~12~~ | ~~`GuiScenario`~~ | **dropped** (`gui.rs` stays imperative; editor-level claims covered by `BufferScenario`/`LayoutScenario`) | n/a |
 
 ### 10.2 What "landed" means here
 
@@ -596,9 +589,6 @@ accessors:
   existing `tests/common/fake_lsp.rs` is a Bash subprocess that
   the real `LspManager` connects to over stdin/stdout — usable
   but flaky and not script-aware.
-- **Phase 11 (`PluginScenario`)** needs the plugin runtime to
-  accept a script-string load and expose its message log through
-  `EditorTestApi`.
 
 Three phases that *appeared* blocked turned out not to be —
 production already had the right traits and only needed the

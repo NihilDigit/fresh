@@ -50,10 +50,6 @@ pub struct ScenarioContext {
     #[serde(default)]
     pub lsp: Option<LspScript>,
 
-    /// Phase 11. Plugin source + expected message log.
-    #[serde(default)]
-    pub plugins: Option<PluginScript>,
-
     /// Phase 4. Theme to feed the `style()` projection. None ⇒ the
     /// editor's default theme at construction time.
     #[serde(default)]
@@ -158,18 +154,6 @@ pub struct LspExchange {
 pub struct LspIncoming {
     pub method: String,
     pub params: serde_json::Value,
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Plugins (Phase 11)
-// ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PluginScript {
-    /// JS source to load before the actions run.
-    pub source: String,
-    /// Expected ordered sequence of plugin-emitted messages.
-    pub expected_messages: Vec<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────
