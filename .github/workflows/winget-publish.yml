@@ -36,7 +36,12 @@ jobs:
 
       - name: Configure git credentials for github.com
         run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Drop any extraheader injected by actions/checkout so it can't
+          # override our PAT for cross-repo pushes.
+          git config --global --unset-all http.https://github.com/.extraheader || true
+          git config --global credential.helper store
+          umask 077
+          printf 'https://x-access-token:%s@github.com\n' "${GH_TOKEN}" > "${HOME}/.git-credentials"
 
       - name: Publish to winget-pkgs
         run: ./scripts/winget-publish.py "${VERSION}"
