@@ -209,4 +209,3 @@ pub enum CellRole {
     Decoration,
     Whitespace,
 }
-
