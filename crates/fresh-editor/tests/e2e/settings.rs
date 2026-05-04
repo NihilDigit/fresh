@@ -1380,9 +1380,9 @@ fn test_settings_file_explorer_width_shows_percent_suffix() {
     harness.send_key(KeyCode::Tab, KeyModifiers::NONE).unwrap();
     harness.render().unwrap();
     // File Explorer items (alphabetical): Auto Open On Last Buffer Close,
-    // Custom Ignore Patterns, Preview Tabs, Respect Gitignore, Show Gitignored,
-    // Show Hidden, Side, Width.
-    for _ in 0..7 {
+    // Custom Ignore Patterns, Follow Active Buffer, Preview Tabs,
+    // Respect Gitignore, Show Gitignored, Show Hidden, Side, Width.
+    for _ in 0..8 {
         harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness.render().unwrap();
@@ -1428,9 +1428,9 @@ fn test_settings_file_explorer_width_applies_live() {
     }
     harness.send_key(KeyCode::Tab, KeyModifiers::NONE).unwrap();
     // File Explorer items (alphabetical): Auto Open On Last Buffer Close,
-    // Custom Ignore Patterns, Preview Tabs, Respect Gitignore, Show Gitignored,
-    // Show Hidden, Side, Width.
-    for _ in 0..7 {
+    // Custom Ignore Patterns, Follow Active Buffer, Preview Tabs,
+    // Respect Gitignore, Show Gitignored, Show Hidden, Side, Width.
+    for _ in 0..8 {
         harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness.render().unwrap();
@@ -1538,9 +1538,10 @@ fn test_settings_file_explorer_toggles_propagate_to_runtime() {
     harness.render().unwrap();
 
     // File Explorer items (alphabetical): Auto Open On Last Buffer Close,
-    // Custom Ignore Patterns, Preview Tabs, Respect Gitignore, Show Gitignored,
-    // Show Hidden, Side, Width. Land on Show Gitignored and toggle.
-    for _ in 0..4 {
+    // Custom Ignore Patterns, Follow Active Buffer, Preview Tabs,
+    // Respect Gitignore, Show Gitignored, Show Hidden, Side, Width.
+    // Land on Show Gitignored and toggle.
+    for _ in 0..5 {
         harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
