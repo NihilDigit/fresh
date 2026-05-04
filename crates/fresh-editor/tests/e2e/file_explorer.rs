@@ -1,6 +1,7 @@
 use crate::common::git_test_helper::GitTestRepo;
 use crate::common::harness::EditorTestHarness;
 use crossterm::event::{KeyCode, KeyModifiers};
+use fresh::config::Config;
 use std::fs;
 
 /// Test file explorer toggle
@@ -3744,4 +3745,76 @@ fn test_file_explorer_duplicate_refreshes_git_decorations() {
                 .any(|line| line.contains("alpha copy.txt") && line.contains('U'))
         })
         .unwrap();
+}
+
+/// Test that with `file_explorer.follow_active_buffer = true`, switching tabs
+/// re-syncs the file explorer to the newly active buffer's path — visibly
+/// expanding the directory containing that file.
+///
+/// Two files live in different subdirectories; both directories are
+/// initially collapsed. Opening file_b (after file_a was opened in-place
+/// over the empty buffer) syncs the explorer, expanding dir_b. Then
+/// `prev_buffer` switches the active tab back to file_a — with the sync
+/// hook in place, dir_a expands and file_a.txt becomes visible in the
+/// tree. Without the hook, dir_a stays collapsed and the wait times out.
+#[test]
+fn test_follow_active_buffer_syncs_explorer_on_tab_switch() {
+    let mut config = Config::default();
+    config.file_explorer.follow_active_buffer = true;
+
+    let mut harness = EditorTestHarness::with_temp_project_and_config(120, 40, config).unwrap();
+    let project_root = harness.project_dir().unwrap();
+
+    fs::create_dir_all(project_root.join("dir_a")).unwrap();
+    fs::create_dir_all(project_root.join("dir_b")).unwrap();
+    fs::write(project_root.join("dir_a/file_a.txt"), "content a").unwrap();
+    fs::write(project_root.join("dir_b/file_b.txt"), "content b").unwrap();
+
+    // Open the explorer but keep focus in the editor so the sync hook is
+    // eligible (it is gated on `key_context != FileExplorer`).
+    harness.editor_mut().toggle_file_explorer();
+    harness.editor_mut().focus_editor();
+    harness
+        .wait_until(|h| h.screen_to_string().contains("File Explorer"))
+        .unwrap();
+
+    // Opening file_a replaces the initial `[No Name]` buffer in place, so
+    // `set_active_buffer` is a no-op and no sync fires. Opening file_b
+    // creates a new buffer; the sync triggered by that switch expands
+    // dir_b, leaving dir_a still collapsed.
+    harness
+        .editor_mut()
+        .open_file(&project_root.join("dir_a/file_a.txt"))
+        .unwrap();
+    harness
+        .editor_mut()
+        .open_file(&project_root.join("dir_b/file_b.txt"))
+        .unwrap();
+    harness
+        .wait_until(|h| explorer_tree_contains(h, "file_b.txt"))
+        .unwrap();
+    assert!(
+        !explorer_tree_contains(&harness, "file_a.txt"),
+        "Precondition: dir_a should still be collapsed (file_a.txt not in \
+         the tree) before the tab switch.\nScreen:\n{}",
+        harness.screen_to_string()
+    );
+
+    // Switch the active tab back to file_a. With the sync hook in place,
+    // the explorer expands dir_a and file_a.txt becomes visible in the
+    // tree. Without it, dir_a stays collapsed and this wait times out.
+    harness.editor_mut().prev_buffer();
+    harness
+        .wait_until(|h| explorer_tree_contains(h, "file_a.txt"))
+        .unwrap();
+}
+
+/// Returns `true` when `name` appears on a screen line that also contains a
+/// tree connector, matching the existing `wait_for_file_explorer_item`
+/// heuristic. Reads only rendered output.
+fn explorer_tree_contains(harness: &EditorTestHarness, name: &str) -> bool {
+    harness
+        .screen_to_string()
+        .lines()
+        .any(|line| line.contains(name) && line.contains('│'))
 }
