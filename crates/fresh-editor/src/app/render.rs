@@ -499,6 +499,11 @@ impl Editor {
             self.config.editor.use_terminal_bg,
             self.session_mode || !self.software_cursor_only,
             self.software_cursor_only,
+            if self.software_cursor_only {
+                ratatui::style::Modifier::REVERSED
+            } else {
+                self.config.editor.cursor_style.secondary_cursor_modifier()
+            },
             self.config.editor.show_vertical_scrollbar,
             self.config.editor.show_horizontal_scrollbar,
             self.config.editor.diagnostics_inline_text,
@@ -2055,6 +2060,11 @@ impl Editor {
                 let use_terminal_bg = self.config.editor.use_terminal_bg;
                 let session_mode = self.session_mode || !self.software_cursor_only;
                 let software_cursor_only = self.software_cursor_only;
+                let secondary_cursor_modifier = if software_cursor_only {
+                    ratatui::style::Modifier::REVERSED
+                } else {
+                    self.config.editor.cursor_style.secondary_cursor_modifier()
+                };
                 let diagnostics_inline_text = self.config.editor.diagnostics_inline_text;
                 let show_tilde = false; // preview hides tilde markers
                 let highlight_current_column = self.config.editor.highlight_current_column;
@@ -2112,6 +2122,7 @@ impl Editor {
                         use_terminal_bg,
                         session_mode,
                         software_cursor_only,
+                        secondary_cursor_modifier,
                         &rulers,
                         show_line_numbers,
                         highlight_current_line,
@@ -2534,6 +2545,11 @@ impl Editor {
             self.config.editor.use_terminal_bg,
             self.session_mode || !self.software_cursor_only,
             self.software_cursor_only,
+            if self.software_cursor_only {
+                ratatui::style::Modifier::REVERSED
+            } else {
+                self.config.editor.cursor_style.secondary_cursor_modifier()
+            },
             self.tab_bar_visible,
             self.config.editor.show_vertical_scrollbar,
             self.config.editor.show_horizontal_scrollbar,

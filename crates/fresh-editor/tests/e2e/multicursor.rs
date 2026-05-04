@@ -2069,3 +2069,81 @@ fn test_multi_cursor_enter_markdown_bullet_list() {
         x_count, content_after
     );
 }
+
+/// Issue #620: secondary cursors should visually approximate the configured
+/// cursor style instead of always rendering as a REVERSED block. With a
+/// non-block cursor style (bar or underline) the secondary indicator should
+/// be UNDERLINED — the closest "thin marker" available in a TUI cell — so it
+/// matches the bar/underline shape the terminal hardware-cursor draws for the
+/// primary. Block-style cursors keep the REVERSED block; that's covered by
+/// `test_all_cursors_visible_in_viewport` above.
+#[test]
+fn test_secondary_cursor_style_matches_configured_cursor_shape() {
+    use crate::common::harness::HarnessOptions;
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use fresh::config::{Config, CursorStyle};
+    use ratatui::style::Modifier;
+
+    fn run(cursor_style: CursorStyle, expected: Modifier, unexpected: Modifier) {
+        let mut config = Config::default();
+        config.editor.cursor_style = cursor_style;
+        // Disable line wrap so each line maps to a single screen row, the same
+        // setup `test_all_cursors_visible_in_viewport` uses.
+        config.editor.line_wrap = false;
+        let mut harness =
+            EditorTestHarness::create(80, 24, HarnessOptions::new().with_config(config)).unwrap();
+
+        harness.type_text("Line 1\nLine 2\nLine 3").unwrap();
+        harness
+            .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+            .unwrap();
+        // Add a cursor on each subsequent line so the secondaries land on a
+        // visible cell (the 'L' at column 0 of lines 2 and 3 in the gutter
+        // layout).
+        harness.editor_mut().add_cursor_below();
+        harness.editor_mut().add_cursor_below();
+        harness.render().unwrap();
+        assert_eq!(harness.cursor_count(), 3);
+
+        // The primary is on line 1 (rendered by the terminal hardware cursor);
+        // y=2 and y=3 host the two secondaries.
+        let mut found_expected = 0;
+        for y in [2u16, 3u16] {
+            let mut row_has_unexpected_only = false;
+            for x in 0..10u16 {
+                if let Some(style) = harness.get_cell_style(x, y) {
+                    if style.add_modifier.contains(expected) {
+                        found_expected += 1;
+                        row_has_unexpected_only = false;
+                        break;
+                    } else if style.add_modifier.contains(unexpected) {
+                        row_has_unexpected_only = true;
+                    }
+                }
+            }
+            assert!(
+                !row_has_unexpected_only,
+                "Secondary cursor on row {y} used {unexpected:?} but cursor_style \
+                 selects {expected:?} (issue #620)"
+            );
+        }
+        assert!(
+            found_expected >= 2,
+            "Expected at least 2 secondary cursors styled with {expected:?} for \
+             cursor_style configured to use that modifier; found {found_expected}"
+        );
+    }
+
+    // Bar cursor: secondaries should fall back to UNDERLINED, not REVERSED.
+    run(
+        CursorStyle::BlinkingBar,
+        Modifier::UNDERLINED,
+        Modifier::REVERSED,
+    );
+    // Underline cursor: secondaries should also use UNDERLINED.
+    run(
+        CursorStyle::SteadyUnderline,
+        Modifier::UNDERLINED,
+        Modifier::REVERSED,
+    );
+}

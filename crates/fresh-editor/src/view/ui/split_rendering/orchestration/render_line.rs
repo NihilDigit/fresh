@@ -66,6 +66,10 @@ pub(crate) struct LineRenderInput<'a> {
     pub session_mode: bool,
     /// No hardware cursor: always render software cursor indicators
     pub software_cursor_only: bool,
+    /// Modifier used for secondary cursor cells when the primary is rendered
+    /// by the terminal hardware. Derived from the configured cursor style so
+    /// secondaries visually approximate the primary's shape (issue #620).
+    pub secondary_cursor_modifier: Modifier,
     /// Whether to show line numbers in the gutter
     pub show_line_numbers: bool,
     /// Whether the gutter shows byte offsets instead of line numbers
@@ -101,6 +105,7 @@ pub(crate) fn render_view_lines(input: LineRenderInput<'_>) -> LineRenderOutput 
         relative_line_numbers,
         session_mode,
         software_cursor_only,
+        secondary_cursor_modifier,
         show_line_numbers,
         byte_offset_mode,
         show_tilde,
@@ -648,6 +653,7 @@ pub(crate) fn render_view_lines(input: LineRenderInput<'_>) -> LineRenderOutput 
                     primary_cursor_position,
                     is_active,
                     skip_primary_cursor_reverse: session_mode,
+                    secondary_cursor_modifier,
                     is_cursor_line_highlighted: is_on_cursor_line
                         && highlight_current_line
                         && is_active,
@@ -851,10 +857,20 @@ pub(crate) fn render_view_lines(input: LineRenderInput<'_>) -> LineRenderOutput 
                         // so the indicator appears after the line content, not before
                         span_acc.flush(&mut line_spans, &mut line_view_map);
                         let cursor_style = if is_active {
+                            // In software-cursor mode the primary cursor cell is
+                            // forced to REVERSED elsewhere, so secondaries also use
+                            // REVERSED to match it. Otherwise use the configured
+                            // secondary modifier so multi-cursor visuals match the
+                            // primary's terminal cursor shape (issue #620).
+                            let modifier = if software_cursor_only {
+                                Modifier::REVERSED
+                            } else {
+                                secondary_cursor_modifier
+                            };
                             Style::default()
                                 .fg(theme.editor_fg)
                                 .bg(theme.editor_bg)
-                                .add_modifier(Modifier::REVERSED)
+                                .add_modifier(modifier)
                         } else {
                             Style::default()
                                 .fg(theme.editor_fg)
@@ -973,10 +989,21 @@ pub(crate) fn render_view_lines(input: LineRenderInput<'_>) -> LineRenderOutput 
                 };
                 if should_add_indicator {
                     let cursor_style = if is_active {
+                        // When software_cursor_only is true this branch can fire
+                        // for the primary cursor too; that cell is forced to
+                        // REVERSED downstream in render_buffer, so use REVERSED
+                        // here. In hardware-cursor mode this only fires for
+                        // secondary cursors, so use the configured secondary
+                        // modifier (issue #620).
+                        let modifier = if software_cursor_only {
+                            Modifier::REVERSED
+                        } else {
+                            secondary_cursor_modifier
+                        };
                         Style::default()
                             .fg(theme.editor_fg)
                             .bg(theme.editor_bg)
-                            .add_modifier(Modifier::REVERSED)
+                            .add_modifier(modifier)
                     } else {
                         Style::default()
                             .fg(theme.editor_fg)

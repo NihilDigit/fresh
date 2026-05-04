@@ -33,6 +33,14 @@ pub(super) struct CharStyleContext<'a> {
     /// Skip REVERSED style on the primary cursor cell. True when a hardware
     /// cursor is available (not software_cursor_only), or in session mode.
     pub skip_primary_cursor_reverse: bool,
+    /// Modifier used to mark a secondary (non-primary) cursor cell when the
+    /// primary cursor is rendered by the terminal hardware cursor. This lets
+    /// secondary cursors visually approximate the configured cursor shape
+    /// (e.g. `UNDERLINED` for bar/underline styles instead of `REVERSED`)
+    /// so multi-cursor rendering matches the primary's terminal style.
+    /// When the primary cursor is software-rendered, secondaries always
+    /// fall back to `REVERSED` to match it (see `skip_primary_cursor_reverse`).
+    pub secondary_cursor_modifier: Modifier,
     /// Whether this character is on the cursor line and current-line
     /// highlighting is enabled.
     pub is_cursor_line_highlighted: bool,
@@ -209,7 +217,7 @@ pub(super) fn compute_char_style(ctx: &CharStyleContext) -> CharStyleOutput {
         if ctx.is_cursor {
             if ctx.skip_primary_cursor_reverse {
                 if is_secondary_cursor {
-                    style = style.add_modifier(Modifier::REVERSED);
+                    style = style.add_modifier(ctx.secondary_cursor_modifier);
                 }
             } else {
                 style = style.add_modifier(Modifier::REVERSED);

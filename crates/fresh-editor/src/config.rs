@@ -169,6 +169,24 @@ impl CursorStyle {
         }
     }
 
+    /// Modifier used to mark secondary (non-primary) cursors when the primary
+    /// cursor is rendered by the terminal hardware. Block-style cursors map to
+    /// `REVERSED` (a full-cell highlight that matches the terminal's block
+    /// shape); bar/underline styles map to `UNDERLINED` — the closest
+    /// "thin marker" available in a TUI cell — so multi-cursor selections
+    /// look consistent with the configured cursor style (issue #620).
+    #[cfg(feature = "runtime")]
+    pub fn secondary_cursor_modifier(self) -> ratatui::style::Modifier {
+        use ratatui::style::Modifier;
+        match self {
+            Self::Default | Self::BlinkingBlock | Self::SteadyBlock => Modifier::REVERSED,
+            Self::BlinkingBar
+            | Self::SteadyBar
+            | Self::BlinkingUnderline
+            | Self::SteadyUnderline => Modifier::UNDERLINED,
+        }
+    }
+
     /// Get the ANSI escape sequence for this cursor style (DECSCUSR)
     /// Used for session mode where we can't write directly to terminal
     pub fn to_escape_sequence(self) -> &'static [u8] {
@@ -6762,6 +6780,38 @@ mod tests {
 
         config.editor.tab_size = 0;
         assert!(config.validate().is_err());
+    }
+
+    /// Issue #620: secondary cursors must visually approximate the configured
+    /// primary cursor shape. Block-style cursors map to REVERSED (a full-cell
+    /// highlight that matches the terminal's block); bar/underline styles map
+    /// to UNDERLINED — the closest "thin marker" we can render in a TUI cell.
+    #[test]
+    fn test_cursor_style_secondary_modifier_matches_shape() {
+        use ratatui::style::Modifier;
+        for style in [
+            CursorStyle::Default,
+            CursorStyle::BlinkingBlock,
+            CursorStyle::SteadyBlock,
+        ] {
+            assert_eq!(
+                style.secondary_cursor_modifier(),
+                Modifier::REVERSED,
+                "{style:?} should use REVERSED for secondary cursors"
+            );
+        }
+        for style in [
+            CursorStyle::BlinkingBar,
+            CursorStyle::SteadyBar,
+            CursorStyle::BlinkingUnderline,
+            CursorStyle::SteadyUnderline,
+        ] {
+            assert_eq!(
+                style.secondary_cursor_modifier(),
+                Modifier::UNDERLINED,
+                "{style:?} should use UNDERLINED for secondary cursors"
+            );
+        }
     }
 
     #[test]
