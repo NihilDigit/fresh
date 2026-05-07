@@ -441,50 +441,141 @@ the dock and returns the user to whatever they were editing.
 ### Screen 2: Control Room
 
 ```
-+------------------------------------------------------------------+
-| TABS:  src/main.rs                                               |
-+------------------------------------------------------------------+
-|  +============== CONDUCTOR =================================+    |
-|  | 4 sessions  |  1 awaiting  |  1 collision detected       |    |
-|  | -----------------------------------------------------------    |
-|  | #   ROOT              AGENT          STATE       DIFF  AGE|    |
-|  |     ...................................................  |    |
-|  | 1   /repo (base)      -              ACTIVE      -      - |    |
-|  | 2 > /wt/feat-auth     aider          AWAITING(Y) +12 -0  5m|    |
-|  | 3   /wt/fix-redis     claude -p      RUNNING     +45 -12 12m|  |
-|  | 4   /wt/UI-login      opencode       READY       +104 -4 2m|   |
-|  | -----------------------------------------------------------    |
-|  | PREVIEW (session 2)         | COLLISION RADAR             |    |
-|  |   > Tests failed on line 42 |   src/models/user.ts        |    |
-|  |   > Do you want me to fix   |     - session 2             |    |
-|  |     them? (Y/n): _          |     - session 3             |    |
-|  |                             |   (merge conflict likely)   |    |
-|  | -----------------------------------------------------------    |
-|  | Enter:dive  n:new  d:diff  m:merge  k:kill  Esc:close      |    |
-|  +============================================================+    |
-+------------------------------------------------------------------+
-| NORMAL  Ln 1 main.rs   |   conductor: 4 sessions, 1 awaiting    |
-+------------------------------------------------------------------+
++----------------------------------------------------------------------------------+
+| Fresh v1.0.2                                          2026-05-18  2.1GB / 32GB   |
++- SESSIONS -----------------------------------------------------------------------+
+| #   LABEL            ROOT PATH               AGENT      STATE          DIFF    C  AGE|
+| 1   main             /repo (base)            -          ACTIVE         -       -   - |
+| 2 > feat/auth-v2     /wt/feat-auth-v2        aider      AWAITING (Y/n) +118-5  1  14m|
+| 3   fix/redis-cache  /wt/fix-redis-cache     claude -p  RUNNING        +45-12  1  25m|
+| 4   UI-refactor      /wt/UI-refactor         opencode   READY          +104-4  3   7m|
+| 5   feat/auth-v2     /wt/feat-auth-v2-alt    aider      AWAITING (Y/n) +118-5  1  14m|
+| 6   feat/redis       /wt/fix-redis-cache-alt aider      AWAITING (Y/n) +118-5  1  25m|
+| 7   ...              ...                                                              |
+| 11  new-editor       /wt/new-editor          shell      ERRORED        -0      1  13m|
+| 12  test-user        /wt/test-user           shell      KILLED         -0      0  19m|
+| 13  cargo-bump       /wt/cargo-bump          shell      SYNCING        -       1  25m|
+| 14  agent-experiment /wt/agent-experiment    shell      SYNCING        +23-3   1  25m|
+| 15  feat-editor      /wt/feat-editor         shell      SYNCING        +112-5  1  ...|
++----------------------------------------------------------------------------------+
+| PREVIEW (session 2, feat/auth-v2)            | COLLISION RADAR  3 detected      |
+| Aider> Tests failed at src/auth.rs:42.       | src/auth.rs       conflict-likely |
+| > Analysis complete.                         |   session 1                       |
+| > 1 failed test in src/models/user.ts:42     |   session 2                       |
+| > Marked tests in src/auth.rs                | src/models/user.ts conflict-likely|
+| AIDER> Do you want me to attempt a fix?      |   session 2                       |
+| (Y/n): _                                     |   session 3                       |
+|                                              | Cargo.toml         conflict-likely|
+|                                              |   session 1, 2, 4                 |
++----------------------------------------------------------------------------------+
+| Enter:dive  n:new  d:diff  m:merge  k:kill  r:rename  Esc:close  Ctrl+n/p:cycle  |
++----------------------------------------------------------------------------------+
+| NORMAL  Ln 12 Col 1            CONDUCTOR | 15 sessions, 2 awaiting, 3 collisions |
++----------------------------------------------------------------------------------+
 ```
 
 **Objectives.** This screen has to satisfy three distinct user tasks
 in one view, ranked by frequency:
 
 1. **Triage.** "Does anything need me right now?" — answered by the
-   header line and the AWAITING/ERRORED rows. The user should be
-   able to leave the screen in under two seconds if the answer is
-   no.
+   header line, the bottom Conductor summary line, and the
+   AWAITING/ERRORED rows. The user should be able to leave the
+   screen in under two seconds if the answer is no.
 2. **Decide.** "Which session should I dive into / merge / kill?" —
-   answered by the table (state, diff size, age) plus the preview
-   pane for the selected row.
+   answered by the table (state, diff size, commits, age) plus the
+   preview pane for the selected row.
 3. **See trouble coming.** "Are any of these agents about to fight
-   each other?" — answered by the collision radar.
+   each other?" — answered by the collision radar with
+   per-path severity.
 
 A quaternary objective is **monitoring agent health passively**, but
 the design deliberately does not satisfy that here — passive
 awareness lives in the status bar (deferred; see "deferred features"
 in the design conversation), not in this screen, because this screen
-is full-screen and disruptive.
+is full-screen and disruptive. The Control Room's own bottom summary
+line (`15 sessions, 2 awaiting, 3 collisions`) provides aggregate
+awareness *inside* the Control Room.
+
+#### Columns
+
+| Column | Meaning |
+|---|---|
+| `#` | Stable session id (1-indexed; the base session is always 1). Survives across restart, monotonically grows. |
+| `LABEL` | User-facing name. Defaults to the branch name; `r` lets the user rename. Does not have to match the branch. |
+| `ROOT PATH` | Absolute filesystem root of the worktree. The base session shows the repo root annotated `(base)`. |
+| `AGENT` | The shell command form spawned in the session's terminal. `-` for the base session; `shell` for a plain shell. |
+| `STATE` | Parsed lifecycle state (see below). |
+| `DIFF (+/-)` | Lines added/removed compared to the merge base. Includes uncommitted changes; refreshed on a debounce. |
+| `COMMITS` | Number of commits the session has made on its branch since branching from the base. |
+| `AGE` | Wall-clock age since session creation. |
+
+#### States
+
+| State | Meaning | Set by |
+|---|---|---|
+| `ACTIVE` | This session is the one currently being rendered (`active_session`). | Editor pointer. |
+| `RUNNING` | Agent process is alive and producing output. | Default. Re-entered when output advances after `AWAITING`. |
+| `AWAITING (Y/n)` | Output ends in a recognised prompt pattern; agent has stopped. | Regex on terminal output. |
+| `READY` | Agent process exited cleanly (code 0). | `terminal_exit` event. |
+| `ERRORED` | Agent process exited non-zero. | `terminal_exit` event. |
+| `KILLED` | User pressed `k`; conductor sent SIGTERM. The row remains as a tombstone until dismissed (see "KILLED retention" in open questions). | User action. |
+| `SYNCING` | A git operation initiated by Conductor is in flight in this worktree (merge into base, pull from remote, push). The terminal may be unresponsive during this. | Conductor entered git operation. |
+
+`KILLED` and `READY`/`ERRORED` are terminal states — the agent
+process is gone — but the worktree is *not* automatically removed.
+The user must press `m` (merge then remove) or `k` again on a
+killed/ready row (remove without merge) to drop the worktree and
+the session row.
+
+#### Agent types
+
+The `AGENT` column accepts any command. There are three usage
+patterns the design accommodates explicitly:
+
+- **AI coding agents** (`aider`, `claude -p`, `opencode --task`,
+  …) — the primary use case. Their interactive prompts drive the
+  `AWAITING` state.
+- **`shell`** — a plain interactive shell in the worktree. State
+  inference falls back to running-while-output-moves and
+  ready-on-exit; there is no AWAITING heuristic for shells. Useful
+  for "I want a worktree to poke around in by hand."
+- **One-shot scripts** — anything that runs to completion and
+  exits. They flicker through RUNNING → READY/ERRORED.
+
+The Conductor plugin does not need to know which is which; the
+state machine is uniform.
+
+#### Parallel attempts on the same branch
+
+Rows 2/5, 3/6, 4/10 in the sketch above are deliberately on the
+same logical task (`feat/auth-v2`, `fix/redis-cache`,
+`UI-refactor`). PRD user story 1 ("spawn 3 different agents to
+explore 3 different architectural approaches in parallel") drives
+this. Conductor must allow:
+
+- Multiple sessions on the same branch name. Implementation:
+  worktrees get unique paths (`-alt`, `-2`, …) so `git worktree
+  add` doesn't conflict.
+- Side-by-side preview / diff between two sessions on the same
+  task — pressed via `d` while two rows are selected (multi-select
+  with Shift).
+- "Promote one, kill the rest" as a single action — `m` on a
+  selected row in a parallel-attempt cluster offers to kill the
+  siblings.
+
+The `LABEL` column makes parallel attempts identifiable; renaming
+(`r`) is how the user disambiguates them ("auth-with-uuid",
+"auth-with-snowflake").
+
+#### Memory display in the header
+
+`2.1GB / 32GB` is total Fresh-process RSS over total system RAM.
+This exists because the warm-LSP architecture (`§ Lifecycle`) makes
+memory the dominant cost of running many sessions; surfacing it
+in the Control Room lets the user see it climb in real time as
+they spawn sessions, and gives them a basis for deciding when to
+close idle ones. Not load-bearing for any feature; can be hidden
+via config.
 
 **Entry.**
 - `<Leader>o` from any session.
@@ -504,32 +595,42 @@ is full-screen and disruptive.
 - *Spawn*: `n` → new-session prompt (Screen 4) → returns here with
   the new session selected.
 - *Dive*: arrow to row → `Enter` → Screen 3.
+- *Cycle without diving*: `Ctrl+n` / `Ctrl+p` cycles selection
+  through sessions in id order; preview pane updates live.
 - *Review-and-merge*: arrow to a `READY` row → `d` for diff → `m`
-  to merge if happy → row disappears, worktree torn down.
-- *Abort*: arrow to a stuck or runaway session → `k` → confirmation
-  popup → row disappears.
+  to merge if happy → row enters `SYNCING` while git merge runs →
+  on success row is dropped and worktree torn down.
+- *Compare parallel attempts*: Shift-arrow to multi-select two
+  rows on the same branch → `d` shows a three-way diff (base / row
+  A / row B).
+- *Abort*: arrow to a stuck or runaway session → `k` → confirm →
+  state moves to `KILLED`. Row stays as a tombstone; press `k`
+  again on the killed row to drop the worktree and remove the row.
 - *Resolve collision*: collision radar shows path → click or arrow
   to it → opens diff comparing the two worktrees' versions.
+- *Rename*: `r` on selected row → inline edit in the LABEL cell.
 
 **Controls.**
 
 | Key | Action | When enabled |
 |---|---|---|
 | Up / Down | Move selection | always |
+| Shift + Up/Down | Extend multi-select | always |
+| Ctrl + n / Ctrl + p | Cycle selection (with wrap) | always |
 | Enter | Dive into selected | session is not the active one |
 | n | New session | always |
-| d | Show diff | selected session has changes |
+| d | Show diff | selection has changes |
 | m | Merge selected into base | state == READY |
-| k | Kill agent and remove worktree | not the base session |
+| k | Kill agent (first press) / drop worktree (second press on tombstone) | not the base session |
 | r | Rename / re-label session | always |
 | Tab | Cycle preview pane focus (terminal / collisions) | always |
 | Esc | Close Control Room | always |
 | Mouse: click row | Select | always |
 | Mouse: double-click row | Dive | session is not the active one |
 
-`m` and `k` both prompt for confirmation via `showActionPopup`
-because both are destructive (work that hasn't been pushed lives
-only in the worktree).
+`m` and `k`-on-non-tombstone both prompt for confirmation via
+`showActionPopup` because both are destructive (work that hasn't
+been pushed lives only in the worktree).
 
 ### Screen 3: Session IDE (post-dive)
 
@@ -686,10 +787,10 @@ state change.
 |     +--- Collision detected ---------------------------+         |
 |     |                                                  |         |
 |     | src/models/user.ts is being modified by:         |         |
-|     |   - session 2 (feat/auth-schema)                 |         |
+|     |   - session 2 (feat/auth-v2)                     |         |
 |     |   - session 3 (fix/redis-cache)                  |         |
 |     |                                                  |         |
-|     | Merge conflicts highly likely.                   |         |
+|     | Severity: conflict-likely                        |         |
 |     |                                                  |         |
 |     | [Open Control Room]  [Show diff]  [Dismiss]      |         |
 |     +--------------------------------------------------+         |
@@ -996,6 +1097,34 @@ that makes the UX claim true by construction.
    authority alongside its root. The fields nest cleanly
    (`Session.authority: AuthorityHandle`), but the spawning/teardown
    sequence interacts with `AUTHORITY_DESIGN.md` and is deferred.
+
+6. **`KILLED` retention policy.** The Control Room mockup shows
+   killed rows lingering as tombstones (e.g. a 19-minute-old row).
+   Two design choices to settle:
+   - *Within a session*: linger until the user presses `k` again,
+     or auto-drop after N minutes? Tentative default: linger
+     until acknowledged. Tombstones are evidence; auto-drop loses
+     it.
+   - *Across editor restart*: persist tombstones, or drop them?
+     Tentative default: drop on restart — tombstones are a
+     within-session debugging aid, not durable record.
+
+7. **`SYNCING` semantics — what counts as a sync?** Three candidates:
+   - Conductor-initiated git operations on the worktree (merge,
+     pull, push). Definitely.
+   - User-initiated git operations from inside the worktree's
+     terminal (`git pull` typed by hand). Probably no — Conductor
+     can't reliably detect these.
+   - Filesystem syncs after a remote agent edit (e.g. waiting for
+     `aider` to finish writing a batch of files before recomputing
+     diff stats). Maybe — would smooth the diff readout but adds
+     complexity. Defer until the diff readout is shown to flicker.
+
+8. **`shell` agent state machine.** Plain shell sessions never hit
+   `AWAITING` (no recognised prompt pattern). Should they show a
+   distinct state, or just stay in `RUNNING` forever until exit?
+   Tentative: stay in `RUNNING`. Users who want explicit "the shell
+   is idle at a prompt" indication can use a wrapper script.
 
 ## Appendix: a Conductor plugin sketch (illustrative only)
 
