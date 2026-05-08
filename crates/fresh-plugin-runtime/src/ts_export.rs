@@ -512,6 +512,28 @@ interface HookEventMap {
   language_changed: { buffer_id: number; language: string };
   theme_inspect_key: { theme_name: string; key: string };
   keyboard_shortcuts: { bindings: { key: string; action: string }[] };
+
+  // ── widget runtime ───────────────────────────────────────────────────────
+  /**
+   * A widget mounted via `editor.mountWidgetPanel` emitted a
+   * semantic event. Fired when the host's hit-test routes a mouse
+   * click to a `Toggle` / `Button` widget node within a mounted
+   * widget panel. See `docs/internal/plugin-widget-library-design.md`.
+   *
+   * Routing is by `panel_id` (matches the id the plugin allocated
+   * at mount time) plus `widget_key` (the stable `key` set on the
+   * widget spec node, or empty when the spec did not assign one).
+   *
+   * `event_type` and `payload` shapes:
+   *   * Toggle: `event_type = "toggle"`, `payload = { checked: <new> }`.
+   *   * Button: `event_type = "activate"`, `payload = {}`.
+   */
+  widget_event: {
+    panel_id: number;
+    widget_key: string;
+    event_type: string;
+    payload: Record<string, unknown>;
+  };
 }
 
 /**
