@@ -1264,9 +1264,19 @@ pub enum WidgetSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         placeholder: Option<String>,
         /// Maximum visible characters before truncation with an
-        /// ellipsis. `0` means "don't truncate".
+        /// ellipsis. `0` means "don't truncate". Distinct from
+        /// `field_width` — this is a soft cap, applied *after*
+        /// the field-width pad. Most callers want `field_width`.
         #[serde(default)]
         max_visible_chars: u32,
+        /// Fixed visible width inside the brackets (in display
+        /// columns / chars). `0` (default) = auto-fit, growing with
+        /// the value. `>0` = always render exactly this many chars:
+        /// pad short values with trailing spaces, head-truncate
+        /// long values with `…` so the *tail* (where the cursor
+        /// usually is) stays visible.
+        #[serde(default)]
+        field_width: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
     },

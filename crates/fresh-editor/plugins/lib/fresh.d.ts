@@ -763,9 +763,20 @@ type WidgetSpec = {
 	placeholder?: string | null;
 	/**
 	* Maximum visible characters before truncation with an
-	* ellipsis. `0` means "don't truncate".
+	* ellipsis. `0` means "don't truncate". Distinct from
+	* `field_width` — this is a soft cap, applied *after*
+	* the field-width pad. Most callers want `field_width`.
 	*/
 	maxVisibleChars: number;
+	/**
+	* Fixed visible width inside the brackets (in display
+	* columns / chars). `0` (default) = auto-fit, growing with
+	* the value. `>0` = always render exactly this many chars:
+	* pad short values with trailing spaces, head-truncate
+	* long values with `…` so the *tail* (where the cursor
+	* usually is) stays visible.
+	*/
+	fieldWidth: number;
 	key?: string | null;
 } | {
 	"kind": "raw";

@@ -20,4 +20,4 @@ mod render;
 
 pub use actions::{apply_text_input_key, find_widget_by_key};
 pub use registry::{HitArea, PanelId, WidgetInstanceState, WidgetPanelState, WidgetRegistry};
-pub use render::{render_spec, RenderOutput};
+pub use render::{render_spec, FocusCursor, RenderOutput};

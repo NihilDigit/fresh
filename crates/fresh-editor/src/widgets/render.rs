@@ -36,7 +36,20 @@ const KEY_FOCUSED_BG: &str = "ui.menu_active_bg";
 const KEY_DANGER_FG: &str = "ui.status_error_indicator_fg";
 const KEY_INPUT_BG: &str = "ui.prompt_bg";
 const KEY_PLACEHOLDER_FG: &str = "ui.menu_disabled_fg";
-const KEY_CURSOR_BG: &str = "editor.cursor";
+
+/// Where the host should place the buffer's hardware cursor — the
+/// terminal's blinking caret — when a `TextInput` is focused. Built
+/// by the renderer; the dispatcher translates `(buffer_row,
+/// byte_in_row)` to an absolute byte position in the virtual buffer
+/// and sets the panel buffer's primary cursor there. When a
+/// non-text widget is focused (Toggle / Button / List) or the
+/// panel has no tabbable widgets, this is `None` and the host
+/// hides the cursor entirely.
+#[derive(Debug, Clone, Copy)]
+pub struct FocusCursor {
+    pub buffer_row: u32,
+    pub byte_in_row: u32,
+}
 
 /// What a single render of a `WidgetSpec` produces.
 ///
@@ -44,20 +57,24 @@ const KEY_CURSOR_BG: &str = "editor.cursor";
 /// * `hits` — click rectangles for the `WidgetRegistry` so a later
 ///   `mouse_click` dispatches a semantic `widget_event`.
 /// * `instance_states` — next-tick widget instance state (List
-///   scroll offsets in v1; TextInput cursor / Tree expanded keys
-///   later).
+///   scroll offsets / selection, TextInput value+cursor, …).
 /// * `focus_key` — currently focused widget key, clamped to a
 ///   tabbable that exists in the spec (or `""` when there are no
 ///   tabbables).
 /// * `tabbable` — focusable widget keys collected in declaration
 ///   order. The Tab-cycle command finds the current `focus_key`'s
 ///   index in this list to advance it.
+/// * `focus_cursor` — when a `TextInput` is focused, where the
+///   terminal cursor should land. Replaces the previous
+///   "overlay-as-cursor" hack — the actual hardware cursor blinks
+///   at the right byte, with no theme-color guesswork.
 pub struct RenderOutput {
     pub entries: Vec<TextPropertyEntry>,
     pub hits: Vec<HitArea>,
     pub instance_states: HashMap<String, WidgetInstanceState>,
     pub focus_key: String,
     pub tabbable: Vec<String>,
+    pub focus_cursor: Option<FocusCursor>,
 }
 
 /// Render a spec to a [`RenderOutput`].
@@ -87,13 +104,15 @@ pub fn render_spec(
     };
 
     let mut next_state = HashMap::new();
-    let (entries, hits) = render_collected(spec, prev, &mut next_state, &focus_key, panel_width);
+    let (entries, hits, focus_cursor) =
+        render_collected(spec, prev, &mut next_state, &focus_key, panel_width);
     RenderOutput {
         entries,
         hits,
         instance_states: next_state,
         focus_key,
         tabbable,
+        focus_cursor,
     }
 }
 
@@ -104,10 +123,16 @@ enum RowPiece {
     Inline {
         entry: TextPropertyEntry,
         hits: Vec<HitArea>,
+        /// Some when this inline child was a focused TextInput.
+        /// `byte_in_row` is the cursor's offset within the *child's*
+        /// text — the Row collapse pass shifts it by the merged
+        /// inline_shift before publishing.
+        focus_cursor: Option<FocusCursor>,
     },
     Block {
         entries: Vec<TextPropertyEntry>,
         hits: Vec<HitArea>,
+        focus_cursor: Option<FocusCursor>,
     },
     Flex,
 }
@@ -174,9 +199,12 @@ fn render_collected(
     next_state: &mut HashMap<String, WidgetInstanceState>,
     focus_key: &str,
     panel_width: u32,
-) -> (Vec<TextPropertyEntry>, Vec<HitArea>) {
+) -> (Vec<TextPropertyEntry>, Vec<HitArea>, Option<FocusCursor>) {
     let mut entries: Vec<TextPropertyEntry> = Vec::new();
     let mut hits: Vec<HitArea> = Vec::new();
+    // At most one TextInput is focused per panel, so the cursor
+    // position bubbles up through containers as a single Option.
+    let mut focus_cursor: Option<FocusCursor> = None;
     match spec {
         WidgetSpec::Row { children, .. } => {
             // Two-pass layout for Row:
@@ -197,7 +225,7 @@ fn render_collected(
                     row_pieces.push(RowPiece::Flex);
                     continue;
                 }
-                let (child_entries, child_hits) =
+                let (child_entries, child_hits, child_focus) =
                     render_collected(child, prev, next_state, focus_key, panel_width);
                 if child_entries.is_empty() {
                     debug_assert!(child_hits.is_empty(), "empty children produce no hits");
@@ -213,11 +241,13 @@ fn render_collected(
                     row_pieces.push(RowPiece::Inline {
                         entry,
                         hits: child_hits,
+                        focus_cursor: child_focus,
                     });
                 } else {
                     row_pieces.push(RowPiece::Block {
                         entries: child_entries,
                         hits: child_hits,
+                        focus_cursor: child_focus,
                     });
                 }
             }
@@ -254,6 +284,7 @@ fn render_collected(
                     RowPiece::Inline {
                         mut entry,
                         hits: child_hits,
+                        focus_cursor: child_focus,
                     } => {
                         let inline_shift = match acc.as_ref() {
                             Some(e) => e.text.len(),
@@ -263,6 +294,11 @@ fn render_collected(
                             h.byte_start += inline_shift;
                             h.byte_end += inline_shift;
                             hits.push(h);
+                        }
+                        if let Some(mut fc) = child_focus {
+                            // buffer_row stays 0 — caller shifts.
+                            fc.byte_in_row += inline_shift as u32;
+                            focus_cursor = Some(fc);
                         }
                         match acc.as_mut() {
                             Some(merged) => merge_inline(merged, &mut entry),
@@ -296,14 +332,20 @@ fn render_collected(
                     RowPiece::Block {
                         entries: block_entries,
                         hits: child_hits,
+                        focus_cursor: child_focus,
                     } => {
-                        if let Some(merged) = acc.take() {
+                        if let Some(mut merged) = acc.take() {
+                            ensure_trailing_newline(&mut merged);
                             entries.push(merged);
                         }
                         let row_offset = entries.len() as u32;
                         for mut h in child_hits {
                             h.buffer_row += row_offset;
                             hits.push(h);
+                        }
+                        if let Some(mut fc) = child_focus {
+                            fc.buffer_row += row_offset;
+                            focus_cursor = Some(fc);
                         }
                         entries.extend(block_entries);
                     }
@@ -316,12 +358,16 @@ fn render_collected(
         }
         WidgetSpec::Col { children, .. } => {
             for child in children {
-                let (child_entries, child_hits) =
+                let (child_entries, child_hits, child_focus) =
                     render_collected(child, prev, next_state, focus_key, panel_width);
                 let row_offset = entries.len() as u32;
                 for mut h in child_hits {
                     h.buffer_row += row_offset;
                     hits.push(h);
+                }
+                if let Some(mut fc) = child_focus {
+                    fc.buffer_row += row_offset;
+                    focus_cursor = Some(fc);
                 }
                 entries.extend(child_entries);
             }
@@ -520,6 +566,7 @@ fn render_collected(
             label,
             placeholder,
             max_visible_chars,
+            field_width,
             key,
         } => {
             let is_focused = match key.as_deref() {
@@ -552,29 +599,32 @@ fn render_collected(
                     },
                 );
             }
-            // When focus moves away from a TextInput, hide the
-            // cursor — the spec's `cursor_byte` stays around for
-            // the plugin's bookkeeping but visually a non-focused
-            // input shouldn't display a cursor.
             let effective_cursor = if is_focused {
                 effective_cursor_byte
             } else {
                 -1
             };
-            let mut entry = render_text_input(
+            let rendered = render_text_input(
                 &effective_value,
                 effective_cursor,
                 is_focused,
                 label,
                 placeholder.as_deref(),
                 *max_visible_chars,
+                *field_width,
             );
+            // Publish the cursor position so the dispatcher can
+            // drive the hardware cursor. Container shifts
+            // (Row/Col) update buffer_row + byte_in_row.
+            if let Some(byte_in_row) = rendered.cursor_byte_in_entry {
+                focus_cursor = Some(FocusCursor {
+                    buffer_row: 0,
+                    byte_in_row: byte_in_row as u32,
+                });
+            }
+            let mut entry = rendered.entry;
             ensure_trailing_newline(&mut entry);
             entries.push(entry);
-            // No hit area in v1 — clicks on a TextInput will land
-            // somewhere inside the bracketed value, but cursor
-            // placement on click requires cursor mutation, which
-            // needs the keymap-routing layer.
         }
         WidgetSpec::Raw {
             entries: raw_entries,
@@ -595,7 +645,7 @@ fn render_collected(
             }
         }
     }
-    (entries, hits)
+    (entries, hits, focus_cursor)
 }
 
 /// Render a HintBar into a single `TextPropertyEntry`.
@@ -759,26 +809,40 @@ pub fn render_button(label: &str, focused: bool, kind: ButtonKind) -> TextProper
     }
 }
 
-/// Render a `TextInput` to a single `TextPropertyEntry`.
+/// Output of `render_text_input` — the rendered entry plus the
+/// byte offset within `entry.text` where the host should place the
+/// hardware cursor when this input is focused.
+pub struct RenderedTextInput {
+    pub entry: TextPropertyEntry,
+    /// Byte offset within `entry.text` where the cursor lands.
+    /// When the input is unfocused or has no cursor, `None`.
+    pub cursor_byte_in_entry: Option<usize>,
+}
+
+/// Render a `TextInput`.
 ///
-/// Layout: `Label: [<value>]` or just `[<value>]` when `label` is
-/// empty. When `value` is empty and the input is unfocused, the
-/// `placeholder` (if provided) is shown in `ui.menu_disabled_fg`.
+/// Layout: `Label: [<inner>]` (or `[<inner>]` with no label).
+/// `<inner>` is exactly `field_width` chars wide when
+/// `field_width > 0` — short values pad with trailing spaces, long
+/// values head-truncate with `…` so the cursor (typically near the
+/// tail) stays visible. With `field_width == 0` the input grows
+/// with the value (legacy behaviour, also used by tests).
 ///
-/// Cursor: when `cursor_byte >= 0`, a one-cell reverse-video overlay
-/// is placed at the requested byte offset within `value`. If the
-/// cursor sits past the last character, it highlights the closing
-/// bracket — matching the pre-widget hand-rolled behaviour the
-/// search_replace plugin relied on.
+/// Placeholder: when unfocused and empty, the placeholder string
+/// is shown in `ui.menu_disabled_fg`. Focused inputs always show
+/// their (possibly empty) value, never the placeholder.
 ///
-/// Focused state: the value range gets the input-bg theme key
-/// (`ui.prompt_bg`) so the field visually reads as the active
-/// editing target.
+/// Focused-bg: the bracketed region gets `ui.prompt_bg` so the
+/// field visually reads as the active editing target.
 ///
-/// Truncation: when `max_visible_chars > 0` and `value` exceeds it,
-/// the shown text is `…value-tail`, with the cursor still tracking
-/// its logical byte position relative to the original value (best
-/// effort — the displayed cursor approximates the truncated form).
+/// **No cursor overlay**: this renderer does not paint the cursor
+/// itself — it returns the byte offset where the host should drop
+/// the *real* hardware cursor (the terminal's blinking caret). The
+/// dispatcher uses that offset to position
+/// `SplitViewState::cursors.primary` and flip `show_cursors=true`
+/// on the panel buffer. Result: the cursor is always visible
+/// regardless of theme contrast, blinks correctly, and matches
+/// every other text-input field in the editor.
 pub fn render_text_input(
     value: &str,
     cursor_byte: i32,
@@ -786,24 +850,95 @@ pub fn render_text_input(
     label: &str,
     placeholder: Option<&str>,
     max_visible_chars: u32,
-) -> TextPropertyEntry {
+    field_width: u32,
+) -> RenderedTextInput {
     let show_placeholder = !focused && value.is_empty() && placeholder.is_some();
 
-    // Decide what text goes inside the brackets.
-    let inner: String = if show_placeholder {
-        placeholder.unwrap_or("").to_string()
+    // Compute the user-cursor's char position within `value`. We
+    // operate in bytes here, which is correct for the cursor on
+    // ASCII; multibyte chars resolve via is_char_boundary checks.
+    let raw_cursor_byte = if cursor_byte < 0 {
+        value.len()
+    } else {
+        (cursor_byte as usize).min(value.len())
+    };
+
+    // Build `<inner>` plus the byte offset of the cursor *within*
+    // `<inner>` (not yet including `[`/label offsets). This is the
+    // single place where field-width truncation/padding lives.
+    let (inner, cursor_in_inner) = if show_placeholder {
+        // Placeholder doesn't carry a cursor (never focused here).
+        (placeholder.unwrap_or("").to_string(), None)
+    } else if field_width > 0 {
+        // Constant-width. Visible value occupies `target` chars;
+        // when focused we add one trailing pad space so the cursor
+        // never lands on the closing bracket. Result inner width:
+        //   focused   → target + 1
+        //   unfocused → target
+        let target = field_width as usize;
+        let pad_extra = if focused { 1 } else { 0 };
+        let total_inner = target + pad_extra;
+        let value_chars: Vec<char> = value.chars().collect();
+        if value_chars.len() <= target {
+            // Short or exact-fit value: pad with trailing spaces
+            // to total_inner. Cursor at byte k of value lands at
+            // byte k of inner.
+            let mut padded = value.to_string();
+            while padded.chars().count() < total_inner {
+                padded.push(' ');
+            }
+            (padded, Some(raw_cursor_byte))
+        } else {
+            // Long value: head-truncate to fit `target - 1` value
+            // chars + 1 ellipsis. When focused, append a trailing
+            // pad space (cursor parks there at end-of-value).
+            let keep = target - 1;
+            let drop_chars = value_chars.len() - keep;
+            let mut dropped_bytes = 0usize;
+            for ch in value_chars.iter().take(drop_chars) {
+                dropped_bytes += ch.len_utf8();
+            }
+            let tail = &value[dropped_bytes..];
+            let mut s = String::with_capacity("…".len() + tail.len() + pad_extra);
+            s.push('…');
+            s.push_str(tail);
+            for _ in 0..pad_extra {
+                s.push(' ');
+            }
+            // Cursor: if it sits in the dropped prefix, clamp to
+            // right after the `…` glyph; otherwise translate
+            // through the truncation.
+            let cursor_in_inner = if raw_cursor_byte < dropped_bytes {
+                "…".len()
+            } else {
+                "…".len() + (raw_cursor_byte - dropped_bytes)
+            };
+            (s, Some(cursor_in_inner))
+        }
     } else if max_visible_chars > 0 && value.chars().count() > max_visible_chars as usize {
-        // Tail-truncate so the cursor (typically at the end while
-        // typing) stays visible.
+        // Legacy max_visible_chars path: tail-truncate with `…`
+        // (drops the *tail*, not the head — matches the original
+        // cursor-invisible v1 behaviour for callers still using it).
         let chars: Vec<char> = value.chars().collect();
         let take = (max_visible_chars as usize).saturating_sub(1);
         let start = chars.len().saturating_sub(take);
         let tail: String = chars[start..].iter().collect();
-        format!("…{}", tail)
+        let s = format!("…{}", tail);
+        (s, Some(raw_cursor_byte.min(value.len())))
     } else {
-        value.to_string()
+        // No fixed width and no truncation: render the value as-is.
+        // When focused we still need somewhere for the cursor to
+        // land at end-of-value — append a trailing space so the
+        // cursor sits on it instead of overlapping the closing
+        // bracket.
+        let mut s = value.to_string();
+        if focused {
+            s.push(' ');
+        }
+        (s, Some(raw_cursor_byte))
     };
 
+    // Compose the final text: optional label, `[`, inner, `]`.
     let mut text = String::new();
     if !label.is_empty() {
         text.push_str(label);
@@ -819,7 +954,6 @@ pub fn render_text_input(
 
     let mut overlays = Vec::new();
 
-    // Placeholder text: muted theme key, no other styling.
     if show_placeholder {
         overlays.push(InlineOverlay {
             start: inner_byte_start,
@@ -832,8 +966,6 @@ pub fn render_text_input(
         });
     }
 
-    // Focused: input-bg across the bracketed region (excluding the
-    // brackets themselves, so the field reads as its own surface).
     if focused {
         overlays.push(InlineOverlay {
             start: bracket_open_byte,
@@ -846,38 +978,20 @@ pub fn render_text_input(
         });
     }
 
-    // Cursor: a single-grapheme reverse-video span at the cursor
-    // byte position inside `value`. When the cursor is at end-of-
-    // value (or past it), highlight the closing bracket.
-    if cursor_byte >= 0 && !show_placeholder {
-        let cb = cursor_byte as usize;
-        let (start_byte, end_byte) = if cb >= inner.len() {
-            // End-of-value cursor → highlight the closing bracket.
-            (bracket_close_byte - 1, bracket_close_byte)
-        } else {
-            // Find next char boundary after the cursor.
-            let mut next = cb + 1;
-            while next < inner.len() && !inner.is_char_boundary(next) {
-                next += 1;
-            }
-            (inner_byte_start + cb, inner_byte_start + next)
-        };
-        overlays.push(InlineOverlay {
-            start: start_byte,
-            end: end_byte,
-            style: OverlayOptions {
-                bg: Some(OverlayColorSpec::theme_key(KEY_CURSOR_BG)),
-                ..Default::default()
-            },
-            properties: Default::default(),
-        });
-    }
+    let cursor_byte_in_entry = if focused {
+        cursor_in_inner.map(|c| inner_byte_start + c)
+    } else {
+        None
+    };
 
-    TextPropertyEntry {
-        text,
-        properties: Default::default(),
-        style: None,
-        inline_overlays: overlays,
+    RenderedTextInput {
+        entry: TextPropertyEntry {
+            text,
+            properties: Default::default(),
+            style: None,
+            inline_overlays: overlays,
+        },
+        cursor_byte_in_entry,
     }
 }
 
@@ -1336,6 +1450,7 @@ mod tests {
                     label: "".into(),
                     placeholder: None,
                     max_visible_chars: 0,
+                    field_width: 0,
                     key: Some("ti".into()),
                 },
                 WidgetSpec::Toggle {
@@ -1725,20 +1840,20 @@ mod tests {
 
     #[test]
     fn text_input_renders_value_in_brackets() {
-        let entry = render_text_input("hello", -1, false, "", None, 0);
+        let entry = render_text_input("hello", -1, false, "", None, 0, 0).entry;
         assert_eq!(entry.text, "[hello]");
         assert!(entry.inline_overlays.is_empty());
     }
 
     #[test]
     fn text_input_with_label_prefixes_with_label_space() {
-        let entry = render_text_input("foo", -1, false, "Search:", None, 0);
+        let entry = render_text_input("foo", -1, false, "Search:", None, 0, 0).entry;
         assert_eq!(entry.text, "Search: [foo]");
     }
 
     #[test]
     fn text_input_focused_adds_input_bg_overlay() {
-        let entry = render_text_input("x", -1, true, "", None, 0);
+        let entry = render_text_input("x", -1, true, "", None, 0, 0).entry;
         // Focused → input-bg overlay (no cursor since cursor_byte < 0).
         assert_eq!(entry.inline_overlays.len(), 1);
         let bg = entry.inline_overlays[0].style.bg.as_ref().unwrap();
@@ -1746,49 +1861,31 @@ mod tests {
     }
 
     #[test]
-    fn text_input_cursor_at_value_position_highlights_char() {
-        let entry = render_text_input("abc", 1, true, "", None, 0);
-        // Two overlays: input-bg (focused) + cursor on 'b'.
-        assert_eq!(entry.inline_overlays.len(), 2);
-        let cursor = entry
-            .inline_overlays
-            .iter()
-            .find(|o| {
-                o.style
-                    .bg
-                    .as_ref()
-                    .map(|c| c.as_theme_key() == Some("editor.cursor"))
-                    .unwrap_or(false)
-            })
-            .expect("cursor overlay present");
-        // 'a' is at byte 1 (after '['), 'b' at byte 2, 'c' at byte 3
-        // when label="" (text = "[abc]").
-        assert_eq!(cursor.start, 2);
-        assert_eq!(cursor.end, 3);
+    fn text_input_cursor_byte_in_entry_at_value_position() {
+        // Cursor mid-value: returned byte points at the position
+        // *within entry.text*. text = "[abc ]" (focused → trailing
+        // pad space). 'a' at byte 1, 'b' at 2, 'c' at 3 — so a
+        // cursor at value-byte 1 lands at entry-byte 2.
+        let r = render_text_input("abc", 1, true, "", None, 0, 0);
+        assert_eq!(r.cursor_byte_in_entry, Some(2));
     }
 
     #[test]
-    fn text_input_cursor_at_end_highlights_closing_bracket() {
-        let entry = render_text_input("ab", 2, true, "", None, 0);
-        let cursor = entry
-            .inline_overlays
-            .iter()
-            .find(|o| {
-                o.style
-                    .bg
-                    .as_ref()
-                    .map(|c| c.as_theme_key() == Some("editor.cursor"))
-                    .unwrap_or(false)
-            })
-            .unwrap();
-        // text = "[ab]" → closing bracket at byte 3..4
-        assert_eq!(cursor.start, 3);
-        assert_eq!(cursor.end, 4);
+    fn text_input_cursor_at_end_lands_on_padding_space_not_bracket() {
+        // Cursor at end-of-value: with focused + no field_width,
+        // a trailing pad space is appended so the cursor never
+        // overlaps the closing bracket. text = "[ab ]" → cursor
+        // at value-byte 2 lands at entry-byte 3 (the space), not
+        // at byte 4 (the `]`).
+        let r = render_text_input("ab", 2, true, "", None, 0, 0);
+        assert_eq!(r.entry.text, "[ab ]");
+        assert_eq!(r.cursor_byte_in_entry, Some(3));
+        assert_ne!(r.cursor_byte_in_entry, Some(4), "must not overlap ]");
     }
 
     #[test]
     fn text_input_unfocused_empty_shows_placeholder_in_muted() {
-        let entry = render_text_input("", -1, false, "", Some("type here"), 0);
+        let entry = render_text_input("", -1, false, "", Some("type here"), 0, 0).entry;
         assert_eq!(entry.text, "[type here]");
         // One overlay for the placeholder muted color.
         assert_eq!(entry.inline_overlays.len(), 1);
@@ -1798,15 +1895,67 @@ mod tests {
 
     #[test]
     fn text_input_focused_empty_does_not_show_placeholder() {
-        let entry = render_text_input("", -1, true, "", Some("type here"), 0);
-        // No placeholder when focused — would obstruct the cursor.
-        assert_eq!(entry.text, "[]");
+        let entry = render_text_input("", -1, true, "", Some("type here"), 0, 0).entry;
+        // No placeholder when focused. Empty + focused + no
+        // field_width → trailing pad space so the cursor has
+        // somewhere to sit. text = "[ ]".
+        assert_eq!(entry.text, "[ ]");
+    }
+
+    #[test]
+    fn text_input_field_width_pads_short_value_unfocused() {
+        // field_width=10, unfocused → inner is 10 chars, no extra
+        // pad (cursor not visible anyway).
+        let r = render_text_input("hi", 2, false, "", None, 0, 10);
+        assert_eq!(r.entry.text, "[hi        ]");
+    }
+
+    #[test]
+    fn text_input_field_width_focused_adds_cursor_park_space() {
+        // field_width=10, focused, value fills exactly 10 → inner
+        // is 11 chars (10 + 1 cursor-park space) so the cursor at
+        // end-of-value never lands on `]`.
+        let r = render_text_input("0123456789", 10, true, "", None, 0, 10);
+        assert_eq!(r.entry.text, "[0123456789 ]");
+        // Cursor at byte 10 of value → byte 10 of inner → byte 11
+        // of entry.text (after `[`). That's the cursor-park space,
+        // not `]` (which lives at byte 12).
+        assert_eq!(r.cursor_byte_in_entry, Some(11));
+        assert_ne!(r.cursor_byte_in_entry, Some(12), "must not land on ]");
+    }
+
+    #[test]
+    fn text_input_field_width_head_truncates_long_value() {
+        // 30-char value, field_width=10, unfocused → keep last 9
+        // chars + `…`; no pad space.
+        let r = render_text_input(
+            "0123456789abcdefghijklmnopqrst",
+            30,
+            false,
+            "",
+            None,
+            0,
+            10,
+        );
+        assert!(r.entry.text.contains("…lmnopqrst"));
+    }
+
+    #[test]
+    fn text_input_field_width_clamps_cursor_in_dropped_prefix() {
+        // Long value, field_width=5, focused, cursor at byte 0 (in
+        // dropped prefix) → clamped to right after the `…`.
+        let r = render_text_input("abcdefghij", 0, true, "", None, 0, 5);
+        // Inner = `…fghij ` (1 ellipsis + 4 tail chars + 1 pad).
+        // Cursor at "right after `…`" = byte 3 of inner (3 = `…`'s
+        // UTF-8 byte length). entry.text has `[` before, so
+        // absolute byte = 1 + 3 = 4.
+        assert_eq!(r.cursor_byte_in_entry, Some(1 + "…".len()));
     }
 
     #[test]
     fn text_input_truncates_long_value_keeping_tail_visible() {
         let value: String = "0123456789abcdefghij".to_string();
-        let entry = render_text_input(&value, -1, false, "", None, 6);
+        let entry = render_text_input(&value, -1, false, "", None, 6, 0).entry;
         // Tail-truncated to "…fghij" (max=6, take=5 chars).
         assert_eq!(entry.text, "[…fghij]");
     }

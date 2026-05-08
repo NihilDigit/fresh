@@ -159,12 +159,16 @@ export function list(options: {
 }
 
 /** Single-line text input, rendered as `[value]` (or
- * `Label: [value]` if `label` is provided), with a one-cell cursor
- * highlight at `cursorByte` when ≥ 0. v1 is render-only — the
- * plugin still owns the value string and cursor, and the existing
- * `mode_text_input` + bound-key path handles editing. The widget
- * provides theme-keyed focus styling and removes the per-plugin
- * `buildFieldDisplay` / `addCursorOverlay` byte-offset arithmetic. */
+ * `Label: [value]` if `label` is provided). The host drives the
+ * actual hardware cursor at `cursorByte` when focused — no painted
+ * overlay, the terminal's blinking caret follows the focused field.
+ *
+ * `fieldWidth` (recommended for any non-trivial input) gives the
+ * input a constant visible width: short values pad with trailing
+ * spaces, long values head-truncate with `…` so the cursor stays
+ * visible at the right edge. Without `fieldWidth` the input grows
+ * with the value, which is fine for one-shot prompts but causes
+ * surrounding row content to shift as the user types. */
 export function textInput(
   value: string,
   options?: {
@@ -172,7 +176,10 @@ export function textInput(
     focused?: boolean;
     label?: string;
     placeholder?: string;
+    /** Soft truncation cap (legacy). Prefer `fieldWidth`. */
     maxVisibleChars?: number;
+    /** Constant visible width inside the brackets. */
+    fieldWidth?: number;
     key?: string;
   },
 ): WidgetSpec {
@@ -184,6 +191,7 @@ export function textInput(
     label: options?.label,
     placeholder: options?.placeholder,
     maxVisibleChars: options?.maxVisibleChars ?? 0,
+    fieldWidth: options?.fieldWidth ?? 0,
     key: options?.key,
   };
 }

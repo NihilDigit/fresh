@@ -2846,6 +2846,7 @@ impl Editor {
         let prev_focus = String::new();
         let panel_width = self.widget_panel_width(buffer_id);
         let out = crate::widgets::render_spec(&spec, &prev, &prev_focus, panel_width);
+        let focus_cursor = out.focus_cursor;
         self.widget_registry.mount(
             panel_id,
             buffer_id,
@@ -2855,7 +2856,8 @@ impl Editor {
             out.focus_key,
             out.tabbable,
         );
-        if let Err(e) = self.set_virtual_buffer_content(buffer_id, out.entries) {
+        let entries = out.entries;
+        if let Err(e) = self.set_virtual_buffer_content(buffer_id, entries.clone()) {
             tracing::error!(
                 "Failed to render mounted widget panel {} into {:?}: {}",
                 panel_id,
@@ -2869,6 +2871,7 @@ impl Editor {
                 buffer_id
             );
         }
+        self.apply_widget_focus_cursor(buffer_id, &entries, focus_cursor);
     }
 
     fn handle_update_widget_panel(&mut self, panel_id: u64, spec: fresh_core::api::WidgetSpec) {
@@ -2894,6 +2897,8 @@ impl Editor {
             .unwrap_or(BufferId(0));
         let panel_width = self.widget_panel_width(buffer_id_for_width);
         let out = crate::widgets::render_spec(&spec, &prev, &prev_focus, panel_width);
+        let focus_cursor = out.focus_cursor;
+        let entries = out.entries;
         match self.widget_registry.update(
             panel_id,
             spec,
@@ -2903,15 +2908,52 @@ impl Editor {
             out.tabbable,
         ) {
             Ok(buffer_id) => {
-                if let Err(e) = self.set_virtual_buffer_content(buffer_id, out.entries) {
+                if let Err(e) = self.set_virtual_buffer_content(buffer_id, entries.clone()) {
                     tracing::error!("Failed to render updated widget panel {}: {}", panel_id, e);
                 }
+                self.apply_widget_focus_cursor(buffer_id, &entries, focus_cursor);
             }
             Err(()) => {
                 tracing::debug!(
                     "UpdateWidgetPanel for unknown panel {} ignored (not mounted)",
                     panel_id
                 );
+            }
+        }
+    }
+
+    /// Apply a `RenderOutput`'s focus-cursor position to the panel
+    /// buffer + every split rendering it. When a `TextInput` is
+    /// focused, the dispatcher flips `show_cursors=true` and moves
+    /// the primary cursor to the right byte. When no TextInput is
+    /// focused, the cursor is hidden (`show_cursors=false`) — the
+    /// focused widget's own bg overlay shows where focus is.
+    ///
+    /// Must be called *after* `set_virtual_buffer_content` so the
+    /// buffer's text matches the row/byte coordinates the renderer
+    /// produced.
+    fn apply_widget_focus_cursor(
+        &mut self,
+        buffer_id: BufferId,
+        entries: &[fresh_core::text_property::TextPropertyEntry],
+        focus_cursor: Option<crate::widgets::FocusCursor>,
+    ) {
+        let absolute_byte = focus_cursor.map(|fc| {
+            let row = fc.buffer_row as usize;
+            let prefix: usize = entries.iter().take(row).map(|e| e.text.len()).sum();
+            prefix + fc.byte_in_row as usize
+        });
+
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.show_cursors = absolute_byte.is_some();
+        }
+
+        if let Some(byte) = absolute_byte {
+            for vs in self.split_view_states.values_mut() {
+                if vs.buffer_state(buffer_id).is_some() {
+                    let cursor = vs.cursors.primary_mut();
+                    cursor.position = byte;
+                }
             }
         }
     }
@@ -2958,6 +3000,8 @@ impl Editor {
             .unwrap_or_default();
         let panel_width = self.widget_panel_width(buffer_id);
         let out = crate::widgets::render_spec(&spec, &prev, &prev_focus, panel_width);
+        let focus_cursor = out.focus_cursor;
+        let entries = out.entries;
         // The panel exists (we read it just above) — `update`'s
         // Err arm only fires for unknown panels, so an error here
         // would mean the registry was mutated mid-call.
@@ -2976,9 +3020,10 @@ impl Editor {
             tracing::warn!("rerender_widget_panel({}) lost panel mid-call", panel_id);
             return;
         }
-        if let Err(e) = self.set_virtual_buffer_content(buffer_id, out.entries) {
+        if let Err(e) = self.set_virtual_buffer_content(buffer_id, entries.clone()) {
             tracing::error!("rerender_widget_panel({}) failed: {}", panel_id, e);
         }
+        self.apply_widget_focus_cursor(buffer_id, &entries, focus_cursor);
     }
 
     fn handle_widget_command(&mut self, panel_id: u64, action: fresh_core::api::WidgetAction) {
