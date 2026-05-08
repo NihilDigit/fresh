@@ -85,6 +85,17 @@ pub struct WidgetPanelState {
     /// Widget instance state by widget `key`. Survives re-renders —
     /// see `WidgetInstanceState` for what's stored.
     pub instance_states: HashMap<String, WidgetInstanceState>,
+    /// Currently-focused widget key within this panel. Empty when
+    /// the panel has no focusable widgets, or before the first
+    /// render. Maintained by the renderer (clamps to a valid
+    /// tabbable key on every render) and by `widget_focus_advance`
+    /// (cycles through tabbables on Tab / Shift+Tab).
+    pub focus_key: String,
+    /// Tabbable widget keys collected from the most recent render,
+    /// in declaration order. The Tab-cycle command finds the
+    /// current `focus_key`'s position in this list and advances by
+    /// the requested delta (with wraparound).
+    pub tabbable: Vec<String>,
 }
 
 /// Global registry of mounted widget panels.
@@ -101,13 +112,6 @@ impl WidgetRegistry {
     /// Mount or replace a panel. Returns the previous state if the
     /// panel was already mounted (the dispatcher may use this to
     /// detect re-mounts on the same id).
-    ///
-    /// `instance_states` carries widget instance state for the
-    /// freshly-rendered spec. On the first mount this is whatever
-    /// the renderer initialized; on re-mount the dispatcher may
-    /// pass through the previous panel's `instance_states` so
-    /// scroll offsets and other widget state survive a
-    /// `MountWidgetPanel` that replaces an existing panel.
     pub fn mount(
         &mut self,
         panel_id: PanelId,
@@ -115,6 +119,8 @@ impl WidgetRegistry {
         spec: WidgetSpec,
         hits: Vec<HitArea>,
         instance_states: HashMap<String, WidgetInstanceState>,
+        focus_key: String,
+        tabbable: Vec<String>,
     ) -> Option<WidgetPanelState> {
         self.panels.insert(
             panel_id,
@@ -123,26 +129,32 @@ impl WidgetRegistry {
                 spec,
                 hits,
                 instance_states,
+                focus_key,
+                tabbable,
             },
         )
     }
 
-    /// Replace the spec and hit areas on an already-mounted panel.
-    /// Returns `Ok(buffer_id)` to render into, or `Err(())` if no
-    /// panel exists for that id (caller should drop the update —
-    /// the plugin re-emitted after unmount).
+    /// Replace the spec and rendered metadata on an already-mounted
+    /// panel. Returns `Ok(buffer_id)` to render into, or `Err(())`
+    /// if no panel exists for that id (caller should drop the
+    /// update — the plugin re-emitted after unmount).
     pub fn update(
         &mut self,
         panel_id: PanelId,
         spec: WidgetSpec,
         hits: Vec<HitArea>,
         instance_states: HashMap<String, WidgetInstanceState>,
+        focus_key: String,
+        tabbable: Vec<String>,
     ) -> Result<BufferId, ()> {
         match self.panels.get_mut(&panel_id) {
             Some(state) => {
                 state.spec = spec;
                 state.hits = hits;
                 state.instance_states = instance_states;
+                state.focus_key = focus_key;
+                state.tabbable = tabbable;
                 Ok(state.buffer_id)
             }
             None => Err(()),
@@ -157,6 +169,29 @@ impl WidgetRegistry {
         panel_id: PanelId,
     ) -> Option<&HashMap<String, WidgetInstanceState>> {
         self.panels.get(&panel_id).map(|s| &s.instance_states)
+    }
+
+    /// Read-only access to the previous render's focus key.
+    pub fn focus_key(&self, panel_id: PanelId) -> Option<&str> {
+        self.panels.get(&panel_id).map(|s| s.focus_key.as_str())
+    }
+
+    /// Set the focus key directly (used by `widget_focus_advance`
+    /// and click-driven focus moves). Updates the in-place state;
+    /// the next render reads it via `focus_key()`.
+    pub fn set_focus_key(&mut self, panel_id: PanelId, key: String) {
+        if let Some(state) = self.panels.get_mut(&panel_id) {
+            state.focus_key = key;
+        }
+    }
+
+    /// Find the buffer and current spec for a panel — used by the
+    /// dispatcher to re-render after a focus advance / activate
+    /// command without the plugin needing to send an UpdateWidgetPanel.
+    pub fn buffer_and_spec(&self, panel_id: PanelId) -> Option<(BufferId, WidgetSpec)> {
+        self.panels
+            .get(&panel_id)
+            .map(|s| (s.buffer_id, s.spec.clone()))
     }
 
     /// Tear down a panel. Returns the buffer_id the panel was
@@ -242,6 +277,8 @@ mod tests {
             empty_spec(),
             vec![make_hit(0, 0, 5, "a"), make_hit(0, 7, 12, "b")],
             HashMap::new(),
+            String::new(),
+            Vec::new(),
         );
         let hit = reg.hit_test(BufferId(7), 0, 8).expect("inside b");
         assert_eq!(hit.0, 42);
@@ -257,6 +294,8 @@ mod tests {
             empty_spec(),
             vec![make_hit(0, 0, 5, "a")],
             HashMap::new(),
+            String::new(),
+            Vec::new(),
         );
         assert!(reg.hit_test(BufferId(0), 0, 5).is_none(), "byte_end is exclusive");
         assert!(reg.hit_test(BufferId(0), 0, 100).is_none());
@@ -273,6 +312,8 @@ mod tests {
             empty_spec(),
             vec![make_hit(0, 0, 3, "x")],
             HashMap::new(),
+            String::new(),
+            Vec::new(),
         );
         assert!(reg.hit_test(BufferId(2), 0, 1).is_some());
         reg.unmount(5);
@@ -288,12 +329,16 @@ mod tests {
             empty_spec(),
             vec![make_hit(0, 0, 3, "old")],
             HashMap::new(),
+            String::new(),
+            Vec::new(),
         );
         reg.update(
             5,
             empty_spec(),
             vec![make_hit(1, 4, 9, "new")],
             HashMap::new(),
+            String::new(),
+            Vec::new(),
         )
         .expect("mounted");
         // Old hit gone; new hit visible.

@@ -14,8 +14,10 @@
 //! See `docs/internal/plugin-widget-library-design.md` for the full
 //! design.
 
+mod actions;
 mod registry;
 mod render;
 
-pub use registry::{HitArea, PanelId, WidgetPanelState, WidgetRegistry};
-pub use render::render_spec;
+pub use actions::{apply_text_input_key, find_widget_by_key};
+pub use registry::{HitArea, PanelId, WidgetInstanceState, WidgetPanelState, WidgetRegistry};
+pub use render::{render_spec, RenderOutput};
