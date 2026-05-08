@@ -1,5 +1,16 @@
 /// <reference path="./lib/fresh.d.ts" />
-import { col, hintBar, parseHintString, raw, WidgetPanel } from "./lib/widgets.ts";
+import {
+  button,
+  col,
+  hintBar,
+  parseHintString,
+  raw,
+  row,
+  spacer,
+  toggle,
+  WidgetPanel,
+  type WidgetSpec,
+} from "./lib/widgets.ts";
 
 const editor = getEditor();
 
@@ -298,10 +309,67 @@ function getViewportHeight(): number {
 // Panel content builder — compact two-line control bar + match tree
 // =============================================================================
 
-function buildPanelEntries(): TextPropertyEntry[] {
+// Build the typed Row spec for the options line (3 toggles + Replace
+// All button). Was previously hand-built into entries with manual
+// byte-offset overlay arithmetic (see git history pre-widget); now
+// dispatched through the host's Toggle/Button widgets so styling,
+// theme keys, and focus affordance match every other plugin.
+function buildOptionsRowSpec(): WidgetSpec {
+  if (!panel) return col();
+  const { focusPanel, optionIndex, caseSensitive, useRegex, wholeWords } = panel;
+  const W = Math.max(MIN_WIDTH, panel.viewportWidth - 2);
+  const oFocus = focusPanel === "options";
+
+  // Each toggle/button knows its own rendered length; sum them and
+  // distribute the remainder as a single Spacer so the Replace All
+  // button right-aligns. Lengths are exact byte counts of the rendered
+  // text the widgets emit (`[v] label` for toggles, `[ Label ]` for
+  // buttons).
+  const caseLabel = editor.t("panel.case_toggle");
+  const regexLabel = editor.t("panel.regex_toggle");
+  const wholeLabel = editor.t("panel.whole_toggle");
+  const replLabel = editor.t("panel.replace_all_btn");
+  const tglLen = (label: string): number => byteLen("[v] " + label);
+  const naturalCols =
+    tglLen(caseLabel) + 2 + tglLen(regexLabel) + 2 + tglLen(wholeLabel) +
+    /* mid spacer min */ 4 +
+    /* button: "[ " + label + " ]" */ byteLen("[ " + replLabel + " ]") +
+    /* leading single space */ 1;
+  const fillCols = Math.max(4, W - naturalCols + 4);
+
+  return row(
+    spacer(1),
+    toggle(caseSensitive, caseLabel, { focused: oFocus && optionIndex === 0 }),
+    spacer(2),
+    toggle(useRegex, regexLabel, { focused: oFocus && optionIndex === 1 }),
+    spacer(2),
+    toggle(wholeWords, wholeLabel, { focused: oFocus && optionIndex === 2 }),
+    spacer(fillCols),
+    button(replLabel, {
+      focused: oFocus && optionIndex === 3,
+      intent: "primary",
+    }),
+  );
+}
+
+// Phase selector for `buildPanelEntries`. The hand-rolled options
+// row was extracted into `buildOptionsRowSpec()`; this parameter lets
+// callers ask for the body before it ("preOptions"), the body after
+// it ("postOptions"), or — for tests / fallback paths — both with no
+// gap ("all").
+type BuildPhase = "all" | "preOptions" | "postOptions";
+
+function buildPanelEntries(phase: BuildPhase = "all"): TextPropertyEntry[] {
   if (!panel) return [];
   const { searchPattern, replaceText, searchResults, fileGroups, focusPanel, queryField,
     optionIndex, caseSensitive, useRegex, wholeWords, cursorPos } = panel;
+  // The options-row variables are still destructured above for
+  // readability with the rest of the function but are now consumed by
+  // `buildOptionsRowSpec()` (composed into the spec at update time).
+  void optionIndex;
+  void caseSensitive;
+  void useRegex;
+  void wholeWords;
 
   const W = Math.max(MIN_WIDTH, panel.viewportWidth - 2);
   const entries: TextPropertyEntry[] = [];
@@ -377,46 +445,18 @@ function buildPanelEntries(): TextPropertyEntry[] {
     inlineOverlays: line1Overlays,
   });
 
-  // ── Line 2: Options toggles + Replace All button ──
-  const optCase = (caseSensitive ? "[v]" : "[ ]") + " " + editor.t("panel.case_toggle");
-  const optRegex = (useRegex ? "[v]" : "[ ]") + " " + editor.t("panel.regex_toggle");
-  const optWhole = (wholeWords ? "[v]" : "[ ]") + " " + editor.t("panel.whole_toggle");
-  const replBtn = "[" + editor.t("panel.replace_all_btn") + "]";
-
-  const line2Text = " " + optCase + "  " + optRegex + "  " + optWhole + "    " + replBtn;
-  const line2 = padStr(line2Text, W);
-
-  const line2Overlays: InlineOverlay[] = [];
-  const oFocus = focusPanel === "options";
-
-  let pos = byteLen(" ");
-  function addToggleOverlay(text: string, idx: number): void {
-    const isOn = text.startsWith("[v]");
-    const isFoc = oFocus && optionIndex === idx;
-    const checkEnd = pos + byteLen(text.substring(0, 3));
-    line2Overlays.push({ start: pos, end: checkEnd, style: { fg: isOn ? C.toggleOn : C.toggleOff, bold: isFoc } });
-    const labelEnd = pos + byteLen(text);
-    line2Overlays.push({ start: checkEnd, end: labelEnd, style: { fg: C.label, bg: isFoc ? C.selectedBg : undefined, bold: isFoc } });
-    pos = labelEnd + byteLen("  ");
-  }
-
-  addToggleOverlay(optCase, 0);
-  addToggleOverlay(optRegex, 1);
-  addToggleOverlay(optWhole, 2);
-
-  // Replace All button
-  pos = byteLen(line2Text) - byteLen(replBtn);
-  const btnFoc = oFocus && optionIndex === 3;
-  line2Overlays.push({
-    start: pos, end: pos + byteLen(replBtn),
-    style: { fg: btnFoc ? C.buttonFg : C.button, bg: btnFoc ? C.button : undefined, bold: btnFoc },
-  });
-
-  entries.push({
-    text: line2 + "\n",
-    properties: { type: "options-line" },
-    inlineOverlays: line2Overlays,
-  });
+  // ── Line 2 (options toggles + Replace All button) is now rendered
+  //    by the host as a `Row { Toggle, Toggle, Toggle, Spacer, Button }`
+  //    spec — see `buildOptionsRowSpec` and `updatePanelContent`.
+  //    `buildPanelEntries` is split into a "pre-options" half (this
+  //    function up to here) and a "post-options" tail (everything from
+  //    the separator onward). `updatePanelContent` weaves the spec
+  //    between them so the visual order stays identical to before. ──
+  if (phase === "preOptions") return entries;
+  // ── For phase==="postOptions", also drop the line-1 entry pushed
+  //    above so the caller can compose: `col(raw(pre), optionsRow,
+  //    raw(post), hintBar)` without duplicating line 1.
+  if (phase === "postOptions") entries.length = 0;
 
   // ── Separator ──
   const sepChar = "─";
@@ -639,16 +679,31 @@ function updatePanelContent(): void {
   // Refresh viewport width each time
   panel.viewportWidth = getViewportWidth();
 
-  // Migration step 1 (see docs/internal/plugin-widget-library-design.md
-  // §10): the panel body still comes from the hand-rolled
-  // `buildPanelEntries`, wrapped in `Raw`. The footer is replaced by a
-  // host-rendered `HintBar` so its keys/labels respect the active
-  // theme's `ui.help_key_fg` like every other plugin's footer.
+  // Migration step 2 (see docs/internal/plugin-widget-library-design.md
+  // §10): the panel is composed from
+  //   * `Raw{ pre-options entries }`   — query/replace fields (line 1),
+  //                                       still hand-rolled because
+  //                                       inline cursor math hasn't
+  //                                       been migrated yet.
+  //   * `Row{ Toggle, Toggle, Toggle,
+  //           Spacer, Button }`         — case/regex/whole + Replace All,
+  //                                       host-rendered with theme-keyed
+  //                                       focus/state styling.
+  //   * `Raw{ post-options entries }`  — separator, matches tree, scroll
+  //                                       indicators (still hand-rolled,
+  //                                       to be replaced by Tree+List
+  //                                       in subsequent passes).
+  //   * `HintBar{ ... }`               — keyboard-hint footer.
   if (!panel.widgetPanel) {
     panel.widgetPanel = new WidgetPanel(panel.resultsBufferId);
   }
   panel.widgetPanel.set(
-    col(raw(buildPanelEntries()), hintBar(buildHelpHints())),
+    col(
+      raw(buildPanelEntries("preOptions")),
+      buildOptionsRowSpec(),
+      raw(buildPanelEntries("postOptions")),
+      hintBar(buildHelpHints()),
+    ),
   );
 }
 

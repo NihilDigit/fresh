@@ -692,6 +692,7 @@ type HintEntry = {
 	*/
 	label: string;
 };
+type ButtonKind = "normal" | "primary" | "danger";
 type WidgetSpec = {
 	"kind": "row";
 	children: Array<WidgetSpec>;
@@ -703,6 +704,22 @@ type WidgetSpec = {
 } | {
 	"kind": "hintBar";
 	entries: Array<HintEntry>;
+	key?: string | null;
+} | {
+	"kind": "toggle";
+	checked: boolean;
+	label: string;
+	focused: boolean;
+	key?: string | null;
+} | {
+	"kind": "button";
+	label: string;
+	focused: boolean;
+	intent: ButtonKind;
+	key?: string | null;
+} | {
+	"kind": "spacer";
+	cols: number;
 	key?: string | null;
 } | {
 	"kind": "raw";

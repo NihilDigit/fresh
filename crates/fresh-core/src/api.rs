@@ -1074,6 +1074,24 @@ pub struct HintEntry {
     pub label: String,
 }
 
+/// Visual role for a `Button`. Maps to theme keys at render time —
+/// plugins describe intent, not colors. See §7 of the design doc.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub enum ButtonKind {
+    /// A regular action button — no special emphasis.
+    #[default]
+    Normal,
+    /// The primary affirmative action (e.g. "Submit", "Replace All").
+    /// Rendered with bold weight; the focused state uses the active
+    /// menu/selection theme keys.
+    Primary,
+    /// A destructive action (e.g. "Delete"). Rendered with the
+    /// theme's error/warning palette.
+    Danger,
+}
+
 /// Declarative widget tree. Each variant is one node; nested
 /// composition is via `Row { children }` / `Col { children }`.
 ///
@@ -1082,7 +1100,8 @@ pub struct HintEntry {
 /// the plugin re-emits a Spec, instance state (cursor offset, scroll,
 /// expanded keys, hover) is preserved on nodes whose `key` matches.
 /// Plugins should provide stable keys for any widget that owns
-/// instance state; v1's `HintBar` is stateless so `key` is optional.
+/// instance state; stateless widgets (`HintBar`, `Toggle`, `Button`,
+/// `Spacer`) can omit it.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -1102,6 +1121,45 @@ pub enum WidgetSpec {
     /// Keyboard-hint footer (one row, comma-separated `<keys> <label>` items).
     HintBar {
         entries: Vec<HintEntry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+    /// Boolean toggle, rendered as `[v] label` / `[ ] label`. The
+    /// `focused` flag controls the focus-styling overlay; the host
+    /// will own focus once the keymap layer is wired (today the
+    /// plugin passes it explicitly per render).
+    Toggle {
+        checked: bool,
+        label: String,
+        #[serde(default)]
+        focused: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+    /// Action button, rendered as `[ Label ]` (or `[ Label ]` with
+    /// emphasized styling for `Primary`/`Danger`). Focused buttons
+    /// flip foreground/background using the active menu theme keys.
+    ///
+    /// `intent` is the button's visual role (`Normal` / `Primary` /
+    /// `Danger`); the field is named `intent` rather than `kind`
+    /// because `kind` is the discriminator for the outer `WidgetSpec`
+    /// tag.
+    Button {
+        label: String,
+        #[serde(default)]
+        focused: bool,
+        #[serde(default)]
+        intent: ButtonKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+    /// Horizontal whitespace eater. In a `Row`, produces `cols`
+    /// spaces; in a `Col`, produces `cols` blank lines. v1 takes a
+    /// fixed column count; a future flex variant (`Spacer { flex:
+    /// true }`) will fill remaining row width once the layout
+    /// engine knows panel widths.
+    Spacer {
+        cols: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
     },

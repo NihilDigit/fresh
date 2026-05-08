@@ -46,5 +46,19 @@ export type {
 } from "./finder.ts";
 
 // Widget library — declarative plugin UI (see widgets.ts).
-export { WidgetPanel, row, col, hintBar, raw, parseHintString } from "./widgets.ts";
-export type { HintEntry as WidgetHintEntry, WidgetSpec } from "./widgets.ts";
+export {
+  button,
+  col,
+  hintBar,
+  parseHintString,
+  raw,
+  row,
+  spacer,
+  toggle,
+  WidgetPanel,
+} from "./widgets.ts";
+export type {
+  ButtonKind,
+  HintEntry as WidgetHintEntry,
+  WidgetSpec,
+} from "./widgets.ts";

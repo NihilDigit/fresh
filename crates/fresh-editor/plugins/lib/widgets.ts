@@ -41,6 +41,7 @@
 // into the ambient namespace directly.
 export type WidgetSpec = globalThis.WidgetSpec;
 export type HintEntry = globalThis.HintEntry;
+export type ButtonKind = globalThis.ButtonKind;
 type TextPropertyEntry = globalThis.TextPropertyEntry;
 
 // =============================================================================
@@ -72,6 +73,51 @@ export function hintBar(entries: HintEntry[]): WidgetSpec {
  * time. */
 export function raw(entries: TextPropertyEntry[]): WidgetSpec {
   return { kind: "raw", entries };
+}
+
+/** Boolean toggle, rendered as `[v] label` / `[ ] label`.
+ * Pass `focused: true` to highlight (the host will own focus once
+ * the keymap layer is wired). */
+export function toggle(
+  checked: boolean,
+  label: string,
+  options?: { focused?: boolean; key?: string },
+): WidgetSpec {
+  return {
+    kind: "toggle",
+    checked,
+    label,
+    focused: options?.focused ?? false,
+    key: options?.key,
+  };
+}
+
+/** Action button, rendered as `[ Label ]`. `intent` controls visual
+ * emphasis: `"normal"` (default) → no override, `"primary"` → bold,
+ * `"danger"` → error theme key. */
+export function button(
+  label: string,
+  options?: {
+    focused?: boolean;
+    intent?: ButtonKind;
+    key?: string;
+  },
+): WidgetSpec {
+  return {
+    kind: "button",
+    label,
+    focused: options?.focused ?? false,
+    intent: options?.intent ?? "normal",
+    key: options?.key,
+  };
+}
+
+/** Horizontal spacer of fixed column count. In a `Row` it produces
+ * `cols` spaces; at the top level or in a `Col` it produces a short
+ * blank line. (Flex spacers — `Spacer { flex: true }` filling
+ * remaining row width — arrive with the layout engine.) */
+export function spacer(cols: number, key?: string): WidgetSpec {
+  return { kind: "spacer", cols, key };
 }
 
 // =============================================================================
