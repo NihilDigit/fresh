@@ -1185,7 +1185,11 @@ pub enum ButtonKind {
 /// instance state; stateless widgets (`HintBar`, `Toggle`, `Button`,
 /// `Spacer`) can omit it.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 #[ts(export, rename_all = "camelCase")]
 pub enum WidgetSpec {
     /// Horizontal layout: children laid out left-to-right.
@@ -1354,7 +1358,11 @@ pub enum WidgetSpec {
 /// Up/Down → `SelectMove{±1}`, Backspace → `TextInputKey{"Backspace"}`,
 /// printable chars (via `mode_text_input`) → `TextInputChar{"x"}`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 #[ts(export, rename_all = "camelCase")]
 pub enum WidgetAction {
     /// Cycle focus to the next (`delta=+1`) or previous (`delta=-1`)
@@ -2781,10 +2789,7 @@ pub enum PluginCommand {
     /// (Tab cycle, Enter to activate, Up/Down to navigate a List,
     /// Backspace / arrows / printable input to edit a TextInput).
     /// See `WidgetAction` for the action shapes.
-    WidgetCommand {
-        panel_id: u64,
-        action: WidgetAction,
-    },
+    WidgetCommand { panel_id: u64, action: WidgetAction },
 }
 
 impl PluginCommand {

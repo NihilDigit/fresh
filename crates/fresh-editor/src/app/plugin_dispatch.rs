@@ -3190,11 +3190,7 @@ impl Editor {
         ) {
             Ok(buffer_id) => {
                 if let Err(e) = self.set_virtual_buffer_content(buffer_id, out.entries) {
-                    tracing::error!(
-                        "Failed to render updated widget panel {}: {}",
-                        panel_id,
-                        e
-                    );
+                    tracing::error!("Failed to render updated widget panel {}: {}", panel_id, e);
                 }
             }
             Err(()) => {
@@ -3248,24 +3244,30 @@ impl Editor {
             .unwrap_or_default();
         let panel_width = self.widget_panel_width(buffer_id);
         let out = crate::widgets::render_spec(&spec, &prev, &prev_focus, panel_width);
-        let _ = self.widget_registry.update(
-            panel_id,
-            spec,
-            out.hits,
-            out.instance_states,
-            out.focus_key,
-            out.tabbable,
-        );
+        // The panel exists (we read it just above) — `update`'s
+        // Err arm only fires for unknown panels, so an error here
+        // would mean the registry was mutated mid-call.
+        if self
+            .widget_registry
+            .update(
+                panel_id,
+                spec,
+                out.hits,
+                out.instance_states,
+                out.focus_key,
+                out.tabbable,
+            )
+            .is_err()
+        {
+            tracing::warn!("rerender_widget_panel({}) lost panel mid-call", panel_id);
+            return;
+        }
         if let Err(e) = self.set_virtual_buffer_content(buffer_id, out.entries) {
             tracing::error!("rerender_widget_panel({}) failed: {}", panel_id, e);
         }
     }
 
-    fn handle_widget_command(
-        &mut self,
-        panel_id: u64,
-        action: fresh_core::api::WidgetAction,
-    ) {
+    fn handle_widget_command(&mut self, panel_id: u64, action: fresh_core::api::WidgetAction) {
         use fresh_core::api::WidgetAction;
         match action {
             WidgetAction::FocusAdvance { delta } => {
@@ -3306,13 +3308,12 @@ impl Editor {
         match key {
             "Tab" => self.handle_widget_focus_advance(panel_id, 1),
             "Shift+Tab" => self.handle_widget_focus_advance(panel_id, -1),
-            "Up" | "Down" => match widget {
-                Some(fresh_core::api::WidgetSpec::List { .. }) => {
+            "Up" | "Down" => {
+                if let Some(fresh_core::api::WidgetSpec::List { .. }) = widget {
                     let delta = if key == "Up" { -1 } else { 1 };
                     self.handle_widget_select_move(panel_id, delta);
                 }
-                _ => {}
-            },
+            }
             "Backspace" | "Delete" | "Left" | "Right" | "Home" | "End" => {
                 if matches!(widget, Some(fresh_core::api::WidgetSpec::TextInput { .. })) {
                     self.handle_widget_text_input_key(panel_id, key);
@@ -3379,13 +3380,10 @@ impl Editor {
         }
         let widget = crate::widgets::find_widget_by_key(&panel.spec, &focus_key);
         let (event_type, payload) = match widget {
-            Some(fresh_core::api::WidgetSpec::Button { .. }) => {
-                ("activate", serde_json::json!({}))
+            Some(fresh_core::api::WidgetSpec::Button { .. }) => ("activate", serde_json::json!({})),
+            Some(fresh_core::api::WidgetSpec::Toggle { checked, .. }) => {
+                ("toggle", serde_json::json!({ "checked": !checked }))
             }
-            Some(fresh_core::api::WidgetSpec::Toggle { checked, .. }) => (
-                "toggle",
-                serde_json::json!({ "checked": !checked }),
-            ),
             _ => return,
         };
         if self.plugin_manager.has_hook_handlers("widget_event") {
@@ -3421,18 +3419,15 @@ impl Editor {
             _ => return,
         };
         let sel = match panel.instance_states.get(focus_key) {
-            Some(crate::widgets::WidgetInstanceState::List {
-                selected_index, ..
-            }) => *selected_index,
+            Some(crate::widgets::WidgetInstanceState::List { selected_index, .. }) => {
+                *selected_index
+            }
             _ => spec_sel,
         };
         if sel < 0 {
             return;
         }
-        let item_key = item_keys
-            .get(sel as usize)
-            .cloned()
-            .unwrap_or_default();
+        let item_key = item_keys.get(sel as usize).cloned().unwrap_or_default();
         if self.plugin_manager.has_hook_handlers("widget_event") {
             self.plugin_manager.run_hook(
                 "widget_event",
@@ -3476,25 +3471,22 @@ impl Editor {
         }
         // Prefer instance-state selected_index when present.
         let cur_sel = match panel.instance_states.get(&focus_key) {
-            Some(crate::widgets::WidgetInstanceState::List {
-                selected_index, ..
-            }) => *selected_index,
+            Some(crate::widgets::WidgetInstanceState::List { selected_index, .. }) => {
+                *selected_index
+            }
             _ => spec_sel,
         };
         let raw = if cur_sel < 0 { 0 } else { cur_sel + delta };
         let new_sel = raw.clamp(0, total - 1);
-        let new_key = item_keys
-            .get(new_sel as usize)
-            .cloned()
-            .unwrap_or_default();
+        let new_key = item_keys.get(new_sel as usize).cloned().unwrap_or_default();
         // Update instance state so subsequent reads (e.g. an Enter
         // pressed before the plugin's spec update arrives) see the
         // new selection.
         if let Some(panel_mut) = self.widget_registry.get_mut(panel_id) {
             let cur_scroll = match panel_mut.instance_states.get(&focus_key) {
-                Some(crate::widgets::WidgetInstanceState::List {
-                    scroll_offset, ..
-                }) => *scroll_offset,
+                Some(crate::widgets::WidgetInstanceState::List { scroll_offset, .. }) => {
+                    *scroll_offset
+                }
                 _ => 0,
             };
             panel_mut.instance_states.insert(
@@ -3524,19 +3516,14 @@ impl Editor {
     /// instance state if present (the authoritative source once the
     /// widget has rendered at least once), else from the spec
     /// (initial-only fallback).
-    fn read_focused_text_input(
-        &self,
-        panel_id: u64,
-    ) -> Option<(String, String, usize)> {
+    fn read_focused_text_input(&self, panel_id: u64) -> Option<(String, String, usize)> {
         let panel = self.widget_registry.get(panel_id)?;
         let focus_key = panel.focus_key.clone();
         if focus_key.is_empty() {
             return None;
         }
-        if let Some(crate::widgets::WidgetInstanceState::TextInput {
-            value,
-            cursor_byte,
-        }) = panel.instance_states.get(&focus_key)
+        if let Some(crate::widgets::WidgetInstanceState::TextInput { value, cursor_byte }) =
+            panel.instance_states.get(&focus_key)
         {
             return Some((focus_key, value.clone(), *cursor_byte as usize));
         }
@@ -3642,10 +3629,7 @@ impl Editor {
                 // panel state.
             }
             None => {
-                tracing::debug!(
-                    "UnmountWidgetPanel for unknown panel {} ignored",
-                    panel_id
-                );
+                tracing::debug!("UnmountWidgetPanel for unknown panel {} ignored", panel_id);
             }
         }
     }

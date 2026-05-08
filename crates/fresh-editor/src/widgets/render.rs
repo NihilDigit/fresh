@@ -80,17 +80,14 @@ pub fn render_spec(
     // that widget arms know whether they're focused.
     let mut tabbable = Vec::new();
     collect_tabbable(spec, &mut tabbable);
-    let focus_key = if !prev_focus_key.is_empty()
-        && tabbable.iter().any(|k| k == prev_focus_key)
-    {
+    let focus_key = if !prev_focus_key.is_empty() && tabbable.iter().any(|k| k == prev_focus_key) {
         prev_focus_key.to_string()
     } else {
         tabbable.first().cloned().unwrap_or_default()
     };
 
     let mut next_state = HashMap::new();
-    let (entries, hits) =
-        render_collected(spec, prev, &mut next_state, &focus_key, panel_width);
+    let (entries, hits) = render_collected(spec, prev, &mut next_state, &focus_key, panel_width);
     RenderOutput {
         entries,
         hits,
@@ -241,10 +238,9 @@ fn render_collected(
             // Distribute leftover evenly. With multiple flex slots,
             // the leftover bytes spread as evenly as possible (any
             // remainder lands in the first slot).
-            let (flex_each, flex_extra) = if flex_count == 0 {
-                (0, 0)
-            } else {
-                (flex_total / flex_count, flex_total % flex_count)
+            let (flex_each, flex_extra) = match flex_total.checked_div(flex_count) {
+                Some(each) => (each, flex_total % flex_count),
+                None => (0, 0),
             };
 
             // Pass 2: assemble. Accumulate inline pieces (with
@@ -255,7 +251,10 @@ fn render_collected(
             let mut flex_seen = 0usize;
             for piece in row_pieces {
                 match piece {
-                    RowPiece::Inline { mut entry, hits: child_hits } => {
+                    RowPiece::Inline {
+                        mut entry,
+                        hits: child_hits,
+                    } => {
                         let inline_shift = match acc.as_ref() {
                             Some(e) => e.text.len(),
                             None => 0,
@@ -294,7 +293,10 @@ fn render_collected(
                             }
                         }
                     }
-                    RowPiece::Block { entries: block_entries, hits: child_hits } => {
+                    RowPiece::Block {
+                        entries: block_entries,
+                        hits: child_hits,
+                    } => {
                         if let Some(merged) = acc.take() {
                             entries.push(merged);
                         }
@@ -439,9 +441,7 @@ fn render_collected(
             // search results changed). Out-of-range selections
             // collapse to the last item, or -1 if the list is
             // now empty.
-            let effective_sel = if prev_sel < 0 {
-                -1
-            } else if total == 0 {
+            let effective_sel = if prev_sel < 0 || total == 0 {
                 -1
             } else if (prev_sel as u32) >= total {
                 (total - 1) as i32
@@ -484,8 +484,9 @@ fn render_collected(
             // never needs to translate window-relative coordinates.
             let start = scroll as usize;
             let end = ((scroll + visible) as usize).min(items.len());
-            for i in start..end {
-                let mut entry = items[i].clone();
+            for (offset, item) in items[start..end].iter().enumerate() {
+                let i = start + offset;
+                let mut entry = item.clone();
                 let is_selected = i as i32 == effective_sel;
                 if is_selected {
                     let mut style = entry.style.unwrap_or_default();
@@ -702,10 +703,10 @@ pub fn render_toggle(checked: bool, label: &str, focused: bool) -> TextPropertyE
 /// is visually inset from the brackets). Styling depends on `kind`
 /// and `focused`:
 ///
-/// * `Normal`     — default fg; focused → fg/bg flip + bold.
-/// * `Primary`    — bold; focused → fg/bg flip.
-/// * `Danger`     — red fg (theme `ui.status_error_indicator_fg`);
-///                  focused → bold.
+/// * `Normal`  — default fg; focused → fg/bg flip + bold.
+/// * `Primary` — bold; focused → fg/bg flip.
+/// * `Danger`  — red fg (theme `ui.status_error_indicator_fg`);
+///   focused → bold.
 pub fn render_button(label: &str, focused: bool, kind: ButtonKind) -> TextPropertyEntry {
     let text = format!("[ {} ]", label);
     let mut overlays = Vec::new();
@@ -1070,7 +1071,11 @@ mod tests {
                     focused: false,
                     key: None,
                 },
-                WidgetSpec::Spacer { cols: 0, flex: true, key: None },
+                WidgetSpec::Spacer {
+                    cols: 0,
+                    flex: true,
+                    key: None,
+                },
                 WidgetSpec::Button {
                     label: "B".into(),
                     focused: false,
@@ -1089,11 +1094,7 @@ mod tests {
         assert_eq!(text.len(), 31);
         assert!(text.starts_with("[ ] A"));
         assert!(text.ends_with("[ B ]\n"));
-        let button_hit = out
-            .hits
-            .iter()
-            .find(|h| h.widget_kind == "button")
-            .unwrap();
+        let button_hit = out.hits.iter().find(|h| h.widget_kind == "button").unwrap();
         assert_eq!(button_hit.byte_start, 25);
         assert_eq!(button_hit.byte_end, 30);
     }
@@ -1108,7 +1109,11 @@ mod tests {
                     focused: false,
                     key: None,
                 },
-                WidgetSpec::Spacer { cols: 0, flex: true, key: None },
+                WidgetSpec::Spacer {
+                    cols: 0,
+                    flex: true,
+                    key: None,
+                },
                 WidgetSpec::Toggle {
                     checked: false,
                     label: "B".into(),
@@ -1133,7 +1138,11 @@ mod tests {
                     focused: false,
                     key: None,
                 },
-                WidgetSpec::Spacer { cols: 4, flex: false, key: None },
+                WidgetSpec::Spacer {
+                    cols: 4,
+                    flex: false,
+                    key: None,
+                },
                 WidgetSpec::Button {
                     label: "Go".into(),
                     focused: false,
@@ -1230,7 +1239,11 @@ mod tests {
                     focused: false,
                     key: Some("a".into()),
                 },
-                WidgetSpec::Spacer { cols: 2, flex: false, key: None },
+                WidgetSpec::Spacer {
+                    cols: 2,
+                    flex: false,
+                    key: None,
+                },
                 WidgetSpec::Toggle {
                     checked: false,
                     label: "B".into(),
@@ -1249,8 +1262,8 @@ mod tests {
         assert_eq!(hits[0].buffer_row, 0);
         assert_eq!(hits[0].byte_start, 0);
         assert_eq!(hits[0].byte_end, 5); // "[v] A".len()
-        // Second toggle shifts past first toggle ("[v] A".len() = 5)
-        // + spacer ("  ".len() = 2) = 7.
+                                         // Second toggle shifts past first toggle ("[v] A".len() = 5)
+                                         // + spacer ("  ".len() = 2) = 7.
         assert_eq!(hits[1].widget_key, "b");
         assert_eq!(hits[1].buffer_row, 0);
         assert_eq!(hits[1].byte_start, 7);
@@ -1302,7 +1315,11 @@ mod tests {
                             focused: false,
                             key: Some("t".into()),
                         },
-                        WidgetSpec::Spacer { cols: 1, flex: false, key: None },
+                        WidgetSpec::Spacer {
+                            cols: 1,
+                            flex: false,
+                            key: None,
+                        },
                         WidgetSpec::Button {
                             label: "B".into(),
                             focused: false,
@@ -1429,11 +1446,7 @@ mod tests {
             .inline_overlays
             .iter()
             .find(|o| {
-                o.style
-                    .bg
-                    .as_ref()
-                    .and_then(|c| c.as_theme_key())
-                    == Some("ui.menu_active_bg")
+                o.style.bg.as_ref().and_then(|c| c.as_theme_key()) == Some("ui.menu_active_bg")
             })
             .expect("focused overlay present on B");
         // B's text is "[ ] B", starting after "[ ] A".len()==5 + spacer 0 (no spacer here).
@@ -1557,10 +1570,7 @@ mod tests {
     #[test]
     fn list_with_missing_key_emits_empty_widget_key() {
         let spec = WidgetSpec::List {
-            items: vec![
-                TextPropertyEntry::text("a"),
-                TextPropertyEntry::text("b"),
-            ],
+            items: vec![TextPropertyEntry::text("a"), TextPropertyEntry::text("b")],
             // Only one key for two items — second hit gets an empty key.
             item_keys: vec!["only".into()],
             selected_index: -1,
@@ -1669,7 +1679,13 @@ mod tests {
         // Previous scroll past the end of a now-shorter dataset
         // clamps to max_scroll = total - visible.
         let mut prev = HashMap::new();
-        prev.insert("L".into(), WidgetInstanceState::List { scroll_offset: 8, selected_index: -1 });
+        prev.insert(
+            "L".into(),
+            WidgetInstanceState::List {
+                scroll_offset: 8,
+                selected_index: -1,
+            },
+        );
         let spec = make_list(-1, 3, 5, Some("L"));
         let (entries, _hits, state) = render_no_focus(&spec, &prev);
         assert_eq!(entries.len(), 3);

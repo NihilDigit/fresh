@@ -125,6 +125,13 @@ impl WidgetRegistry {
     /// Mount or replace a panel. Returns the previous state if the
     /// panel was already mounted (the dispatcher may use this to
     /// detect re-mounts on the same id).
+    ///
+    /// The wide parameter list is the price of `WidgetPanelState`
+    /// being public — every field is plainly named at the call
+    /// site rather than buried inside an opaque builder. The
+    /// dispatcher always populates them all from one `RenderOutput`,
+    /// so the apparent verbosity stays at the boundary.
+    #[allow(clippy::too_many_arguments)]
     pub fn mount(
         &mut self,
         panel_id: PanelId,
@@ -151,7 +158,11 @@ impl WidgetRegistry {
     /// Replace the spec and rendered metadata on an already-mounted
     /// panel. Returns `Ok(buffer_id)` to render into, or `Err(())`
     /// if no panel exists for that id (caller should drop the
-    /// update — the plugin re-emitted after unmount).
+    /// update — the plugin re-emitted after unmount). The unit
+    /// error is sufficient: there's exactly one failure mode and
+    /// no payload to attach.
+    #[allow(clippy::result_unit_err)]
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         panel_id: PanelId,
@@ -317,7 +328,10 @@ mod tests {
             String::new(),
             Vec::new(),
         );
-        assert!(reg.hit_test(BufferId(0), 0, 5).is_none(), "byte_end is exclusive");
+        assert!(
+            reg.hit_test(BufferId(0), 0, 5).is_none(),
+            "byte_end is exclusive"
+        );
         assert!(reg.hit_test(BufferId(0), 0, 100).is_none());
         assert!(reg.hit_test(BufferId(0), 1, 0).is_none(), "wrong row");
         assert!(reg.hit_test(BufferId(99), 0, 0).is_none(), "wrong buffer");
