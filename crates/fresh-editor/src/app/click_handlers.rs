@@ -270,9 +270,7 @@ impl Editor {
         // driven, it stops listening to `mouse_click` for its panel
         // and the duplicate dispatch becomes a no-op.
         if let (Some(brow), Some(bcol)) = (mc_buffer_row, mc_buffer_col) {
-            if let Some((panel_id, hit)) =
-                self.widget_registry.hit_test(buffer_id, brow, bcol)
-            {
+            if let Some((panel_id, hit)) = self.widget_registry.hit_test(buffer_id, brow, bcol) {
                 // Click-to-focus: if the clicked widget has a stable
                 // key that's tabbable, move focus there before
                 // firing the event. The next render shows the focus

@@ -248,10 +248,10 @@ const DEPENDENCY_TYPES: &[&str] = &[
     "PluginAnimationEdge",            // Used by PluginAnimationKind
     "PluginAnimationKind",            // Used by animateArea/animateVirtualBuffer
     // Widget library types (see docs/internal/plugin-widget-library-design.md)
-    "HintEntry",                      // Used by WidgetSpec::HintBar
-    "ButtonKind",                     // Used by WidgetSpec::Button.intent
-    "WidgetSpec",                     // Used by mountWidgetPanel/updateWidgetPanel
-    "WidgetAction",                   // Used by widgetCommand
+    "HintEntry",    // Used by WidgetSpec::HintBar
+    "ButtonKind",   // Used by WidgetSpec::Button.intent
+    "WidgetSpec",   // Used by mountWidgetPanel/updateWidgetPanel
+    "WidgetAction", // Used by widgetCommand
 ];
 
 /// Collect TypeScript type declarations based on referenced types from proc macro

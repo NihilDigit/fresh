@@ -206,10 +206,7 @@ mod tests {
 
     #[test]
     fn unknown_key_is_noop() {
-        assert_eq!(
-            apply_text_input_key("abc", 1, "Wat"),
-            ("abc".into(), 1)
-        );
+        assert_eq!(apply_text_input_key("abc", 1, "Wat"), ("abc".into(), 1));
     }
 
     #[test]
