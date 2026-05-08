@@ -38,31 +38,85 @@ const KEY_INPUT_BG: &str = "ui.prompt_bg";
 const KEY_PLACEHOLDER_FG: &str = "ui.menu_disabled_fg";
 const KEY_CURSOR_BG: &str = "editor.cursor";
 
-/// Render a spec to a flat `Vec<TextPropertyEntry>` plus a flat list
-/// of click-routing `HitArea`s plus the next-tick instance state for
-/// any stateful widgets (today: `List` scroll offsets).
+/// What a single render of a `WidgetSpec` produces.
 ///
-/// Entries are ready for `set_virtual_buffer_content`; hits are
-/// installed in the `WidgetRegistry` so a later `mouse_click` can
-/// dispatch a semantic `widget_event`. The returned instance state
-/// is what the renderer ended up with — the dispatcher writes it
-/// back to the registry so the next render finds the same scroll
-/// offsets / cursor positions.
+/// * `entries` — the bytes for `set_virtual_buffer_content`.
+/// * `hits` — click rectangles for the `WidgetRegistry` so a later
+///   `mouse_click` dispatches a semantic `widget_event`.
+/// * `instance_states` — next-tick widget instance state (List
+///   scroll offsets in v1; TextInput cursor / Tree expanded keys
+///   later).
+/// * `focus_key` — currently focused widget key, clamped to a
+///   tabbable that exists in the spec (or `""` when there are no
+///   tabbables).
+/// * `tabbable` — focusable widget keys collected in declaration
+///   order. The Tab-cycle command finds the current `focus_key`'s
+///   index in this list to advance it.
+pub struct RenderOutput {
+    pub entries: Vec<TextPropertyEntry>,
+    pub hits: Vec<HitArea>,
+    pub instance_states: HashMap<String, WidgetInstanceState>,
+    pub focus_key: String,
+    pub tabbable: Vec<String>,
+}
+
+/// Render a spec to a [`RenderOutput`].
 ///
 /// `prev` is the previous render's instance state (or empty on
-/// first mount); the renderer reads scroll offsets from there and
-/// auto-clamps them against the current spec.
+/// first mount). `prev_focus_key` is the previous render's focus
+/// key (or `""`); the renderer keeps it if it matches a tabbable in
+/// the new spec, otherwise falls back to the first tabbable.
 pub fn render_spec(
     spec: &WidgetSpec,
     prev: &HashMap<String, WidgetInstanceState>,
-) -> (
-    Vec<TextPropertyEntry>,
-    Vec<HitArea>,
-    HashMap<String, WidgetInstanceState>,
-) {
+    prev_focus_key: &str,
+) -> RenderOutput {
+    // Walk the spec to collect tabbable keys, then resolve the
+    // active focus key. This must happen before the entry pass so
+    // that widget arms know whether they're focused.
+    let mut tabbable = Vec::new();
+    collect_tabbable(spec, &mut tabbable);
+    let focus_key = if !prev_focus_key.is_empty()
+        && tabbable.iter().any(|k| k == prev_focus_key)
+    {
+        prev_focus_key.to_string()
+    } else {
+        tabbable.first().cloned().unwrap_or_default()
+    };
+
     let mut next_state = HashMap::new();
-    let (entries, hits) = render_collected(spec, prev, &mut next_state);
-    (entries, hits, next_state)
+    let (entries, hits) =
+        render_collected(spec, prev, &mut next_state, &focus_key);
+    RenderOutput {
+        entries,
+        hits,
+        instance_states: next_state,
+        focus_key,
+        tabbable,
+    }
+}
+
+/// Walk a spec tree and append tabbable widget keys (`Toggle`,
+/// `Button`, `TextInput`, `List` with a non-empty `key`) in
+/// declaration order. Layout containers (`Row`, `Col`) recurse;
+/// `Raw`, `Spacer`, `HintBar` skip.
+fn collect_tabbable(spec: &WidgetSpec, out: &mut Vec<String>) {
+    match spec {
+        WidgetSpec::Row { children, .. } | WidgetSpec::Col { children, .. } => {
+            for c in children {
+                collect_tabbable(c, out);
+            }
+        }
+        WidgetSpec::Toggle { key: Some(k), .. }
+        | WidgetSpec::Button { key: Some(k), .. }
+        | WidgetSpec::TextInput { key: Some(k), .. }
+        | WidgetSpec::List { key: Some(k), .. }
+            if !k.is_empty() =>
+        {
+            out.push(k.clone());
+        }
+        _ => {}
+    }
 }
 
 /// Internal renderer. Returns the entries and the hit areas
@@ -70,11 +124,17 @@ pub fn render_spec(
 /// (Col, Row block path) shift `buffer_row` upward by their own
 /// row offset before forwarding. `prev` is read-only previous
 /// instance state; `next_state` accumulates the post-render state
-/// the host should persist.
+/// the host should persist. `focus_key` is the panel's currently
+/// focused widget key — widget arms compare against their own
+/// `key` to decide whether to render with focus styling, ignoring
+/// the spec's `focused` field. (Plugin-passed `focused` is the
+/// initial-only hint that becomes redundant once the host's focus
+/// key takes over.)
 fn render_collected(
     spec: &WidgetSpec,
     prev: &HashMap<String, WidgetInstanceState>,
     next_state: &mut HashMap<String, WidgetInstanceState>,
+    focus_key: &str,
 ) -> (Vec<TextPropertyEntry>, Vec<HitArea>) {
     let mut entries: Vec<TextPropertyEntry> = Vec::new();
     let mut hits: Vec<HitArea> = Vec::new();
@@ -91,7 +151,7 @@ fn render_collected(
             let mut acc: Option<TextPropertyEntry> = None;
             for child in children {
                 let (child_entries, child_hits) =
-                    render_collected(child, prev, next_state);
+                    render_collected(child, prev, next_state, focus_key);
                 if child_entries.is_empty() {
                     debug_assert!(child_hits.is_empty(), "empty children produce no hits");
                     continue;
@@ -140,7 +200,7 @@ fn render_collected(
         WidgetSpec::Col { children, .. } => {
             for child in children {
                 let (child_entries, child_hits) =
-                    render_collected(child, prev, next_state);
+                    render_collected(child, prev, next_state, focus_key);
                 let row_offset = entries.len() as u32;
                 for mut h in child_hits {
                     h.buffer_row += row_offset;
@@ -164,7 +224,17 @@ fn render_collected(
             focused,
             key,
         } => {
-            let entry = render_toggle(*checked, label, *focused);
+            // Host-managed focus overrides the spec's `focused`
+            // when this widget has a key and is the panel's focused
+            // widget. Plugin-passed `focused` is ignored when the
+            // host owns focus (i.e. the panel has any tabbable
+            // widgets); without it, the renderer falls back to the
+            // spec value (legacy path).
+            let is_focused = match key.as_deref() {
+                Some(k) if !k.is_empty() => k == focus_key,
+                _ => *focused,
+            };
+            let entry = render_toggle(*checked, label, is_focused);
             let byte_end = entry.text.len();
             hits.push(HitArea {
                 widget_key: key.clone().unwrap_or_default(),
@@ -183,7 +253,11 @@ fn render_collected(
             intent,
             key,
         } => {
-            let entry = render_button(label, *focused, *intent);
+            let is_focused = match key.as_deref() {
+                Some(k) if !k.is_empty() => k == focus_key,
+                _ => *focused,
+            };
+            let entry = render_button(label, is_focused, *intent);
             let byte_end = entry.text.len();
             hits.push(HitArea {
                 widget_key: key.clone().unwrap_or_default(),
@@ -310,12 +384,21 @@ fn render_collected(
             label,
             placeholder,
             max_visible_chars,
-            ..
+            key,
         } => {
+            let is_focused = match key.as_deref() {
+                Some(k) if !k.is_empty() => k == focus_key,
+                _ => *focused,
+            };
+            // When focus moves away from a TextInput, hide the
+            // cursor — the spec's `cursor_byte` stays around for
+            // the plugin's bookkeeping but visually a non-focused
+            // input shouldn't display a cursor.
+            let effective_cursor = if is_focused { *cursor_byte } else { -1 };
             entries.push(render_text_input(
                 value,
-                *cursor_byte,
-                *focused,
+                effective_cursor,
+                is_focused,
                 label,
                 placeholder.as_deref(),
                 *max_visible_chars,
@@ -648,6 +731,22 @@ fn merge_inline(merged: &mut TextPropertyEntry, next: &mut TextPropertyEntry) {
 mod tests {
     use super::*;
 
+    /// Most existing tests don't care about the new focus_key /
+    /// tabbable fields. Wrap the no-focus-needed render path so
+    /// they keep destructuring a 3-tuple; new tests destructure
+    /// `RenderOutput` directly.
+    fn render_no_focus(
+        spec: &WidgetSpec,
+        prev: &HashMap<String, WidgetInstanceState>,
+    ) -> (
+        Vec<TextPropertyEntry>,
+        Vec<HitArea>,
+        HashMap<String, WidgetInstanceState>,
+    ) {
+        let out = render_spec(spec, prev, "");
+        (out.entries, out.hits, out.instance_states)
+    }
+
     #[test]
     fn hint_bar_renders_entries_with_key_overlays() {
         let entries = vec![
@@ -702,7 +801,7 @@ mod tests {
             ],
             key: None,
         };
-        let (out, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (out, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].text, "A alpha");
         assert_eq!(out[1].text, "B beta");
@@ -715,7 +814,7 @@ mod tests {
             entries: vec![TextPropertyEntry::text("hello")],
             key: None,
         };
-        let (out, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (out, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].text, "hello");
         assert!(hits.is_empty());
@@ -806,7 +905,7 @@ mod tests {
             ],
             key: None,
         };
-        let (out, _hits, _state) = render_spec(&spec, &HashMap::new());
+        let (out, _hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].text, "[ ] A    [ Go ]");
     }
@@ -832,7 +931,7 @@ mod tests {
             ],
             key: None,
         };
-        let (out, _hits, _state) = render_spec(&spec, &HashMap::new());
+        let (out, _hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(out.len(), 1);
         // Two adjacent HintBars are concatenated; the second's overlay shifts.
         assert_eq!(out[0].text, "Tab xEsc y");
@@ -853,7 +952,7 @@ mod tests {
             focused: false,
             key: Some("case".into()),
         };
-        let (_entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (_entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(hits.len(), 1);
         let h = &hits[0];
         assert_eq!(h.widget_key, "case");
@@ -873,7 +972,7 @@ mod tests {
             intent: ButtonKind::Primary,
             key: Some("replace".into()),
         };
-        let (_entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (_entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(hits.len(), 1);
         let h = &hits[0];
         assert_eq!(h.widget_key, "replace");
@@ -903,7 +1002,7 @@ mod tests {
             ],
             key: None,
         };
-        let (entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         // One merged row with text "[v] A  [ ] B"
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].text, "[v] A  [ ] B");
@@ -939,10 +1038,184 @@ mod tests {
             ],
             key: None,
         };
-        let (_entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (_entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].buffer_row, 0);
         assert_eq!(hits[1].buffer_row, 1);
+    }
+
+    // -------------------------------------------------------------
+    // Focus management
+    // -------------------------------------------------------------
+
+    #[test]
+    fn collect_tabbable_visits_widgets_with_keys_in_declaration_order() {
+        let spec = WidgetSpec::Col {
+            children: vec![
+                WidgetSpec::HintBar {
+                    entries: vec![],
+                    key: Some("hb".into()),
+                },
+                WidgetSpec::Row {
+                    children: vec![
+                        WidgetSpec::Toggle {
+                            checked: false,
+                            label: "T".into(),
+                            focused: false,
+                            key: Some("t".into()),
+                        },
+                        WidgetSpec::Spacer { cols: 1, key: None },
+                        WidgetSpec::Button {
+                            label: "B".into(),
+                            focused: false,
+                            intent: ButtonKind::Normal,
+                            key: Some("b".into()),
+                        },
+                    ],
+                    key: None,
+                },
+                WidgetSpec::TextInput {
+                    value: "".into(),
+                    cursor_byte: -1,
+                    focused: false,
+                    label: "".into(),
+                    placeholder: None,
+                    max_visible_chars: 0,
+                    key: Some("ti".into()),
+                },
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "no key".into(),
+                    focused: false,
+                    key: None,
+                },
+            ],
+            key: None,
+        };
+        let mut tabbable = Vec::new();
+        collect_tabbable(&spec, &mut tabbable);
+        // HintBar without a key isn't tabbable; tabbables are
+        // Toggle/Button/TextInput/List with non-empty keys.
+        assert_eq!(tabbable, vec!["t", "b", "ti"]);
+    }
+
+    #[test]
+    fn first_render_focuses_first_tabbable() {
+        let spec = WidgetSpec::Row {
+            children: vec![
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "A".into(),
+                    focused: false,
+                    key: Some("a".into()),
+                },
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "B".into(),
+                    focused: false,
+                    key: Some("b".into()),
+                },
+            ],
+            key: None,
+        };
+        let out = render_spec(&spec, &HashMap::new(), "");
+        assert_eq!(out.focus_key, "a");
+        assert_eq!(out.tabbable, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn render_preserves_focus_key_across_re_renders() {
+        let spec = WidgetSpec::Row {
+            children: vec![
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "A".into(),
+                    focused: false,
+                    key: Some("a".into()),
+                },
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "B".into(),
+                    focused: false,
+                    key: Some("b".into()),
+                },
+            ],
+            key: None,
+        };
+        let out = render_spec(&spec, &HashMap::new(), "b");
+        assert_eq!(out.focus_key, "b");
+    }
+
+    #[test]
+    fn render_clamps_stale_focus_key_to_first_tabbable() {
+        // Previous render focused "stale", but the new spec doesn't
+        // have any widget with that key — fall back to the first
+        // tabbable.
+        let spec = WidgetSpec::Toggle {
+            checked: false,
+            label: "Only".into(),
+            focused: false,
+            key: Some("only".into()),
+        };
+        let out = render_spec(&spec, &HashMap::new(), "stale");
+        assert_eq!(out.focus_key, "only");
+    }
+
+    #[test]
+    fn focused_widget_renders_with_focused_styling() {
+        let spec = WidgetSpec::Row {
+            children: vec![
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "A".into(),
+                    focused: false,
+                    key: Some("a".into()),
+                },
+                WidgetSpec::Toggle {
+                    checked: false,
+                    label: "B".into(),
+                    focused: false,
+                    key: Some("b".into()),
+                },
+            ],
+            key: None,
+        };
+        let out = render_spec(&spec, &HashMap::new(), "b");
+        assert_eq!(out.entries.len(), 1, "row collapses inline");
+        // Two overlays expected from the focused B: one for B's
+        // glyph (none, since unchecked) — actually unchecked emits
+        // no glyph overlay. So only the focused-style overlay.
+        // Find the focused overlay by its menu_active_bg key.
+        let entry = &out.entries[0];
+        let focused_overlay = entry
+            .inline_overlays
+            .iter()
+            .find(|o| {
+                o.style
+                    .bg
+                    .as_ref()
+                    .and_then(|c| c.as_theme_key())
+                    == Some("ui.menu_active_bg")
+            })
+            .expect("focused overlay present on B");
+        // B's text is "[ ] B", starting after "[ ] A".len()==5 + spacer 0 (no spacer here).
+        // Inline collapse: A is "[ ] A" then immediately "[ ] B" = 10 bytes.
+        assert_eq!(focused_overlay.start, 5);
+        assert_eq!(focused_overlay.end, 10);
+    }
+
+    #[test]
+    fn no_tabbables_yields_empty_focus_key() {
+        let spec = WidgetSpec::Col {
+            children: vec![WidgetSpec::HintBar {
+                entries: vec![],
+                key: None,
+            }],
+            key: None,
+        };
+        let out = render_spec(&spec, &HashMap::new(), "");
+        assert_eq!(out.focus_key, "");
+        assert!(out.tabbable.is_empty());
     }
 
     // -------------------------------------------------------------
@@ -962,7 +1235,7 @@ mod tests {
             visible_rows: 10,
             key: None,
         };
-        let (entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(entries.len(), 3);
         assert_eq!(hits.len(), 3);
         for (i, h) in hits.iter().enumerate() {
@@ -987,7 +1260,7 @@ mod tests {
             visible_rows: 10,
             key: None,
         };
-        let (entries, _hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, _hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert!(entries[0].style.is_none(), "unselected row keeps no style");
         let style = entries[1].style.as_ref().expect("selected row gets style");
         assert_eq!(
@@ -1021,7 +1294,7 @@ mod tests {
             ],
             key: None,
         };
-        let (entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(entries.len(), 3);
         assert_eq!(hits.len(), 2);
         // List rows land at buffer_row 1 and 2 (after the HintBar).
@@ -1038,7 +1311,7 @@ mod tests {
             visible_rows: 10,
             key: None,
         };
-        let (_entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (_entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(hits[0].payload["index"], 0);
         assert_eq!(hits[0].payload["key"], "match:42");
     }
@@ -1056,7 +1329,7 @@ mod tests {
             visible_rows: 10,
             key: None,
         };
-        let (_, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (_, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(hits[0].widget_key, "only");
         assert_eq!(hits[1].widget_key, "");
     }
@@ -1078,7 +1351,7 @@ mod tests {
     #[test]
     fn list_renders_only_visible_window() {
         let spec = make_list(-1, 3, 10, Some("L"));
-        let (entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(entries.len(), 3);
         assert_eq!(hits.len(), 3);
         // First three items, absolute indices 0..2.
@@ -1091,7 +1364,7 @@ mod tests {
         // 10 items, visible=3, select index 5: scroll should be 3
         // (so selected lands at the bottom of the window).
         let spec = make_list(5, 3, 10, Some("L"));
-        let (_entries, hits, state) = render_spec(&spec, &HashMap::new());
+        let (_entries, hits, state) = render_no_focus(&spec, &HashMap::new());
         // Visible window is items 3..6 → hits index 3, 4, 5.
         assert_eq!(hits.len(), 3);
         assert_eq!(hits[0].payload["index"], 3);
@@ -1110,7 +1383,7 @@ mod tests {
         let mut prev = HashMap::new();
         prev.insert("L".into(), WidgetInstanceState::List { scroll_offset: 5 });
         let spec = make_list(1, 3, 10, Some("L"));
-        let (_entries, hits, state) = render_spec(&spec, &prev);
+        let (_entries, hits, state) = render_no_focus(&spec, &prev);
         assert_eq!(hits[0].payload["index"], 1);
         let scroll = match state.get("L").unwrap() {
             WidgetInstanceState::List { scroll_offset } => *scroll_offset,
@@ -1126,7 +1399,7 @@ mod tests {
         let mut prev = HashMap::new();
         prev.insert("L".into(), WidgetInstanceState::List { scroll_offset: 4 });
         let spec = make_list(5, 3, 10, Some("L"));
-        let (_entries, hits, state) = render_spec(&spec, &prev);
+        let (_entries, hits, state) = render_no_focus(&spec, &prev);
         assert_eq!(hits[0].payload["index"], 4);
         let scroll = match state.get("L").unwrap() {
             WidgetInstanceState::List { scroll_offset } => *scroll_offset,
@@ -1142,7 +1415,7 @@ mod tests {
         let mut prev = HashMap::new();
         prev.insert("L".into(), WidgetInstanceState::List { scroll_offset: 8 });
         let spec = make_list(-1, 3, 5, Some("L"));
-        let (entries, _hits, state) = render_spec(&spec, &prev);
+        let (entries, _hits, state) = render_no_focus(&spec, &prev);
         assert_eq!(entries.len(), 3);
         let scroll = match state.get("L").unwrap() {
             WidgetInstanceState::List { scroll_offset } => *scroll_offset,
@@ -1155,7 +1428,7 @@ mod tests {
     #[test]
     fn list_does_not_scroll_when_total_smaller_than_visible() {
         let spec = make_list(-1, 10, 3, Some("L"));
-        let (entries, _hits, state) = render_spec(&spec, &HashMap::new());
+        let (entries, _hits, state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(entries.len(), 3, "all items fit");
         let scroll = match state.get("L").unwrap() {
             WidgetInstanceState::List { scroll_offset } => *scroll_offset,
@@ -1167,7 +1440,7 @@ mod tests {
     #[test]
     fn list_without_key_does_not_persist_state() {
         let spec = make_list(5, 3, 10, None);
-        let (_entries, _hits, state) = render_spec(&spec, &HashMap::new());
+        let (_entries, _hits, state) = render_no_focus(&spec, &HashMap::new());
         assert!(
             state.is_empty(),
             "Lists without a `key` opt out of state preservation"
@@ -1287,7 +1560,7 @@ mod tests {
             ],
             key: None,
         };
-        let (entries, hits, _state) = render_spec(&spec, &HashMap::new());
+        let (entries, hits, _state) = render_no_focus(&spec, &HashMap::new());
         assert_eq!(entries.len(), 4);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].buffer_row, 3);

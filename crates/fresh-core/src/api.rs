@@ -1335,6 +1335,48 @@ pub enum WidgetSpec {
     },
 }
 
+/// Action a plugin can request the widget runtime to perform on a
+/// mounted panel. Bundled into a single `WidgetCommand` PluginCommand
+/// so the plugin's TypeScript layer exposes one routing method
+/// (`editor.widgetCommand(panel_id, action)`) rather than a fanout
+/// of per-key IPC.
+///
+/// All actions target the panel's currently focused widget (the host
+/// tracks focus per panel). They are fired by the plugin's mode
+/// bindings — Tab → `FocusAdvance{+1}`, Enter → `Activate`,
+/// Up/Down → `SelectMove{±1}`, Backspace → `TextInputKey{"Backspace"}`,
+/// printable chars (via `mode_text_input`) → `TextInputChar{"x"}`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub enum WidgetAction {
+    /// Cycle focus to the next (`delta=+1`) or previous (`delta=-1`)
+    /// tabbable widget in declaration order. Wraps at the ends.
+    FocusAdvance { delta: i32 },
+    /// "Activate" the focused widget — fires a semantic event
+    /// keyed on widget kind: `Button` → `widget_event { event_type:
+    /// "activate" }`; `Toggle` → `widget_event { event_type:
+    /// "toggle", payload: { checked: !old } }`. No-op for other
+    /// kinds.
+    Activate,
+    /// Move the focused `List`'s selection by `delta`. Plugins
+    /// listen for `widget_event { event_type: "select" }` to mirror
+    /// the new index into their model. No-op when the focused
+    /// widget isn't a List.
+    SelectMove { delta: i32 },
+    /// Apply a non-printable editing key to the focused
+    /// `TextInput`: `"Backspace"`, `"Delete"`, `"Left"`, `"Right"`,
+    /// `"Home"`, `"End"`. Host computes the new value/cursor and
+    /// fires `widget_event { event_type: "change", payload: { value,
+    /// cursorByte } }`. No-op when the focused widget isn't a
+    /// TextInput or the key isn't recognised.
+    TextInputKey { key: String },
+    /// Append printable text to the focused `TextInput` at the
+    /// current cursor position. Used for the `mode_text_input`
+    /// fall-through path. Fires `widget_event` as for `TextInputKey`.
+    TextInputChar { text: String },
+}
+
 /// Plugin command - allows plugins to send commands to the editor
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -2700,6 +2742,17 @@ pub enum PluginCommand {
     /// Tear down a widget panel. Subsequent `UpdateWidgetPanel`
     /// calls for the same `panel_id` are no-ops.
     UnmountWidgetPanel { panel_id: u64 },
+
+    /// Route a keystroke / nav action to the panel's currently
+    /// focused widget. The plugin's `defineMode` bindings dispatch
+    /// here for keys that should be handled by the widget layer
+    /// (Tab cycle, Enter to activate, Up/Down to navigate a List,
+    /// Backspace / arrows / printable input to edit a TextInput).
+    /// See `WidgetAction` for the action shapes.
+    WidgetCommand {
+        panel_id: u64,
+        action: WidgetAction,
+    },
 }
 
 impl PluginCommand {
