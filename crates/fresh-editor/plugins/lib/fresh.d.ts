@@ -722,6 +722,39 @@ type WidgetSpec = {
 	cols: number;
 	key?: string | null;
 } | {
+	"kind": "textInput";
+	/**
+	* Current text in the field.
+	*/
+	value: string;
+	/**
+	* Byte offset of the cursor within `value`. Negative
+	* (encoded as `i32` in JSON; clamped on Rust side) means
+	* "no cursor" — the input is not the active focus target.
+	*/
+	cursorByte: number;
+	/**
+	* Whether this input has visual focus (controls fg/bg
+	* highlight).
+	*/
+	focused: boolean;
+	/**
+	* Optional label rendered before the brackets:
+	* `Label: [value]`. Use the empty string to omit.
+	*/
+	label?: string;
+	/**
+	* Optional placeholder shown when `value` is empty and the
+	* input is unfocused.
+	*/
+	placeholder?: string | null;
+	/**
+	* Maximum visible characters before truncation with an
+	* ellipsis. `0` means "don't truncate".
+	*/
+	maxVisibleChars: number;
+	key?: string | null;
+} | {
 	"kind": "raw";
 	entries: Array<TextPropertyEntry>;
 	key?: string | null;

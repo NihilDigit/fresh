@@ -7,6 +7,7 @@ import {
   raw,
   row,
   spacer,
+  textInput,
   toggle,
   WidgetPanel,
   type WidgetSpec,
@@ -362,20 +363,109 @@ function buildOptionsRowSpec(): WidgetSpec {
   );
 }
 
+// Build the typed Row spec for line 1 (search + replace fields with
+// trailing match-count stats). Was previously hand-rolled with two
+// `buildFieldDisplay` calls + manual cursor overlays; now uses the
+// host's TextInput widget for both fields (theme-keyed focus + input
+// background, cursor highlight at the right byte position). The
+// match-stats portion stays in Raw because it has bespoke
+// truncated-warning styling (`[255, 180, 50]`) and isn't a control.
+function buildLine1Spec(): WidgetSpec {
+  if (!panel) return col();
+  const { searchPattern, replaceText, focusPanel, queryField, cursorPos, truncated } = panel;
+  const totalMatches = panel.searchResults.length;
+  const fileCount = panel.fileGroups.length;
+  const qFocusSearch = focusPanel === "query" && queryField === "search";
+  const qFocusReplace = focusPanel === "query" && queryField === "replace";
+  const searchVal = searchPattern || "";
+  const replaceVal = replaceText || "";
+  // The plugin tracks `cursorPos` as a character offset; the widget
+  // wants a UTF-8 byte offset. For ASCII they're equal; for the
+  // multi-byte case we convert via byteLen of the prefix.
+  const searchCursorByte = qFocusSearch ? byteLen(searchVal.substring(0, cursorPos)) : -1;
+  const replaceCursorByte = qFocusReplace ? byteLen(replaceVal.substring(0, cursorPos)) : -1;
+  const searchLabel = editor.t("panel.search_label");
+  const replLabel = editor.t("panel.replace_label");
+
+  const truncatedSuffix = truncated ? " " + editor.t("panel.limited") : "";
+  const matchStats = totalMatches > 0
+    ? "  " + editor.t("panel.match_stats", { count: String(totalMatches), files: String(fileCount) }) + truncatedSuffix
+    : (searchPattern ? "  " + editor.t("panel.no_matches") : "");
+
+  // Build the matchStats inline-overlay-styled Raw cell for the row.
+  // Truncated case keeps the warning-color tail; otherwise the whole
+  // stats string uses the ok/dim color depending on result presence.
+  const matchStatsEntries: TextPropertyEntry[] = [];
+  if (matchStats.length > 0) {
+    const overlays: InlineOverlay[] = [];
+    if (truncated && totalMatches > 0) {
+      const statsWithoutSuffix = "  " + editor.t("panel.match_stats", {
+        count: String(totalMatches),
+        files: String(fileCount),
+      });
+      const countEnd = byteLen(statsWithoutSuffix);
+      overlays.push({ start: 0, end: countEnd, style: { fg: C.statusOk } });
+      overlays.push({
+        start: countEnd,
+        end: countEnd + byteLen(truncatedSuffix),
+        style: { fg: [255, 180, 50] as RGB, bold: true },
+      });
+    } else {
+      overlays.push({
+        start: 0,
+        end: byteLen(matchStats),
+        style: { fg: totalMatches > 0 ? C.statusOk : C.statusDim },
+      });
+    }
+    matchStatsEntries.push({ text: matchStats, inlineOverlays: overlays });
+  }
+
+  return row(
+    spacer(1),
+    textInput(searchVal, {
+      label: searchLabel,
+      focused: qFocusSearch,
+      cursorByte: searchCursorByte,
+      maxVisibleChars: 25,
+      key: "searchField",
+    }),
+    spacer(2),
+    textInput(replaceVal, {
+      label: replLabel,
+      focused: qFocusReplace,
+      cursorByte: replaceCursorByte,
+      maxVisibleChars: 25,
+      key: "replaceField",
+    }),
+    raw(matchStatsEntries),
+  );
+}
+
 // Phase selector for `buildPanelEntries`. The hand-rolled options
-// row was extracted into `buildOptionsRowSpec()`; this parameter lets
-// callers ask for the body before it ("preOptions"), the body after
-// it ("postOptions"), or — for tests / fallback paths — both with no
-// gap ("all").
+// row and line-1 query fields were extracted into typed widget specs
+// (`buildOptionsRowSpec`, `buildLine1Spec`); this parameter lets
+// callers ask for the body before the options row ("preOptions"),
+// the body after it ("postOptions"), or — for tests / fallback
+// paths — both with no gap ("all"). Today "preOptions" is empty
+// because line 1 lives in `buildLine1Spec`; the parameter remains
+// for symmetry and to keep the boundary explicit.
 type BuildPhase = "all" | "preOptions" | "postOptions";
 
 function buildPanelEntries(phase: BuildPhase = "all"): TextPropertyEntry[] {
   if (!panel) return [];
   const { searchPattern, replaceText, searchResults, fileGroups, focusPanel, queryField,
     optionIndex, caseSensitive, useRegex, wholeWords, cursorPos } = panel;
-  // The options-row variables are still destructured above for
-  // readability with the rest of the function but are now consumed by
-  // `buildOptionsRowSpec()` (composed into the spec at update time).
+  // The line-1 + options-row variables are still destructured for
+  // readability with the rest of the function but are now consumed
+  // by `buildLine1Spec()` and `buildOptionsRowSpec()` (composed into
+  // the spec at update time).
+  void searchPattern;
+  void replaceText;
+  void searchResults;
+  void fileGroups;
+  void focusPanel;
+  void queryField;
+  void cursorPos;
   void optionIndex;
   void caseSensitive;
   void useRegex;
@@ -387,73 +477,10 @@ function buildPanelEntries(phase: BuildPhase = "all"): TextPropertyEntry[] {
   const totalMatches = searchResults.length;
   const fileCount = fileGroups.length;
 
-  // ── Line 1: Query fields + match count ──
-  const qFocusSearch = focusPanel === "query" && queryField === "search";
-  const qFocusReplace = focusPanel === "query" && queryField === "replace";
-
-  // Build search field display with cursor
-  const searchVal = searchPattern || "";
-  const replaceVal = replaceText || "";
-  const searchCursorPos = qFocusSearch ? cursorPos : -1;
-  const replaceCursorPos = qFocusReplace ? cursorPos : -1;
-
-  const searchDisp = buildFieldDisplay(searchVal, searchCursorPos, 25);
-  const replDisp = buildFieldDisplay(replaceVal, replaceCursorPos, 25);
-
-  const searchLabel = " " + editor.t("panel.search_label") + " ";
-  const replSep = "  " + editor.t("panel.replace_label") + " ";
-  const truncatedSuffix = panel.truncated ? " " + editor.t("panel.limited") : "";
-  const matchStats = totalMatches > 0
-    ? "  " + editor.t("panel.match_stats", { count: String(totalMatches), files: String(fileCount) }) + truncatedSuffix
-    : (searchPattern ? "  " + editor.t("panel.no_matches") : "");
-
-  const line1Text = searchLabel + searchDisp + replSep + replDisp + matchStats;
-  const line1 = padStr(line1Text, W);
-
-  const line1Overlays: InlineOverlay[] = [];
-  // Search label
-  line1Overlays.push({ start: byteLen(" "), end: byteLen(searchLabel), style: { fg: C.label } });
-  // Search value
-  const svStart = byteLen(searchLabel);
-  const svEnd = svStart + byteLen(searchDisp);
-  line1Overlays.push({ start: svStart, end: svEnd, style: { fg: C.value, bg: qFocusSearch ? C.inputBg : undefined } });
-  // Cursor highlight in search field
-  if (qFocusSearch) {
-    addCursorOverlay(searchVal, searchCursorPos, svStart + byteLen("["), line1Overlays);
-  }
-  // Replace label
-  const rlStart = svEnd;
-  const rlEnd = rlStart + byteLen(replSep);
-  line1Overlays.push({ start: rlStart, end: rlEnd, style: { fg: C.label } });
-  // Replace value
-  const rvStart = rlEnd;
-  const rvEnd = rvStart + byteLen(replDisp);
-  line1Overlays.push({ start: rvStart, end: rvEnd, style: { fg: C.value, bg: qFocusReplace ? C.inputBg : undefined } });
-  // Cursor highlight in replace field
-  if (qFocusReplace) {
-    addCursorOverlay(replaceVal, replaceCursorPos, rvStart + byteLen("["), line1Overlays);
-  }
-  // Stats
-  if (matchStats) {
-    const msStart = rvEnd;
-    if (panel.truncated && totalMatches > 0) {
-      // Color the count part normally, then the truncated suffix in warning color
-      const statsWithoutSuffix = "  " + editor.t("panel.match_stats", { count: String(totalMatches), files: String(fileCount) });
-      const countEnd = msStart + byteLen(statsWithoutSuffix);
-      line1Overlays.push({ start: msStart, end: countEnd, style: { fg: C.statusOk } });
-      const suffixEnd = countEnd + byteLen(truncatedSuffix);
-      line1Overlays.push({ start: countEnd, end: suffixEnd, style: { fg: [255, 180, 50] as RGB, bold: true } });
-    } else {
-      const msEnd = msStart + byteLen(matchStats);
-      line1Overlays.push({ start: msStart, end: msEnd, style: { fg: totalMatches > 0 ? C.statusOk : C.statusDim } });
-    }
-  }
-
-  entries.push({
-    text: line1 + "\n",
-    properties: { type: "query-line" },
-    inlineOverlays: line1Overlays,
-  });
+  // ── Line 1 (search/replace fields + match-count stats) is now
+  //    rendered by `buildLine1Spec()` — see updatePanelContent. The
+  //    pre-options phase therefore returns no entries; the spec
+  //    composes the typed Row directly between the col children. ──
 
   // ── Line 2 (options toggles + Replace All button) is now rendered
   //    by the host as a `Row { Toggle, Toggle, Toggle, Spacer, Button }`
@@ -689,27 +716,25 @@ function updatePanelContent(): void {
   // Refresh viewport width each time
   panel.viewportWidth = getViewportWidth();
 
-  // Migration step 2 (see docs/internal/plugin-widget-library-design.md
-  // §10): the panel is composed from
-  //   * `Raw{ pre-options entries }`   — query/replace fields (line 1),
-  //                                       still hand-rolled because
-  //                                       inline cursor math hasn't
-  //                                       been migrated yet.
-  //   * `Row{ Toggle, Toggle, Toggle,
-  //           Spacer, Button }`         — case/regex/whole + Replace All,
-  //                                       host-rendered with theme-keyed
-  //                                       focus/state styling.
-  //   * `Raw{ post-options entries }`  — separator, matches tree, scroll
-  //                                       indicators (still hand-rolled,
-  //                                       to be replaced by Tree+List
-  //                                       in subsequent passes).
-  //   * `HintBar{ ... }`               — keyboard-hint footer.
+  // Migration step 3 (see docs/internal/plugin-widget-library-design.md
+  // §10): the panel is composed from typed widgets all the way
+  // through line 1 + the options row, with the matches body as the
+  // sole remaining `Raw` region (Tree migration is the next pass).
+  //
+  //   * `Row{ Spacer, TextInput, Spacer, TextInput, Raw{ stats } }`
+  //                                       — search/replace inputs +
+  //                                       trailing match-count stats.
+  //   * `Row{ Toggle, Toggle, Toggle, Spacer, Button }`
+  //                                       — case/regex/whole + Replace All.
+  //   * `Raw{ post-options entries }`    — separator, matches tree,
+  //                                       scroll indicators.
+  //   * `HintBar{ ... }`                  — keyboard-hint footer.
   if (!panel.widgetPanel) {
     panel.widgetPanel = new WidgetPanel(panel.resultsBufferId);
   }
   panel.widgetPanel.set(
     col(
-      raw(buildPanelEntries("preOptions")),
+      buildLine1Spec(),
       buildOptionsRowSpec(),
       raw(buildPanelEntries("postOptions")),
       hintBar(buildHelpHints()),

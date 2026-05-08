@@ -1074,6 +1074,13 @@ pub struct HintEntry {
     pub label: String,
 }
 
+/// Default for `TextInput::cursor_byte` when the plugin doesn't
+/// supply one. -1 ⇒ "no cursor visible" (the field is unfocused
+/// or read-only).
+fn default_cursor_byte() -> i32 {
+    -1
+}
+
 /// Visual role for a `Button`. Maps to theme keys at render time —
 /// plugins describe intent, not colors. See §7 of the design doc.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -1103,8 +1110,8 @@ pub enum ButtonKind {
 /// instance state; stateless widgets (`HintBar`, `Toggle`, `Button`,
 /// `Spacer`) can omit it.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
 pub enum WidgetSpec {
     /// Horizontal layout: children laid out left-to-right.
     Row {
@@ -1160,6 +1167,46 @@ pub enum WidgetSpec {
     /// engine knows panel widths.
     Spacer {
         cols: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+    },
+    /// Single-line text input, rendered as `[value]` with a cursor
+    /// highlight at the byte position given by `cursor_byte` (when
+    /// `cursor_byte >= 0`). When `value` is empty and the input is
+    /// not focused, `placeholder` (if set) is shown instead.
+    ///
+    /// v1 is a *render-only* widget: the host owns visual cursor
+    /// styling and theme-keyed focus, but the plugin still owns the
+    /// value string and cursor position. Keystrokes (Backspace,
+    /// arrows, character input) flow through the plugin's existing
+    /// `defineMode` + `mode_text_input` plumbing; the plugin re-emits
+    /// the spec on every change. The keymap-routing layer (host
+    /// claims widget keys before the plugin sees them) lands in a
+    /// later commit.
+    TextInput {
+        /// Current text in the field.
+        value: String,
+        /// Byte offset of the cursor within `value`. Negative
+        /// (encoded as `i32` in JSON; clamped on Rust side) means
+        /// "no cursor" — the input is not the active focus target.
+        #[serde(default = "default_cursor_byte")]
+        cursor_byte: i32,
+        /// Whether this input has visual focus (controls fg/bg
+        /// highlight).
+        #[serde(default)]
+        focused: bool,
+        /// Optional label rendered before the brackets:
+        /// `Label: [value]`. Use the empty string to omit.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        label: String,
+        /// Optional placeholder shown when `value` is empty and the
+        /// input is unfocused.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        /// Maximum visible characters before truncation with an
+        /// ellipsis. `0` means "don't truncate".
+        #[serde(default)]
+        max_visible_chars: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
     },

@@ -120,6 +120,36 @@ export function spacer(cols: number, key?: string): WidgetSpec {
   return { kind: "spacer", cols, key };
 }
 
+/** Single-line text input, rendered as `[value]` (or
+ * `Label: [value]` if `label` is provided), with a one-cell cursor
+ * highlight at `cursorByte` when ≥ 0. v1 is render-only — the
+ * plugin still owns the value string and cursor, and the existing
+ * `mode_text_input` + bound-key path handles editing. The widget
+ * provides theme-keyed focus styling and removes the per-plugin
+ * `buildFieldDisplay` / `addCursorOverlay` byte-offset arithmetic. */
+export function textInput(
+  value: string,
+  options?: {
+    cursorByte?: number;
+    focused?: boolean;
+    label?: string;
+    placeholder?: string;
+    maxVisibleChars?: number;
+    key?: string;
+  },
+): WidgetSpec {
+  return {
+    kind: "textInput",
+    value,
+    cursorByte: options?.cursorByte ?? -1,
+    focused: options?.focused ?? false,
+    label: options?.label,
+    placeholder: options?.placeholder,
+    maxVisibleChars: options?.maxVisibleChars ?? 0,
+    key: options?.key,
+  };
+}
+
 // =============================================================================
 // HintEntry parsing — for the legacy `Tab:section  Esc:close` format
 // shipped in existing plugin i18n bundles.

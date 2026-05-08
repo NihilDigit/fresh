@@ -54,6 +54,7 @@ export {
   raw,
   row,
   spacer,
+  textInput,
   toggle,
   WidgetPanel,
 } from "./widgets.ts";

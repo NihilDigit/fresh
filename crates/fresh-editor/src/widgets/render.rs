@@ -33,6 +33,9 @@ const KEY_TOGGLE_ON_FG: &str = "ui.tab_active_fg";
 const KEY_FOCUSED_FG: &str = "ui.menu_active_fg";
 const KEY_FOCUSED_BG: &str = "ui.menu_active_bg";
 const KEY_DANGER_FG: &str = "ui.status_error_indicator_fg";
+const KEY_INPUT_BG: &str = "ui.prompt_bg";
+const KEY_PLACEHOLDER_FG: &str = "ui.menu_disabled_fg";
+const KEY_CURSOR_BG: &str = "editor.cursor";
 
 /// Render a spec to a flat `Vec<TextPropertyEntry>` plus a flat list
 /// of click-routing `HitArea`s.
@@ -182,6 +185,28 @@ fn render_collected(spec: &WidgetSpec) -> (Vec<TextPropertyEntry>, Vec<HitArea>)
                 style: None,
                 inline_overlays: Vec::new(),
             });
+        }
+        WidgetSpec::TextInput {
+            value,
+            cursor_byte,
+            focused,
+            label,
+            placeholder,
+            max_visible_chars,
+            ..
+        } => {
+            entries.push(render_text_input(
+                value,
+                *cursor_byte,
+                *focused,
+                label,
+                placeholder.as_deref(),
+                *max_visible_chars,
+            ));
+            // No hit area in v1 — clicks on a TextInput will land
+            // somewhere inside the bracketed value, but cursor
+            // placement on click requires cursor mutation, which
+            // needs the keymap-routing layer.
         }
         WidgetSpec::Raw {
             entries: raw_entries,
@@ -347,6 +372,128 @@ pub fn render_button(label: &str, focused: bool, kind: ButtonKind) -> TextProper
             start: 0,
             end: text.len(),
             style,
+            properties: Default::default(),
+        });
+    }
+
+    TextPropertyEntry {
+        text,
+        properties: Default::default(),
+        style: None,
+        inline_overlays: overlays,
+    }
+}
+
+/// Render a `TextInput` to a single `TextPropertyEntry`.
+///
+/// Layout: `Label: [<value>]` or just `[<value>]` when `label` is
+/// empty. When `value` is empty and the input is unfocused, the
+/// `placeholder` (if provided) is shown in `ui.menu_disabled_fg`.
+///
+/// Cursor: when `cursor_byte >= 0`, a one-cell reverse-video overlay
+/// is placed at the requested byte offset within `value`. If the
+/// cursor sits past the last character, it highlights the closing
+/// bracket — matching the pre-widget hand-rolled behaviour the
+/// search_replace plugin relied on.
+///
+/// Focused state: the value range gets the input-bg theme key
+/// (`ui.prompt_bg`) so the field visually reads as the active
+/// editing target.
+///
+/// Truncation: when `max_visible_chars > 0` and `value` exceeds it,
+/// the shown text is `…value-tail`, with the cursor still tracking
+/// its logical byte position relative to the original value (best
+/// effort — the displayed cursor approximates the truncated form).
+pub fn render_text_input(
+    value: &str,
+    cursor_byte: i32,
+    focused: bool,
+    label: &str,
+    placeholder: Option<&str>,
+    max_visible_chars: u32,
+) -> TextPropertyEntry {
+    let show_placeholder = !focused && value.is_empty() && placeholder.is_some();
+
+    // Decide what text goes inside the brackets.
+    let inner: String = if show_placeholder {
+        placeholder.unwrap_or("").to_string()
+    } else if max_visible_chars > 0 && value.chars().count() > max_visible_chars as usize {
+        // Tail-truncate so the cursor (typically at the end while
+        // typing) stays visible.
+        let chars: Vec<char> = value.chars().collect();
+        let take = (max_visible_chars as usize).saturating_sub(1);
+        let start = chars.len().saturating_sub(take);
+        let tail: String = chars[start..].iter().collect();
+        format!("…{}", tail)
+    } else {
+        value.to_string()
+    };
+
+    let mut text = String::new();
+    if !label.is_empty() {
+        text.push_str(label);
+        text.push(' ');
+    }
+    let bracket_open_byte = text.len();
+    text.push('[');
+    let inner_byte_start = text.len();
+    text.push_str(&inner);
+    let inner_byte_end = text.len();
+    text.push(']');
+    let bracket_close_byte = text.len();
+
+    let mut overlays = Vec::new();
+
+    // Placeholder text: muted theme key, no other styling.
+    if show_placeholder {
+        overlays.push(InlineOverlay {
+            start: inner_byte_start,
+            end: inner_byte_end,
+            style: OverlayOptions {
+                fg: Some(OverlayColorSpec::theme_key(KEY_PLACEHOLDER_FG)),
+                ..Default::default()
+            },
+            properties: Default::default(),
+        });
+    }
+
+    // Focused: input-bg across the bracketed region (excluding the
+    // brackets themselves, so the field reads as its own surface).
+    if focused {
+        overlays.push(InlineOverlay {
+            start: bracket_open_byte,
+            end: bracket_close_byte,
+            style: OverlayOptions {
+                bg: Some(OverlayColorSpec::theme_key(KEY_INPUT_BG)),
+                ..Default::default()
+            },
+            properties: Default::default(),
+        });
+    }
+
+    // Cursor: a single-grapheme reverse-video span at the cursor
+    // byte position inside `value`. When the cursor is at end-of-
+    // value (or past it), highlight the closing bracket.
+    if cursor_byte >= 0 && !show_placeholder {
+        let cb = cursor_byte as usize;
+        let (start_byte, end_byte) = if cb >= inner.len() {
+            // End-of-value cursor → highlight the closing bracket.
+            (bracket_close_byte - 1, bracket_close_byte)
+        } else {
+            // Find next char boundary after the cursor.
+            let mut next = cb + 1;
+            while next < inner.len() && !inner.is_char_boundary(next) {
+                next += 1;
+            }
+            (inner_byte_start + cb, inner_byte_start + next)
+        };
+        overlays.push(InlineOverlay {
+            start: start_byte,
+            end: end_byte,
+            style: OverlayOptions {
+                bg: Some(OverlayColorSpec::theme_key(KEY_CURSOR_BG)),
+                ..Default::default()
+            },
             properties: Default::default(),
         });
     }
@@ -679,6 +826,98 @@ mod tests {
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].buffer_row, 0);
         assert_eq!(hits[1].buffer_row, 1);
+    }
+
+    // -------------------------------------------------------------
+    // TextInput
+    // -------------------------------------------------------------
+
+    #[test]
+    fn text_input_renders_value_in_brackets() {
+        let entry = render_text_input("hello", -1, false, "", None, 0);
+        assert_eq!(entry.text, "[hello]");
+        assert!(entry.inline_overlays.is_empty());
+    }
+
+    #[test]
+    fn text_input_with_label_prefixes_with_label_space() {
+        let entry = render_text_input("foo", -1, false, "Search:", None, 0);
+        assert_eq!(entry.text, "Search: [foo]");
+    }
+
+    #[test]
+    fn text_input_focused_adds_input_bg_overlay() {
+        let entry = render_text_input("x", -1, true, "", None, 0);
+        // Focused → input-bg overlay (no cursor since cursor_byte < 0).
+        assert_eq!(entry.inline_overlays.len(), 1);
+        let bg = entry.inline_overlays[0].style.bg.as_ref().unwrap();
+        assert_eq!(bg.as_theme_key(), Some("ui.prompt_bg"));
+    }
+
+    #[test]
+    fn text_input_cursor_at_value_position_highlights_char() {
+        let entry = render_text_input("abc", 1, true, "", None, 0);
+        // Two overlays: input-bg (focused) + cursor on 'b'.
+        assert_eq!(entry.inline_overlays.len(), 2);
+        let cursor = entry
+            .inline_overlays
+            .iter()
+            .find(|o| {
+                o.style
+                    .bg
+                    .as_ref()
+                    .map(|c| c.as_theme_key() == Some("editor.cursor"))
+                    .unwrap_or(false)
+            })
+            .expect("cursor overlay present");
+        // 'a' is at byte 1 (after '['), 'b' at byte 2, 'c' at byte 3
+        // when label="" (text = "[abc]").
+        assert_eq!(cursor.start, 2);
+        assert_eq!(cursor.end, 3);
+    }
+
+    #[test]
+    fn text_input_cursor_at_end_highlights_closing_bracket() {
+        let entry = render_text_input("ab", 2, true, "", None, 0);
+        let cursor = entry
+            .inline_overlays
+            .iter()
+            .find(|o| {
+                o.style
+                    .bg
+                    .as_ref()
+                    .map(|c| c.as_theme_key() == Some("editor.cursor"))
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        // text = "[ab]" → closing bracket at byte 3..4
+        assert_eq!(cursor.start, 3);
+        assert_eq!(cursor.end, 4);
+    }
+
+    #[test]
+    fn text_input_unfocused_empty_shows_placeholder_in_muted() {
+        let entry = render_text_input("", -1, false, "", Some("type here"), 0);
+        assert_eq!(entry.text, "[type here]");
+        // One overlay for the placeholder muted color.
+        assert_eq!(entry.inline_overlays.len(), 1);
+        let fg = entry.inline_overlays[0].style.fg.as_ref().unwrap();
+        assert_eq!(fg.as_theme_key(), Some("ui.menu_disabled_fg"));
+    }
+
+    #[test]
+    fn text_input_focused_empty_does_not_show_placeholder() {
+        let entry = render_text_input("", -1, true, "", Some("type here"), 0);
+        // No placeholder when focused — would obstruct the cursor.
+        assert_eq!(entry.text, "[]");
+    }
+
+    #[test]
+    fn text_input_truncates_long_value_keeping_tail_visible() {
+        let value: String = "0123456789abcdefghij".to_string();
+        let entry = render_text_input(&value, -1, false, "", None, 6);
+        // Tail-truncated to "…fghij" (max=6, take=5 chars).
+        assert_eq!(entry.text, "[…fghij]");
     }
 
     #[test]
