@@ -224,12 +224,28 @@ pub(super) fn compute_char_style(ctx: &CharStyleContext) -> CharStyleOutput {
     let is_secondary_cursor = ctx.is_cursor && ctx.byte_pos != Some(ctx.primary_cursor_position);
     if ctx.is_active {
         if ctx.is_cursor {
-            if ctx.skip_primary_cursor_reverse {
-                if is_secondary_cursor {
+            // Toggle REVERSED rather than always adding it. Without this, a
+            // cursor that lands on a cell already styled with `REVERSED`
+            // (e.g. a selection on a theme like `terminal` whose
+            // `selection_modifier` is `Modifier::REVERSED`) becomes
+            // indistinguishable from its surroundings, since `add_modifier`
+            // is bitwise OR — see #1900.
+            let toggle_reverse = if ctx.skip_primary_cursor_reverse {
+                // Hardware cursor draws over the primary cursor cell; only
+                // secondary cursors need a software REVERSED marker. We still
+                // toggle on the primary cell so that, when the surrounding
+                // selection is REVERSED, the cell underneath the hardware
+                // cursor visually breaks out of the selection block.
+                is_secondary_cursor || style.add_modifier.contains(Modifier::REVERSED)
+            } else {
+                true
+            };
+            if toggle_reverse {
+                if style.add_modifier.contains(Modifier::REVERSED) {
+                    style = style.remove_modifier(Modifier::REVERSED);
+                } else {
                     style = style.add_modifier(Modifier::REVERSED);
                 }
-            } else {
-                style = style.add_modifier(Modifier::REVERSED);
             }
             region = "Cursor";
         }
@@ -246,5 +262,109 @@ pub(super) fn compute_char_style(ctx: &CharStyleContext) -> CharStyleOutput {
         fg_theme_key,
         bg_theme_key,
         region,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view::theme::{THEME_DARK, THEME_TERMINAL};
+
+    fn base_ctx<'a>(theme: &'a Theme) -> CharStyleContext<'a> {
+        CharStyleContext {
+            byte_pos: Some(0),
+            token_style: None,
+            ansi_style: Style::default(),
+            is_cursor: false,
+            is_selected: false,
+            theme,
+            highlight_color: None,
+            highlight_theme_key: None,
+            semantic_token_color: None,
+            active_overlays: &[],
+            primary_cursor_position: 0,
+            is_active: true,
+            skip_primary_cursor_reverse: false,
+            is_cursor_line_highlighted: false,
+            current_line_bg: Color::Reset,
+        }
+    }
+
+    /// Regression test for #1900: when the active theme uses
+    /// `Modifier::REVERSED` for the selection highlight (as the built-in
+    /// `terminal` theme does), the cursor cell that lands inside the selection
+    /// must remain visually distinct from the surrounding selected cells.
+    /// Adding `REVERSED` to a cell that already has `REVERSED` is a no-op, so
+    /// the previous code left the cursor cell looking identical to every
+    /// other selected cell — i.e. the cursor "disappears" into the selection.
+    #[test]
+    fn cursor_on_reversed_selection_is_visually_distinct() {
+        let theme = Theme::load_builtin(THEME_TERMINAL).expect("Terminal theme must exist");
+        assert!(
+            theme.selection_modifier.contains(Modifier::REVERSED),
+            "Precondition: terminal theme uses REVERSED for selection_modifier"
+        );
+
+        // Cursor cell that is also selected (e.g. shift-arrow extends a
+        // selection and the cursor lands on a selected character).
+        let mut cursor_ctx = base_ctx(&theme);
+        cursor_ctx.is_cursor = true;
+        cursor_ctx.is_selected = true;
+        let cursor_out = compute_char_style(&cursor_ctx);
+
+        // A neighbouring selected, non-cursor cell.
+        let mut selection_ctx = base_ctx(&theme);
+        selection_ctx.is_selected = true;
+        let selection_out = compute_char_style(&selection_ctx);
+
+        assert!(
+            selection_out
+                .style
+                .add_modifier
+                .contains(Modifier::REVERSED),
+            "Sanity: a selected non-cursor cell should be REVERSED on this theme"
+        );
+
+        // The cursor cell must differ from neighbouring selected cells in
+        // either its REVERSED state or its sub_modifier so it stands out.
+        assert!(
+            cursor_out.style.add_modifier.contains(Modifier::REVERSED)
+                != selection_out
+                    .style
+                    .add_modifier
+                    .contains(Modifier::REVERSED)
+                || cursor_out.style.sub_modifier.contains(Modifier::REVERSED),
+            "Cursor cell must be visually distinct from surrounding REVERSED \
+             selection cells (cursor_add={:?}, cursor_sub={:?}, selection_add={:?})",
+            cursor_out.style.add_modifier,
+            cursor_out.style.sub_modifier,
+            selection_out.style.add_modifier,
+        );
+    }
+
+    #[test]
+    fn cursor_without_selection_still_uses_reversed() {
+        // Sanity check: outside of any selection, the cursor cell must still
+        // get REVERSED so the cursor is visible in software-cursor mode.
+        let theme = Theme::load_builtin(THEME_DARK).expect("Dark theme must exist");
+        let mut ctx = base_ctx(&theme);
+        ctx.is_cursor = true;
+        let out = compute_char_style(&ctx);
+        assert!(out.style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn cursor_on_non_reversed_selection_keeps_reversed() {
+        // On themes where the selection only changes the background colour
+        // (no REVERSED modifier), the cursor still relies on REVERSED to be
+        // visible — that path must keep working.
+        let theme = Theme::load_builtin(THEME_DARK).expect("Dark theme must exist");
+        assert!(theme.selection_modifier.is_empty());
+
+        let mut ctx = base_ctx(&theme);
+        ctx.is_cursor = true;
+        ctx.is_selected = true;
+        let out = compute_char_style(&ctx);
+        assert!(out.style.add_modifier.contains(Modifier::REVERSED));
     }
 }
