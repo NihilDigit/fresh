@@ -295,7 +295,8 @@ impl Editor {
             // Without this the cursor lands at the definition but the
             // viewport never scrolls when the target file is already
             // open (#1689).
-            self.ensure_active_cursor_visible_for_navigation(true);
+            self.active_window_mut()
+                .ensure_active_cursor_visible_for_navigation(true);
         }
 
         let display_path = self
@@ -313,79 +314,6 @@ impl Editor {
         );
 
         Ok(())
-    }
-
-    /// Check if there are any pending LSP requests
-    pub fn has_pending_lsp_requests(&self) -> bool {
-        !self.active_window().pending_completion_requests.is_empty()
-            || self
-                .active_window()
-                .pending_goto_definition_request
-                .is_some()
-    }
-
-    /// Cancel any pending LSP requests
-    /// This should be called when the user performs an action that would make
-    /// the pending request's results stale (e.g., cursor movement, text editing)
-    pub(crate) fn cancel_pending_lsp_requests(&mut self) {
-        // Cancel scheduled (not yet sent) completion trigger
-        self.active_window_mut().scheduled_completion_trigger = None;
-        if !self.active_window().pending_completion_requests.is_empty() {
-            let ids: Vec<u64> = self
-                .active_window_mut()
-                .pending_completion_requests
-                .drain()
-                .collect();
-            for request_id in ids {
-                tracing::debug!("Canceling pending LSP completion request {}", request_id);
-                self.send_lsp_cancel_request(request_id);
-            }
-        }
-        if let Some(request_id) = self
-            .active_window_mut()
-            .pending_goto_definition_request
-            .take()
-        {
-            tracing::debug!(
-                "Canceling pending LSP goto-definition request {}",
-                request_id
-            );
-            // Send cancellation to the LSP server
-            self.send_lsp_cancel_request(request_id);
-        }
-    }
-
-    /// Send a cancel request to the LSP server for a specific request ID
-    fn send_lsp_cancel_request(&mut self, request_id: u64) {
-        // Get language from buffer state
-        let buffer_id = self.active_buffer();
-        let Some(language) = self
-            .windows
-            .get(&self.active_window)
-            .map(|w| &w.buffers)
-            .expect("active window present")
-            .get(&buffer_id)
-            .map(|s| s.language.clone())
-        else {
-            return;
-        };
-
-        let __active_id = self.active_window;
-
-        if let Some(lsp) = self
-            .windows
-            .get_mut(&__active_id)
-            .and_then(|w| w.lsp.as_mut())
-        {
-            // Only send cancel if LSP is already running (no need to spawn just to cancel)
-            if let Some(handle) = lsp.get_handle_mut(&language) {
-                if let Err(e) = handle.cancel_request(request_id) {
-                    tracing::warn!("Failed to send LSP cancel request: {}", e);
-                } else {
-                    tracing::debug!("Sent $/cancelRequest for request_id={}", request_id);
-                }
-            }
-        }
     }
 
     /// Dispatch an exclusive LSP feature request to the first handle that allows the feature.
@@ -645,7 +573,7 @@ impl Editor {
                     "Canceling previous pending LSP completion request {}",
                     request_id
                 );
-                self.send_lsp_cancel_request(request_id);
+                self.active_window_mut().send_lsp_cancel_request(request_id);
             }
         }
         self.active_window_mut().completion_items = None;
@@ -1055,24 +983,25 @@ impl Editor {
         } else {
             // No range provided by LSP - compute word boundaries at hover position
             // This prevents the popup from following the mouse within the same word
-            let computed_range =
-                if let Some((hover_byte_pos, _, _, _)) = self.mouse_state.lsp_hover_state {
-                    let state = self.active_state();
-                    let start_byte = find_word_start(&state.buffer, hover_byte_pos);
-                    let end_byte = find_word_end(&state.buffer, hover_byte_pos);
-                    if start_byte < end_byte {
-                        tracing::debug!(
-                            "Hover symbol range (computed from word boundaries): {}..{}",
-                            start_byte,
-                            end_byte
-                        );
-                        Some((start_byte, end_byte))
-                    } else {
-                        None
-                    }
+            let computed_range = if let Some((hover_byte_pos, _, _, _)) =
+                self.active_window_mut().mouse_state.lsp_hover_state
+            {
+                let state = self.active_state();
+                let start_byte = find_word_start(&state.buffer, hover_byte_pos);
+                let end_byte = find_word_end(&state.buffer, hover_byte_pos);
+                if start_byte < end_byte {
+                    tracing::debug!(
+                        "Hover symbol range (computed from word boundaries): {}..{}",
+                        start_byte,
+                        end_byte
+                    );
+                    Some((start_byte, end_byte))
                 } else {
                     None
-                };
+                }
+            } else {
+                None
+            };
             self.active_window_mut()
                 .hover
                 .set_symbol_range(computed_range);
@@ -1187,7 +1116,7 @@ impl Editor {
 
         // Mark hover request as sent to prevent duplicate popups during race conditions
         // (e.g., when mouse moves while a hover response is pending)
-        self.mouse_state.lsp_hover_request_sent = true;
+        self.active_window_mut().mouse_state.lsp_hover_request_sent = true;
     }
 
     /// Pre-style any diagnostics overlapping the hover position into lines
@@ -1621,7 +1550,7 @@ impl Editor {
                     "Canceling previous pending LSP code actions request {}",
                     request_id
                 );
-                self.send_lsp_cancel_request(request_id);
+                self.active_window_mut().send_lsp_cancel_request(request_id);
             }
         }
         self.active_window_mut()
@@ -1871,7 +1800,7 @@ impl Editor {
                 if ca.edit.is_none()
                     && ca.command.is_none()
                     && ca.data.is_some()
-                    && self.server_supports_code_action_resolve()
+                    && self.active_window().server_supports_code_action_resolve()
                 {
                     tracing::info!(
                         "Code action '{}' needs resolve, sending codeAction/resolve",
@@ -1977,84 +1906,6 @@ impl Editor {
             for sh in lsp.get_handles_mut(&language) {
                 if let Err(e) = sh.handle.code_action_resolve(request_id, action.clone()) {
                     tracing::warn!("Failed to send codeAction/resolve to '{}': {}", sh.name, e);
-                }
-            }
-        }
-    }
-
-    /// Check if any LSP server for the current buffer supports codeAction/resolve
-    fn server_supports_code_action_resolve(&self) -> bool {
-        let language = match self
-            .buffers()
-            .get(&self.active_buffer())
-            .map(|s| s.language.clone())
-        {
-            Some(l) => l,
-            None => return false,
-        };
-
-        if let Some(lsp) = self.lsp() {
-            for sh in lsp.get_handles(&language) {
-                if sh.capabilities.code_action_resolve {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Check if any LSP server for the current buffer supports completionItem/resolve
-    pub(crate) fn server_supports_completion_resolve(&self) -> bool {
-        let language = match self
-            .buffers()
-            .get(&self.active_buffer())
-            .map(|s| s.language.clone())
-        {
-            Some(l) => l,
-            None => return false,
-        };
-
-        if let Some(lsp) = self.lsp() {
-            for sh in lsp.get_handles(&language) {
-                if sh.capabilities.completion_resolve {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Send completionItem/resolve to the LSP server
-    pub(crate) fn send_completion_resolve(&mut self, item: lsp_types::CompletionItem) {
-        let language = match self
-            .buffers()
-            .get(&self.active_buffer())
-            .map(|s| s.language.clone())
-        {
-            Some(l) => l,
-            None => return,
-        };
-
-        self.active_window_mut().next_lsp_request_id += 1;
-        let request_id = self.active_window_mut().next_lsp_request_id;
-
-        let __active_id = self.active_window;
-
-        if let Some(lsp) = self
-            .windows
-            .get_mut(&__active_id)
-            .and_then(|w| w.lsp.as_mut())
-        {
-            for sh in lsp.get_handles_mut(&language) {
-                if sh.capabilities.completion_resolve {
-                    if let Err(e) = sh.handle.completion_resolve(request_id, item.clone()) {
-                        tracing::warn!(
-                            "Failed to send completionItem/resolve to '{}': {}",
-                            sh.name,
-                            e
-                        );
-                    }
-                    return;
                 }
             }
         }
@@ -2909,8 +2760,8 @@ impl Editor {
     /// Start rename mode - select the symbol at cursor and allow inline editing
     pub(crate) fn start_rename(&mut self) -> AnyhowResult<()> {
         // If server supports prepareRename, validate first
-        if self.server_supports_prepare_rename() {
-            self.send_prepare_rename();
+        if self.active_window().server_supports_prepare_rename() {
+            self.active_window_mut().send_prepare_rename();
             return Ok(());
         }
 
@@ -2938,81 +2789,7 @@ impl Editor {
         }
     }
 
-    /// Check if any LSP server for the current buffer supports prepareRename
-    fn server_supports_prepare_rename(&self) -> bool {
-        let language = match self
-            .buffers()
-            .get(&self.active_buffer())
-            .map(|s| s.language.clone())
-        {
-            Some(l) => l,
-            None => return false,
-        };
-
-        if let Some(lsp) = self.lsp() {
-            for sh in lsp.get_handles(&language) {
-                if sh.capabilities.rename {
-                    // prepareRename is advertised via prepare_support in client caps
-                    // and supported if server has rename capability
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// Send textDocument/prepareRename to the LSP server
-    fn send_prepare_rename(&mut self) {
-        let cursor_pos = self.active_cursors().primary().position;
-        let (line, character) = self
-            .active_state()
-            .buffer
-            .position_to_lsp_position(cursor_pos);
-
-        let buffer_id = self.active_buffer();
-        let metadata = match self.active_window().buffer_metadata.get(&buffer_id) {
-            Some(m) if m.lsp_enabled => m,
-            _ => return,
-        };
-        let uri = match metadata.file_uri() {
-            Some(u) => u.clone(),
-            None => return,
-        };
-        let language = match self
-            .windows
-            .get(&self.active_window)
-            .map(|w| &w.buffers)
-            .expect("active window present")
-            .get(&buffer_id)
-            .map(|s| s.language.clone())
-        {
-            Some(l) => l,
-            None => return,
-        };
-
-        self.active_window_mut().next_lsp_request_id += 1;
-        let request_id = self.active_window_mut().next_lsp_request_id;
-
-        let __active_id = self.active_window;
-
-        if let Some(lsp) = self
-            .windows
-            .get_mut(&__active_id)
-            .and_then(|w| w.lsp.as_mut())
-        {
-            if let Some(sh) = lsp.handle_for_feature_mut(&language, LspFeature::Rename) {
-                if let Err(e) = sh.handle.prepare_rename(
-                    request_id,
-                    uri.as_uri().clone(),
-                    line as u32,
-                    character as u32,
-                ) {
-                    tracing::warn!("Failed to send prepareRename: {}", e);
-                }
-            }
-        }
-    }
-
     /// Show the rename prompt (called directly or after prepareRename succeeds).
     fn show_rename_prompt(&mut self) -> AnyhowResult<()> {
         use crate::primitives::word_navigation::{find_word_end, find_word_start};

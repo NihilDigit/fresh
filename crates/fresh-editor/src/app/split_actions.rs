@@ -288,7 +288,7 @@ impl Editor {
             && !self.active_window().is_terminal_buffer(buffer_id)
         {
             self.active_window_mut().terminal_mode = false;
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         // Emit buffer_activated hook for plugins
@@ -300,7 +300,7 @@ impl Editor {
         // Enter terminal mode if switching to a terminal split
         if self.active_window().is_terminal_buffer(buffer_id) {
             self.active_window_mut().terminal_mode = true;
-            self.key_context = crate::input::keybindings::KeyContext::Terminal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Terminal;
         }
     }
 

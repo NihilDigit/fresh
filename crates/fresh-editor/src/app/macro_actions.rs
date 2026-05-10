@@ -17,7 +17,7 @@ use super::Editor;
 impl Editor {
     /// Toggle macro recording for the given register
     pub(super) fn toggle_macro_recording(&mut self, key: char) {
-        match self.macros.recording_key() {
+        match self.active_window_mut().macros.recording_key() {
             Some(k) if k == key => self.stop_macro_recording(),
             Some(_) => {
                 self.stop_macro_recording();
@@ -29,7 +29,7 @@ impl Editor {
 
     /// Start recording a macro
     pub(super) fn start_macro_recording(&mut self, key: char) {
-        self.macros.start_recording(key);
+        self.active_window_mut().macros.start_recording(key);
 
         // Build the stop hint dynamically from keybindings
         let stop_hint = self.build_macro_stop_hint(key);
@@ -68,7 +68,7 @@ impl Editor {
 
     /// Stop recording and save the macro
     pub(super) fn stop_macro_recording(&mut self) {
-        let Some((key, action_count)) = self.macros.stop_recording() else {
+        let Some((key, action_count)) = self.active_window_mut().macros.stop_recording() else {
             self.set_status_message(t!("macro.not_recording").to_string());
             return;
         };
@@ -107,11 +107,11 @@ impl Editor {
     /// Drawing is deferred until the next render cycle.
     pub(super) fn play_macro(&mut self, key: char) {
         // Prevent recursive macro playback
-        if self.macros.is_playing() {
+        if self.active_window_mut().macros.is_playing() {
             return;
         }
 
-        let Some(actions) = self.macros.get(key).map(<[_]>::to_vec) else {
+        let Some(actions) = self.active_window_mut().macros.get(key).map(<[_]>::to_vec) else {
             self.set_status_message(t!("macro.not_found", key = key).to_string());
             return;
         };
@@ -120,7 +120,7 @@ impl Editor {
             return;
         }
 
-        self.macros.begin_play();
+        self.active_window_mut().macros.begin_play();
         let action_count = actions.len();
         let width = self.chrome_layout.last_frame_width;
         let height = self.chrome_layout.last_frame_height;
@@ -130,7 +130,7 @@ impl Editor {
             }
             self.recompute_layout(width, height);
         }
-        self.macros.end_play();
+        self.active_window_mut().macros.end_play();
 
         self.set_status_message(t!("macro.played", key = key, count = action_count).to_string());
     }
@@ -146,18 +146,19 @@ impl Editor {
         if let Action::PromptConfirm = action {
             if let Some(prompt) = &self.active_window_mut().prompt {
                 let text = prompt.get_text().to_string();
-                self.macros
+                self.active_window_mut()
+                    .macros
                     .record_transformed(Action::PromptConfirmWithText(text));
                 return;
             }
         }
-        self.macros.record_if_recording(action);
+        self.active_window_mut().macros.record_if_recording(action);
     }
 
     /// Show a macro in a buffer as JSON
     pub(super) fn show_macro_in_buffer(&mut self, key: char) {
         // Get macro data and cache what we need before any mutable borrows
-        let (json, actions_len) = match self.macros.get(key) {
+        let (json, actions_len) = match self.active_window_mut().macros.get(key) {
             Some(actions) => {
                 let json = match serde_json::to_string_pretty(actions) {
                     Ok(json) => json,
@@ -250,7 +251,7 @@ impl Editor {
 
     /// List all recorded macros in a buffer
     pub(super) fn list_macros_in_buffer(&mut self) {
-        if self.macros.is_empty() {
+        if self.active_window_mut().macros.is_empty() {
             self.set_status_message(t!("macro.none_recorded").to_string());
             return;
         }
@@ -259,8 +260,8 @@ impl Editor {
         let mut content =
             String::from("// Recorded Macros\n// Use ShowMacro(key) to see details\n\n");
 
-        for key in self.macros.keys_sorted() {
-            if let Some(actions) = self.macros.get(key) {
+        for key in self.active_window_mut().macros.keys_sorted() {
+            if let Some(actions) = self.active_window_mut().macros.get(key) {
                 content.push_str(&format!("Macro '{}': {} actions\n", key, actions.len()));
 
                 // Show all actions
@@ -330,6 +331,7 @@ impl Editor {
 
         // Switch to the new buffer
         self.set_active_buffer(buffer_id);
-        self.set_status_message(t!("macro.showing", count = self.macros.count()).to_string());
+        let count = self.active_window().macros.count();
+        self.set_status_message(t!("macro.showing", count = count).to_string());
     }
 }

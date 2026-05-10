@@ -127,6 +127,7 @@ fn test_next_hunk_navigation_shows_hunk_content() {
     // Jump to hunk 1 (around line 20)
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id);
     harness.render().unwrap();
 
@@ -140,6 +141,7 @@ fn test_next_hunk_navigation_shows_hunk_content() {
     // Jump to hunk 2 (around line 60)
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id);
     harness.render().unwrap();
 
@@ -153,6 +155,7 @@ fn test_next_hunk_navigation_shows_hunk_content() {
     // Jump to hunk 3 (around line 120)
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id);
     harness.render().unwrap();
 
@@ -175,6 +178,7 @@ fn test_prev_hunk_navigation() {
     for _ in 0..3 {
         harness
             .editor_mut()
+            .active_window_mut()
             .composite_next_hunk_active(composite_id);
     }
     harness.render().unwrap();
@@ -189,6 +193,7 @@ fn test_prev_hunk_navigation() {
     // Go back to hunk 2
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_prev_hunk_active(composite_id);
     harness.render().unwrap();
 
@@ -211,9 +216,11 @@ fn test_hunk_navigation_shows_context_above() {
     // Jump to hunk 2 (at line 60)
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id);
     harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id);
     harness.render().unwrap();
 
@@ -451,6 +458,7 @@ fn test_flush_layout_enables_hunk_nav_before_render() {
     // Without flushLayout, composite_next_hunk returns false (no view state)
     let result_without_flush = harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id2);
     assert!(
         !result_without_flush,
@@ -463,6 +471,7 @@ fn test_flush_layout_enables_hunk_nav_before_render() {
     // Now composite_next_hunk should succeed
     let result_with_flush = harness
         .editor_mut()
+        .active_window_mut()
         .composite_next_hunk_active(composite_id2);
     assert!(
         result_with_flush,
@@ -538,6 +547,7 @@ fn test_flush_layout_jump_to_third_hunk_before_render() {
     for _ in 0..3 {
         harness
             .editor_mut()
+            .active_window_mut()
             .composite_next_hunk_active(composite_id);
     }
 

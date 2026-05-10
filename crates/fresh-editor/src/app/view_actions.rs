@@ -118,7 +118,7 @@ impl Editor {
         } else {
             crate::view::animation::Edge::Left
         };
-        self.animations.start(
+        self.active_window_mut().animations.start(
             area,
             crate::view::animation::AnimationKind::SlideIn {
                 from,

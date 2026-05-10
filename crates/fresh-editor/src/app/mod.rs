@@ -475,10 +475,7 @@ pub struct Editor {
     /// than on every frame.
     last_window_title: Option<String>,
 
-    /// Accumulated plugin errors (for test assertions)
-    /// These are collected when plugin error messages are received
-    plugin_errors: Vec<String>,
-
+    // `plugin_errors` moved onto `Window`.
     /// Terminal dimensions (for creating new buffers)
     terminal_width: u16,
     terminal_height: u16,
@@ -558,37 +555,16 @@ pub struct Editor {
     /// File explorer clipboard for cut/copy/paste of files and directories
     pub(crate) file_explorer_clipboard: Option<crate::app::file_explorer::FileExplorerClipboard>,
 
-    /// Whether menu bar is visible
-    menu_bar_visible: bool,
-
-    /// Whether menu bar was auto-shown (temporarily visible due to menu activation)
-    /// When true, the menu bar will be hidden again when the menu is closed
-    menu_bar_auto_shown: bool,
-
-    /// Whether tab bar is visible
-    tab_bar_visible: bool,
-
-    /// Whether status bar is visible
-    status_bar_visible: bool,
-
-    /// Whether prompt line is visible (when no prompt is active)
-    prompt_line_visible: bool,
-
-    /// Whether mouse capture is enabled
-    mouse_enabled: bool,
+    // `menu_bar_visible`, `menu_bar_auto_shown`, `tab_bar_visible`,
+    // `status_bar_visible`, `prompt_line_visible`, `mouse_enabled`
+    // moved onto `Window` — per-window UI toggles.
 
     // `same_buffer_scroll_sync` moved onto `Window` — per-window UX
     // toggle, since the split tree it controls is per-window.
     /// Mouse cursor position (for GPM software cursor rendering)
     /// When GPM is active, we need to draw our own cursor since GPM can't
     /// draw on the alternate screen buffer used by TUI applications.
-    mouse_cursor_position: Option<(u16, u16)>,
-
-    /// Whether GPM is being used for mouse input (requires software cursor)
-    gpm_active: bool,
-
-    /// Current keybinding context
-    key_context: KeyContext,
+    // `mouse_cursor_position`, `gpm_active`, `key_context` moved onto `Window`.
 
     /// Menu state (active menu, highlighted item)
     menu_state: crate::view::ui::MenuState,
@@ -625,25 +601,17 @@ pub struct Editor {
     // LSP request-tracking state (next_lsp_request_id,
     // pending_*_requests, *_in_flight, completion_items,
     // dabbrev_state, etc.) all moved onto `Window` in Step 0k.
-    /// Pluggable completion service that orchestrates multiple providers
-    /// (dabbrev, buffer words, LSP, plugin providers).
-    completion_service: crate::services::completion::CompletionService,
-    /// LSP diagnostic namespace (for filtering and bulk removal)
-    lsp_diagnostic_namespace: crate::view::overlay::OverlayNamespace,
+    // `completion_service` moved onto `Window` — orchestrates this
+    // window's per-window completion providers (dabbrev, buffer words,
+    // LSP, plugin providers).
+    // `lsp_diagnostic_namespace` moved onto `Window` — overlay
+    // namespace key for diagnostic overlays, which are buffer overlays
+    // and follow buffers onto the window.
     // `interactive_replace_state` moved onto `Window` — per-window
     // search-and-replace session state.
-    /// Mouse state for scrollbar dragging
-    mouse_state: MouseState,
-
-    /// Tab context menu state (right-click on tabs)
-    tab_context_menu: Option<TabContextMenu>,
-
-    /// File explorer context menu state (right-click in file explorer)
-    file_explorer_context_menu: Option<FileExplorerContextMenu>,
-
-    /// Theme inspector popup state (Ctrl+Right-Click)
-    theme_info_popup: Option<types::ThemeInfoPopup>,
-
+    // `mouse_state` moved onto `Window` — drag targets reference per-window LeafIds.
+    // `tab_context_menu`, `file_explorer_context_menu`, `theme_info_popup`
+    // moved onto `Window`.
     /// Editor-chrome layout from last render (status bar, menu, prompt
     /// overlay, popups, full-frame cell-theme map). Per-window
     /// content-area layout (split panes, tabs, file explorer) lives on
@@ -660,11 +628,8 @@ pub struct Editor {
     /// Plugin manager (handles both enabled and disabled cases)
     plugin_manager: PluginManager,
 
-    /// Active plugin development workspaces (buffer_id → workspace)
-    /// These provide LSP support for plugin buffers by creating temp directories
-    /// with fresh.d.ts and tsconfig.json
-    plugin_dev_workspaces:
-        HashMap<BufferId, crate::services::plugins::plugin_dev_workspace::PluginDevWorkspace>,
+    // `plugin_dev_workspaces` moved onto `Window` — keyed by `BufferId`,
+    // and buffers are per-window, so the workspace map follows.
 
     // `seen_byte_ranges` moved onto `Window` — keyed by `BufferId`
     // which lives on `Window`, so the tracker follows the buffers.
@@ -673,12 +638,8 @@ pub struct Editor {
     // `Editor::panel_ids()` / `panel_ids_mut()` — those resolve to
     // the active window's dock occupancy. Each window owns its own
     // utility-dock; switching windows doesn't share dock state.
-    /// Buffer groups: multiple splits/buffers appearing as one tab
-    buffer_groups: HashMap<types::BufferGroupId, types::BufferGroup>,
-    /// Reverse index: buffer ID → group ID (for lookups)
-    buffer_to_group: HashMap<BufferId, types::BufferGroupId>,
-    /// Next buffer group ID
-    next_buffer_group_id: usize,
+    // `buffer_groups`, `buffer_to_group`, `next_buffer_group_id`
+    // moved onto `Window` — each window has its own buffer groups.
 
     // grouped_subtrees moved onto `Window` — each window owns its
     // own buffer-group subtrees (a window with a Live Grep panel
@@ -697,61 +658,26 @@ pub struct Editor {
     /// keypress. While non-empty, the next key arriving in
     /// `handle_key` is consumed by resolving the front-most callback
     /// rather than dispatching to mode bindings or other handlers.
-    pending_next_key_callbacks: std::collections::VecDeque<fresh_core::api::JsCallbackId>,
+    // `pending_next_key_callbacks`, `key_capture_active`,
+    // `pending_key_capture_buffer` moved onto `Window`.
+    // `lsp_progress`, `lsp_server_statuses`, `lsp_window_messages`,
+    // `lsp_log_messages` moved onto `Window` — each window has its own
+    // LspManager, so the progress/status/message streams describe that
+    // manager's servers, not the editor's.
 
-    /// `true` while a plugin is in a `getNextKey()` loop and has
-    /// declared (via `editor.beginKeyCapture()`) that it wants every
-    /// key delivered, in order, regardless of timing.  Keys arriving
-    /// while no callback is pending are buffered in
-    /// `pending_key_capture_buffer` instead of dispatched.  Closes the
-    /// race where fast typing or paste outruns the plugin's re-arm.
-    key_capture_active: bool,
-
-    /// Keys that arrived while `key_capture_active` was set but no
-    /// `getNextKey()` callback was pending. Drained on the next
-    /// `AwaitNextKey` (resolved immediately, in order). Cleared when
-    /// the plugin ends capture.
-    pending_key_capture_buffer: std::collections::VecDeque<fresh_core::api::KeyEventPayload>,
-    /// LSP progress tracking (token -> progress info)
-    lsp_progress: std::collections::HashMap<String, LspProgressInfo>,
-
-    /// LSP server statuses ((language, server_name) -> status)
-    lsp_server_statuses:
-        std::collections::HashMap<(String, String), crate::services::async_bridge::LspServerStatus>,
-
-    /// LSP window messages (recent messages from window/showMessage)
-    lsp_window_messages: Vec<LspMessageEntry>,
-
-    /// LSP log messages (recent messages from window/logMessage)
-    lsp_log_messages: Vec<LspMessageEntry>,
-
-    /// Diagnostic result IDs per URI (for incremental pull diagnostics)
-    /// Maps URI string to last result_id received from server
-    diagnostic_result_ids: HashMap<String, String>,
-    /// Stored LSP diagnostics per URI, per server (push model - publishDiagnostics)
-    /// Outer key: URI string, Inner key: server name
-    stored_push_diagnostics: HashMap<String, HashMap<String, Vec<lsp_types::Diagnostic>>>,
-
-    /// Stored LSP diagnostics per URI (pull model - native RA diagnostics)
-    stored_pull_diagnostics: HashMap<String, Vec<lsp_types::Diagnostic>>,
-
-    /// Merged view of push + pull diagnostics per URI (for plugin access).
-    /// `Arc` wrapper: snapshot refresh is a refcount bump, and mutation is
-    /// forced through `Arc::make_mut` which CoW-clones while the snapshot
-    /// still references the previous map.
-    stored_diagnostics: Arc<HashMap<String, Vec<lsp_types::Diagnostic>>>,
-
-    /// Stored LSP folding ranges per URI
-    /// Maps file URI string to Vec of folding ranges for that file
-    stored_folding_ranges: Arc<HashMap<String, Vec<lsp_types::FoldingRange>>>,
-
+    // `diagnostic_result_ids` moved onto `Window` — each window has its
+    // own LspManager and therefore its own per-URI result_id stream.
+    // `stored_push_diagnostics`, `stored_pull_diagnostics`,
+    // `stored_diagnostics`, `stored_folding_ranges` moved onto
+    // `Window` — URI-keyed but each URI maps to a buffer in a specific
+    // window's LSP set, so the maps describe one window's diagnostics.
     /// Event broadcaster for control events (observable by external systems)
     event_broadcaster: crate::model::control_event::EventBroadcaster,
 
     // bookmarks moved onto `Window` (Step 0f).
     /// Macro record/playback subsystem (owns `macros`, `recording`,
     /// `last_register`, and the `playing` guard flag).
-    macros: macros::MacroState,
+    // `macros` moved onto `Window`.
 
     /// Pending plugin action receivers (for async action execution)
     #[cfg(feature = "plugins")]
@@ -766,7 +692,7 @@ pub struct Editor {
 
     /// Pending chord sequence for multi-key bindings (e.g., C-x C-s in Emacs)
     /// Stores the keys pressed so far in a chord sequence
-    chord_state: Vec<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+    // `chord_state` moved onto `Window`.
 
     // (Historical `pending_lsp_confirmation` and `pending_lsp_status_popup`
     // fields moved onto `Popup::resolver` — each popup carries its own
@@ -778,47 +704,16 @@ pub struct Editor {
     ///
     /// Pending Save-As queue for the "save and quit" flow.
     ///
-    /// Last time we polled for file changes (for auto-revert)
-    last_auto_revert_poll: std::time::Instant,
-
-    /// Last time we polled for directory changes (for file tree refresh)
-    last_file_tree_poll: std::time::Instant,
-
-    /// Whether we've resolved and seeded the .git/index path in dir_mod_times
-    git_index_resolved: bool,
-
-    // file_mod_times moved onto `Window`. Auto-revert is per-window
-    // (matches "a dormant window is paused"); access via
-    // `Editor::file_mod_times()` / `file_mod_times_mut()`.
-    /// Last known modification times for expanded directories (for file tree refresh)
-    /// Maps directory path to last known modification time
-    dir_mod_times: HashMap<PathBuf, std::time::SystemTime>,
-
-    /// Receiver for background file change poll results.
-    /// When Some, a background metadata poll is in progress. Results arrive as
-    /// `(path, Option<mtime>)` pairs — None means metadata() failed.
-    #[allow(clippy::type_complexity)]
-    pending_file_poll_rx:
-        Option<std::sync::mpsc::Receiver<Vec<(PathBuf, Option<std::time::SystemTime>)>>>,
-
-    /// Receiver for background directory change poll results.
-    /// The tuple contains: (dir metadata results, optional git index mtime).
-    #[allow(clippy::type_complexity)]
-    pending_dir_poll_rx: Option<
-        std::sync::mpsc::Receiver<(
-            Vec<(
-                crate::view::file_tree::NodeId,
-                PathBuf,
-                Option<std::time::SystemTime>,
-            )>,
-            Option<(PathBuf, std::time::SystemTime)>,
-        )>,
-    >,
+    // `last_auto_revert_poll`, `last_file_tree_poll`, `git_index_resolved`,
+    // `dir_mod_times`, `pending_file_poll_rx`, `pending_dir_poll_rx`
+    // all moved onto `Window` — auto-revert and file-tree change
+    // detection are per-window, paired with the already-per-window
+    // `file_mod_times`.
     /// File open dialog state (when PromptType::OpenFile is active)
-    file_open_state: Option<file_open::FileOpenState>,
+    // `file_open_state` moved onto `Window`.
 
     /// Cached layout for file browser (for mouse hit testing)
-    file_browser_layout: Option<crate::view::ui::FileBrowserLayout>,
+    // `file_browser_layout` moved onto `Window`.
 
     /// Recovery service for auto-recovery-save and crash recovery
     recovery_service: RecoveryService,
@@ -834,14 +729,11 @@ pub struct Editor {
     time_source: SharedTimeSource,
 
     /// Last auto-recovery-save time for rate limiting
-    last_auto_recovery_save: std::time::Instant,
-
-    /// Last persistent auto-save time for rate limiting (disk)
-    last_persistent_auto_save: std::time::Instant,
+    // `last_auto_recovery_save`, `last_persistent_auto_save` moved onto `Window`.
 
     /// Active custom contexts for command visibility
     /// Plugin-defined contexts like "config-editor" that control command availability
-    active_custom_contexts: HashSet<String>,
+    // `active_custom_contexts` moved onto `Window`.
 
     /// Plugin-managed global state, isolated per plugin name.
     /// Outer key is plugin name, inner key is the state key set by the plugin.
@@ -854,7 +746,7 @@ pub struct Editor {
 
     /// Warning domain registry for extensible warning indicators
     /// Contains LSP warnings, general warnings, and can be extended by plugins
-    warning_domains: WarningDomainRegistry,
+    // `warning_domains` moved onto `Window`.
 
     /// Periodic update checker (checks for new releases every hour)
     update_checker: Option<crate::services::release_checker::PeriodicUpdateChecker>,
@@ -892,31 +784,21 @@ pub struct Editor {
 
     // terminal_buffers / terminal_backing_files / terminal_log_files
     // moved onto `Window` (Step 0d).
-    /// Terminals that should not be persisted to the workspace session file.
-    /// A terminal is in this set iff it was created with `persistent = false`
-    /// (the default for plugin-created terminals). On workspace save these
-    /// terminals are skipped; on close their backing/log files are removed.
-    /// User-opened terminals are absent from this set and persist as before.
-    ephemeral_terminals: std::collections::HashSet<crate::services::terminal::TerminalId>,
+    // `ephemeral_terminals` moved onto `Window` — TerminalManager and
+    // its terminals are per-window (Step 0d), so the ephemeral set
+    // follows.
 
     // `terminal_mode` moved onto `Window`. Per-window because each
     // window has its own active terminal buffer.
     /// Whether keyboard capture is enabled in terminal mode.
     /// When true, ALL keys go to the terminal (except Ctrl+` to toggle).
     /// When false, UI keybindings (split nav, palette, etc.) are processed first.
-    keyboard_capture: bool,
+    // `keyboard_capture` moved onto `Window`.
 
     // `terminal_mode_resume` moved onto `Window` — terminal buffers
     // are per-window (Step 0d), so the auto-resume set follows.
     /// Timestamp of the previous mouse click (for multi-click detection)
-    previous_click_time: Option<std::time::Instant>,
-
-    /// Position of the previous mouse click (for multi-click detection)
-    /// Multi-click is only detected if all clicks are at the same position
-    previous_click_position: Option<(u16, u16)>,
-
-    /// Click count for multi-click detection (1=single, 2=double, 3=triple)
-    click_count: u8,
+    // `previous_click_time`, `previous_click_position`, `click_count` moved onto `Window`.
 
     /// Settings UI state (when settings modal is open)
     pub(crate) settings_state: Option<crate::view::settings::SettingsState>,
@@ -937,7 +819,7 @@ pub struct Editor {
     color_capability: crate::view::color_support::ColorCapability,
 
     /// Hunks for the Review Diff tool
-    review_hunks: Vec<fresh_core::api::ReviewHunk>,
+    // `review_hunks` moved onto `Window`.
 
     /// Editor-level popups that float above any buffer regardless of which
     /// one is active. Plugin notifications (showActionPopup) live here so a
@@ -954,33 +836,33 @@ pub struct Editor {
     /// Pending file opens from CLI arguments (processed after TUI starts)
     /// This allows CLI files to go through the same code path as interactive file opens,
     /// ensuring consistent error handling (e.g., encoding confirmation prompts).
-    pending_file_opens: Vec<PendingFileOpen>,
+    // `pending_file_opens` moved onto `Window`.
 
     /// When true, apply hot exit recovery after the next batch of pending file opens
-    pending_hot_exit_recovery: bool,
+    // `pending_hot_exit_recovery` moved onto `Window`.
 
     /// Tracks buffers opened with --wait: maps buffer_id → (wait_id, has_popup)
-    wait_tracking: HashMap<BufferId, (u64, bool)>,
+    // `wait_tracking` moved onto `Window`.
     /// Wait IDs that have completed (buffer closed or popup dismissed)
-    completed_waits: Vec<u64>,
+    // `completed_waits` moved onto `Window`.
 
     /// Stdin streaming state (if reading from stdin)
     stdin_stream: stdin_stream::StdinStream,
 
     /// Incremental line scan state (for non-blocking progress during Go to Line)
-    line_scan: line_scan::LineScan,
+    // `line_scan` moved onto `Window`.
 
     /// Incremental search scan state (for non-blocking search on large files)
-    search_scan: search_scan::SearchScan,
+    // `search_scan` moved onto `Window`.
 
     /// Viewport top_byte when search overlays were last refreshed.
     /// Used to detect viewport scrolling so overlays can be updated.
-    search_overlay_top_byte: Option<usize>,
+    // `search_overlay_top_byte` moved onto `Window`.
 
     /// Frame-buffer animation layer. Applied at the end of `render`; the
     /// main loop consults `is_active`/`next_deadline` to keep re-rendering
     /// while animations are running.
-    pub animations: crate::view::animation::AnimationRunner,
+    // `animations` moved onto `Window`.
 
     /// Hardware-cursor screen position from the previous render pass, paired
     /// with the active split that owned the cursor at that time. Used to
@@ -1258,30 +1140,6 @@ impl Editor {
             .get_mut(&buffer_id)
             .unwrap()
     }
-
-    /// Update the buffer's modified flag based on event log position
-    /// Call this after undo/redo to correctly track whether the buffer
-    /// has returned to its saved state
-    pub(super) fn update_modified_from_event_log(&mut self) {
-        let is_at_saved = self
-            .active_window()
-            .event_logs
-            .get(&self.active_buffer())
-            .map(|log| log.is_at_saved_position())
-            .unwrap_or(false);
-
-        let __buffer_id = self.active_buffer();
-
-        if let Some(state) = self
-            .windows
-            .get_mut(&self.active_window)
-            .map(|w| &mut w.buffers)
-            .expect("active window present")
-            .get_mut(&__buffer_id)
-        {
-            state.buffer.set_modified(!is_at_saved);
-        }
-    }
 }
 
 /// Parse a key string like "RET", "C-n", "M-x", "q" into KeyCode and KeyModifiers
@@ -1480,7 +1338,9 @@ mod tests {
         )
         .unwrap();
 
-        let events = editor.action_to_events(Action::InsertChar('a'));
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::InsertChar('a'));
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1517,7 +1377,9 @@ mod tests {
             cursor_id,
         });
 
-        let events = editor.action_to_events(Action::MoveRight);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::MoveRight);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1571,7 +1433,7 @@ mod tests {
         });
 
         // Test move up
-        let events = editor.action_to_events(Action::MoveUp);
+        let events = editor.active_window_mut().action_to_events(Action::MoveUp);
         assert!(events.is_some());
         let events = events.unwrap();
         assert_eq!(events.len(), 1);
@@ -1598,7 +1460,9 @@ mod tests {
         )
         .unwrap();
 
-        let events = editor.action_to_events(Action::InsertNewline);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::InsertNewline);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1627,9 +1491,18 @@ mod tests {
         .unwrap();
 
         // These actions should return None (not yet implemented)
-        assert!(editor.action_to_events(Action::Save).is_none());
-        assert!(editor.action_to_events(Action::Quit).is_none());
-        assert!(editor.action_to_events(Action::Undo).is_none());
+        assert!(editor
+            .active_window_mut()
+            .action_to_events(Action::Save)
+            .is_none());
+        assert!(editor
+            .active_window_mut()
+            .action_to_events(Action::Quit)
+            .is_none());
+        assert!(editor
+            .active_window_mut()
+            .action_to_events(Action::Undo)
+            .is_none());
     }
 
     #[test]
@@ -1654,7 +1527,9 @@ mod tests {
             cursor_id,
         });
 
-        let events = editor.action_to_events(Action::DeleteBackward);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::DeleteBackward);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1706,7 +1581,9 @@ mod tests {
             new_sticky_column: 0,
         });
 
-        let events = editor.action_to_events(Action::DeleteForward);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::DeleteForward);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1758,7 +1635,9 @@ mod tests {
             new_sticky_column: 0,
         });
 
-        let events = editor.action_to_events(Action::SelectRight);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::SelectRight);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1799,7 +1678,9 @@ mod tests {
             cursor_id,
         });
 
-        let events = editor.action_to_events(Action::SelectAll);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::SelectAll);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1841,7 +1722,9 @@ mod tests {
         });
 
         // Test MoveDocumentStart
-        let events = editor.action_to_events(Action::MoveDocumentStart);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::MoveDocumentStart);
         assert!(events.is_some());
         let events = events.unwrap();
         match &events[0] {
@@ -1852,7 +1735,9 @@ mod tests {
         }
 
         // Test MoveDocumentEnd
-        let events = editor.action_to_events(Action::MoveDocumentEnd);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::MoveDocumentEnd);
         assert!(events.is_some());
         let events = events.unwrap();
         match &events[0] {
@@ -1910,7 +1795,9 @@ mod tests {
             .expect("Should have at least one cursor");
 
         // RemoveSecondaryCursors should generate RemoveCursor events
-        let events = editor.action_to_events(Action::RemoveSecondaryCursors);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::RemoveSecondaryCursors);
         assert!(events.is_some());
 
         let events = events.unwrap();
@@ -1948,7 +1835,9 @@ mod tests {
         .unwrap();
 
         // Test ScrollUp
-        let events = editor.action_to_events(Action::ScrollUp);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::ScrollUp);
         assert!(events.is_some());
         let events = events.unwrap();
         assert_eq!(events.len(), 1);
@@ -1960,7 +1849,9 @@ mod tests {
         }
 
         // Test ScrollDown
-        let events = editor.action_to_events(Action::ScrollDown);
+        let events = editor
+            .active_window_mut()
+            .action_to_events(Action::ScrollDown);
         assert!(events.is_some());
         let events = events.unwrap();
         assert_eq!(events.len(), 1);
@@ -1987,7 +1878,7 @@ mod tests {
         .unwrap();
 
         // None action should return None
-        let events = editor.action_to_events(Action::None);
+        let events = editor.active_window_mut().action_to_events(Action::None);
         assert!(events.is_none());
     }
 
@@ -2447,7 +2338,7 @@ mod tests {
             running_line: 1,
         };
 
-        editor.search_scan.start(
+        editor.active_window_mut().search_scan.start(
             buffer_id,
             Vec::new(),
             chunked,
@@ -2467,7 +2358,7 @@ mod tests {
 
         // The scan state should be consumed (drained)
         assert_eq!(
-            editor.search_scan.buffer_id(),
+            editor.active_window().search_scan.buffer_id(),
             None,
             "search_scan should be drained after capped scan completes"
         );

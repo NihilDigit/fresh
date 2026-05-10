@@ -44,9 +44,9 @@ fn next_buffer_kicks_off_a_slide_animation() {
         .unwrap();
     // Baseline: any open-time animation has settled.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
-    let baseline = harness.editor().animations.total_started();
+    let baseline = harness.editor().active_window().animations.total_started();
 
     // Switch to the previous tab. The Editor should start a
     // horizontal slide (prev → from the left).
@@ -56,12 +56,12 @@ fn next_buffer_kicks_off_a_slide_animation() {
     // monotonic so this catches the kick-off even if the animation has
     // already finished by the time we poll.
     harness
-        .wait_until(|h| h.editor().animations.total_started() > baseline)
+        .wait_until(|h| h.editor().active_window().animations.total_started() > baseline)
         .unwrap();
 
     // Settle, then confirm the alpha buffer is now the active one.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
     assert!(
         harness.screen_to_string().contains("ALPHA_BUFFER_CONTENT"),
@@ -141,9 +141,9 @@ fn tab_switch_from_group_to_file_animates() {
     // Wait for any open-time animation to settle so is_active is a
     // clean false baseline.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
-    let baseline = harness.editor().animations.total_started();
+    let baseline = harness.editor().active_window().animations.total_started();
 
     // Cycle to the previous tab: group → file. Before the fix,
     // total_started never incremented and the wait never returned.
@@ -152,11 +152,11 @@ fn tab_switch_from_group_to_file_animates() {
     // 260 ms animation and miss its `true` window entirely.
     harness.editor_mut().prev_buffer();
     harness
-        .wait_until(|h| h.editor().animations.total_started() > baseline)
+        .wait_until(|h| h.editor().active_window().animations.total_started() > baseline)
         .unwrap();
 
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
     assert!(
         harness.screen_to_string().contains("FILE_BUFFER_CONTENT"),
@@ -197,7 +197,7 @@ fn rapid_tab_switches_settle_on_target_content() {
     // Let the post-open animation settle so the rapid-switch
     // sequence starts from a clean baseline.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
 
     // Fire four switches back-to-back without waiting for any to
@@ -211,7 +211,7 @@ fn rapid_tab_switches_settle_on_target_content() {
     // Wait for everything to settle, then confirm the target is the
     // only buffer content visible on screen.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
     let screen = harness.screen_to_string();
     assert!(
@@ -267,10 +267,10 @@ fn cursor_jump_long_move_test(cursor_jump_enabled: bool) -> u64 {
         .unwrap();
     harness.render().unwrap();
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
 
-    let baseline = harness.editor().animations.total_started();
+    let baseline = harness.editor().active_window().animations.total_started();
 
     // Long jump: top → end of buffer.
     harness
@@ -282,7 +282,7 @@ fn cursor_jump_long_move_test(cursor_jump_enabled: bool) -> u64 {
     // this frame can call `start()` if it's going to.
     harness.render().unwrap();
 
-    harness.editor().animations.total_started() - baseline
+    harness.editor().active_window().animations.total_started() - baseline
 }
 
 #[test]

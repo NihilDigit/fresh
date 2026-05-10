@@ -51,8 +51,8 @@ impl Editor {
         }
 
         // Complete any --wait tracking for this buffer
-        if let Some((wait_id, _)) = self.wait_tracking.remove(&id) {
-            self.completed_waits.push(wait_id);
+        if let Some((wait_id, _)) = self.active_window_mut().wait_tracking.remove(&id) {
+            self.active_window_mut().completed_waits.push(wait_id);
         }
 
         // Save file state before closing (for per-file session persistence)
@@ -97,7 +97,8 @@ impl Editor {
             // Exit terminal mode if we were in it
             if self.active_window().terminal_mode {
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
             }
         }
 
@@ -462,7 +463,7 @@ impl Editor {
         if self.active_window().terminal_mode && self.active_window().is_terminal_buffer(buffer_id)
         {
             self.active_window_mut().terminal_mode = false;
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         // Count how many splits have this buffer in their open_buffers
@@ -745,7 +746,7 @@ impl Editor {
         if self.active_window().terminal_mode && self.active_window().is_terminal_buffer(buffer_id)
         {
             self.active_window_mut().terminal_mode = false;
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         // Count how many splits have this buffer in their open_buffers
@@ -996,7 +997,8 @@ impl Editor {
                 // Position-history entries can land anywhere in the buffer;
                 // the viewport must scroll to the restored cursor or the user
                 // sees the same page after Ctrl+- / Ctrl+= (#1689).
-                self.ensure_active_cursor_visible_for_navigation(true);
+                self.active_window_mut()
+                    .ensure_active_cursor_visible_for_navigation(true);
             }
         }
 
@@ -1051,7 +1053,8 @@ impl Editor {
                 // Position-history entries can land anywhere in the buffer;
                 // the viewport must scroll to the restored cursor or the user
                 // sees the same page after Ctrl+- / Ctrl+= (#1689).
-                self.ensure_active_cursor_visible_for_navigation(true);
+                self.active_window_mut()
+                    .ensure_active_cursor_visible_for_navigation(true);
             }
         }
 

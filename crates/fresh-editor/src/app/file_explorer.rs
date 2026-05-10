@@ -79,11 +79,11 @@ impl Editor {
             if self.file_explorer().is_none() {
                 self.init_file_explorer();
             }
-            self.key_context = KeyContext::FileExplorer;
+            self.active_window_mut().key_context = KeyContext::FileExplorer;
             self.set_status_message(t!("explorer.opened").to_string());
             self.sync_file_explorer_to_active_file();
         } else {
-            self.key_context = KeyContext::Normal;
+            self.active_window_mut().key_context = KeyContext::Normal;
             self.set_status_message(t!("explorer.closed").to_string());
         }
 
@@ -163,7 +163,7 @@ impl Editor {
             // Cancel search/replace prompts when switching focus away from editor
             self.cancel_search_prompt_if_active();
 
-            self.key_context = KeyContext::FileExplorer;
+            self.active_window_mut().key_context = KeyContext::FileExplorer;
             self.set_status_message(t!("explorer.focused").to_string());
             self.sync_file_explorer_to_active_file();
         } else {
@@ -172,7 +172,7 @@ impl Editor {
     }
 
     pub fn focus_editor(&mut self) {
-        self.key_context = KeyContext::Normal;
+        self.active_window_mut().key_context = KeyContext::Normal;
         self.set_status_message(t!("editor.focused").to_string());
     }
 
@@ -796,7 +796,7 @@ impl Editor {
                 self.notify_file_explorer_change(&path);
 
                 // Ensure focus remains on file explorer
-                self.key_context = KeyContext::FileExplorer;
+                self.active_window_mut().key_context = KeyContext::FileExplorer;
             }
             Err(e) => {
                 self.set_status_message(
@@ -939,7 +939,7 @@ impl Editor {
                     // being created. For renames from the explorer, keep
                     // focus in the explorer.
                     if is_new_file && !relocated.is_empty() {
-                        self.key_context = KeyContext::Normal;
+                        self.active_window_mut().key_context = KeyContext::Normal;
                     }
 
                     self.set_status_message(
@@ -1406,7 +1406,7 @@ impl Editor {
         if is_cut && first_error.is_none() && partial_moves.is_empty() {
             self.file_explorer_clipboard = None;
         }
-        self.key_context = KeyContext::FileExplorer;
+        self.active_window_mut().key_context = KeyContext::FileExplorer;
     }
 
     /// Move or copy a single item at the filesystem level. No tree or UI
@@ -1602,7 +1602,7 @@ impl Editor {
                 } else {
                     self.set_status_message(t!("explorer.pasted", name = &name).to_string());
                 }
-                self.key_context = KeyContext::FileExplorer;
+                self.active_window_mut().key_context = KeyContext::FileExplorer;
             }
             PasteOpOutcome::SourceRemovalFailed {
                 dst: landed_dst,
@@ -1623,7 +1623,7 @@ impl Editor {
                 );
                 // NB: don't clear the clipboard — source is still at its
                 // original location and the user may want to retry.
-                self.key_context = KeyContext::FileExplorer;
+                self.active_window_mut().key_context = KeyContext::FileExplorer;
             }
             PasteOpOutcome::Failed(e) => {
                 let msg = if is_cut {
@@ -1716,7 +1716,7 @@ impl Editor {
             t!("explorer.duplicated_n", count = succeeded.len()).to_string()
         };
         self.set_status_message(msg);
-        self.key_context = KeyContext::FileExplorer;
+        self.active_window_mut().key_context = KeyContext::FileExplorer;
     }
 
     /// Copy the selected node's path(s) to the clipboard.

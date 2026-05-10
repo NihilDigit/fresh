@@ -28,7 +28,7 @@ impl Editor {
     /// If there are no warnings, shows a brief status message.
     /// Otherwise, opens the warning log file for the user to view.
     pub fn show_warnings_popup(&mut self) {
-        if !self.warning_domains.has_any_warnings() {
+        if !self.active_window_mut().warning_domains.has_any_warnings() {
             self.active_window_mut().status_message = Some(t!("warnings.none").to_string());
             return;
         }
@@ -58,7 +58,8 @@ impl Editor {
             return;
         }
 
-        let has_error = self.warning_domains.lsp.level() == crate::app::WarningLevel::Error;
+        let has_error =
+            self.active_window_mut().warning_domains.lsp.level() == crate::app::WarningLevel::Error;
         let language = self
             .buffers()
             .get(&self.active_buffer())
@@ -89,7 +90,9 @@ impl Editor {
                     .collect()
             })
             .unwrap_or_default();
-        let user_dismissed = self.is_lsp_language_user_dismissed(&language);
+        let user_dismissed = self
+            .active_window()
+            .is_lsp_language_user_dismissed(&language);
 
         // Fire the LspStatusClicked hook for plugins
         self.plugin_manager.run_hook(
@@ -150,6 +153,7 @@ impl Editor {
         // Build a unified list of all configured servers for this language,
         // merged with their runtime status (if running).
         let running_statuses: std::collections::HashMap<String, LspServerStatus> = self
+            .active_window()
             .lsp_server_statuses
             .iter()
             .filter(|((lang, _), _)| lang == language)
@@ -210,7 +214,9 @@ impl Editor {
                     .collect()
             })
             .unwrap_or_default();
-        let user_dismissed = self.is_lsp_language_user_dismissed(language);
+        let user_dismissed = self
+            .active_window()
+            .is_lsp_language_user_dismissed(language);
 
         if configured_servers.is_empty() && running_statuses.is_empty() {
             self.active_window_mut().status_message = Some(t!("lsp.no_server_active").to_string());
@@ -314,6 +320,7 @@ impl Editor {
             // width is pinned in advance (see below) so the row's content
             // changing never reshapes the popup.
             if let Some(info) = self
+                .active_window()
                 .lsp_progress
                 .values()
                 .find(|info| info.language == language)

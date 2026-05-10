@@ -174,10 +174,10 @@ impl Editor {
         }
 
         // Apply bar visibility changes immediately
-        self.menu_bar_visible = self.config.editor.show_menu_bar;
-        self.tab_bar_visible = self.config.editor.show_tab_bar;
-        self.status_bar_visible = self.config.editor.show_status_bar;
-        self.prompt_line_visible = self.config.editor.show_prompt_line;
+        self.active_window_mut().menu_bar_visible = self.config.editor.show_menu_bar;
+        self.active_window_mut().tab_bar_visible = self.config.editor.show_tab_bar;
+        self.active_window_mut().status_bar_visible = self.config.editor.show_status_bar;
+        self.active_window_mut().prompt_line_visible = self.config.editor.show_prompt_line;
 
         // Propagate file-explorer settings to live runtime state (IgnorePatterns
         // and width are shadows of config, not read live on each render).
@@ -202,8 +202,8 @@ impl Editor {
                 fresh_winterm::MouseMode::AllMotion
             } else {
                 // Clear any pending hover state when disabling
-                self.mouse_state.lsp_hover_state = None;
-                self.mouse_state.lsp_hover_request_sent = false;
+                self.active_window_mut().mouse_state.lsp_hover_state = None;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
                 fresh_winterm::MouseMode::CellMotion
             };
             if let Err(e) = fresh_winterm::set_mouse_mode(mode) {

@@ -6,7 +6,7 @@ use rust_i18n::t;
 impl Editor {
     /// Handle Undo action - revert the last edit operation.
     pub fn handle_undo(&mut self) {
-        if self.is_editing_disabled() {
+        if self.active_window().is_editing_disabled() {
             self.set_status_message(t!("buffer.editing_disabled").to_string());
             return;
         }
@@ -43,12 +43,12 @@ impl Editor {
         }
 
         // Update modified status based on event log position
-        self.update_modified_from_event_log();
+        self.active_window_mut().update_modified_from_event_log();
     }
 
     /// Handle Redo action - reapply an undone edit operation.
     pub fn handle_redo(&mut self) {
-        if self.is_editing_disabled() {
+        if self.active_window().is_editing_disabled() {
             self.set_status_message(t!("buffer.editing_disabled").to_string());
             return;
         }
@@ -61,6 +61,6 @@ impl Editor {
         }
 
         // Update modified status based on event log position
-        self.update_modified_from_event_log();
+        self.active_window_mut().update_modified_from_event_log();
     }
 }

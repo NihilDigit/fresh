@@ -33,8 +33,13 @@ impl Editor {
         {
             let (chunks, total_bytes) = state.buffer.prepare_line_scan();
             let leaves = state.buffer.piece_tree_leaves();
-            self.line_scan
-                .start(buffer_id, leaves, chunks, total_bytes, open_goto_line);
+            self.active_window_mut().line_scan.start(
+                buffer_id,
+                leaves,
+                chunks,
+                total_bytes,
+                open_goto_line,
+            );
             self.set_status_message(t!("goto.scanning_progress", percent = 0).to_string());
         }
     }
@@ -44,7 +49,7 @@ impl Editor {
     pub fn process_line_scan(&mut self) -> bool {
         let _span = tracing::info_span!("process_line_scan").entered();
 
-        let Some(buffer_id) = self.line_scan.buffer_id() else {
+        let Some(buffer_id) = self.active_window_mut().line_scan.buffer_id() else {
             return false;
         };
 
@@ -54,10 +59,10 @@ impl Editor {
             return true;
         }
 
-        if self.line_scan.is_done() {
+        if self.active_window_mut().line_scan.is_done() {
             self.finish_line_scan_ok();
         } else {
-            let pct = self.line_scan.progress_percent();
+            let pct = self.active_window_mut().line_scan.progress_percent();
             self.set_status_message(t!("goto.scanning_progress", percent = pct).to_string());
         }
         true
@@ -74,21 +79,27 @@ impl Editor {
         let _span = tracing::info_span!("process_line_scan_batch").entered();
         let concurrency = self.config.editor.read_concurrency.max(1);
 
-        let state = self
-            .windows
-            .get(&self.active_window)
-            .map(|w| &w.buffers)
-            .expect("active window present")
-            .get(&buffer_id);
-
         let mut results: Vec<(usize, usize)> = Vec::new();
         let mut io_work: Vec<(usize, std::path::PathBuf, u64, usize)> = Vec::new();
+        let active_id = self.active_window;
+        let has_state = self
+            .windows
+            .get(&active_id)
+            .expect("active window present")
+            .buffers
+            .contains_key(&buffer_id);
+        if !has_state {
+            return Ok(());
+        }
 
         // Pull chunks up to the concurrency budget, skipping already-known
         // leaves. The budget is in terms of actual work items, so we keep
         // asking for more chunks until we fill it or run out.
         'outer: while results.len() + io_work.len() < concurrency {
             let batch = self
+                .windows
+                .get_mut(&active_id)
+                .expect("active window present")
                 .line_scan
                 .take_next_chunks(concurrency - (results.len() + io_work.len()));
             if batch.is_empty() {
@@ -100,12 +111,19 @@ impl Editor {
                     continue;
                 }
 
-                let Some(state) = state else {
+                let leaf = self
+                    .windows
+                    .get(&active_id)
+                    .expect("active window present")
+                    .line_scan
+                    .leaves()[chunk.leaf_index]
+                    .clone();
+                let leaf = &leaf;
+
+                let win = self.windows.get(&active_id).expect("active window present");
+                let Some(state) = win.buffers.get(&buffer_id) else {
                     break 'outer;
                 };
-
-                let leaf = &self.line_scan.leaves()[chunk.leaf_index];
-
                 match state.buffer.leaf_io_params(leaf) {
                     None => {
                         // Loaded: count in-memory via scan_leaf
@@ -122,7 +140,13 @@ impl Editor {
 
         // Run I/O concurrently using tokio::task::spawn_blocking
         if !io_work.is_empty() {
-            let fs = match state {
+            let fs = match self
+                .windows
+                .get(&active_id)
+                .expect("active window present")
+                .buffers
+                .get(&buffer_id)
+            {
                 Some(s) => s.buffer.filesystem().clone(),
                 None => return Ok(()),
             };
@@ -155,7 +179,9 @@ impl Editor {
         }
 
         for (leaf_idx, count) in results {
-            self.line_scan.append_update(leaf_idx, count);
+            self.active_window_mut()
+                .line_scan
+                .append_update(leaf_idx, count);
         }
 
         Ok(())
@@ -163,7 +189,7 @@ impl Editor {
 
     fn finish_line_scan_ok(&mut self) {
         let _span = tracing::info_span!("finish_line_scan_ok").entered();
-        let Some(finished) = self.line_scan.take_finished() else {
+        let Some(finished) = self.active_window_mut().line_scan.take_finished() else {
             return;
         };
         if let Some(state) = self
@@ -189,7 +215,7 @@ impl Editor {
     }
 
     fn finish_line_scan_with_error(&mut self, e: std::io::Error) {
-        let Some(finished) = self.line_scan.take_finished() else {
+        let Some(finished) = self.active_window_mut().line_scan.take_finished() else {
             return;
         };
         self.set_status_message(t!("goto.scan_failed", error = e.to_string()).to_string());
@@ -212,22 +238,22 @@ impl Editor {
     /// Process chunks for the incremental search scan.
     /// Returns `true` if the UI should re-render (progress updated or scan finished).
     pub fn process_search_scan(&mut self) -> bool {
-        let Some(buffer_id) = self.search_scan.buffer_id() else {
+        let Some(buffer_id) = self.active_window_mut().search_scan.buffer_id() else {
             return false;
         };
 
         if let Err(e) = self.process_search_scan_batch(buffer_id) {
             tracing::warn!("Search scan error: {e}");
-            self.search_scan.abandon();
+            self.active_window_mut().search_scan.abandon();
             self.set_status_message(format!("Search failed: {e}"));
             return true;
         }
 
-        if self.search_scan.is_done() {
+        if self.active_window_mut().search_scan.is_done() {
             self.finish_search_scan();
         } else {
-            let pct = self.search_scan.progress_percent();
-            let match_count = self.search_scan.match_count();
+            let pct = self.active_window_mut().search_scan.progress_percent();
+            let match_count = self.active_window_mut().search_scan.match_count();
             self.set_status_message(format!(
                 "Searching... {}% ({} matches so far)",
                 pct, match_count
@@ -245,7 +271,7 @@ impl Editor {
         let concurrency = self.config.editor.read_concurrency.max(1);
 
         for _ in 0..concurrency {
-            if self.search_scan.is_done() {
+            if self.active_window_mut().search_scan.is_done() {
                 break;
             }
 
@@ -253,7 +279,7 @@ impl Editor {
             // then put it back. This is the same take/restore dance the
             // previous `Option<SearchScanState>` code did, now wrapped in
             // the subsystem's API so we're not poking its internals.
-            let Some(mut chunked) = self.search_scan.take_chunked() else {
+            let Some(mut chunked) = self.active_window_mut().search_scan.take_chunked() else {
                 return Ok(());
             };
             let result = if let Some(state) = self
@@ -267,7 +293,9 @@ impl Editor {
             } else {
                 Ok(false)
             };
-            self.search_scan.restore_chunked(chunked);
+            self.active_window_mut()
+                .search_scan
+                .restore_chunked(chunked);
 
             match result {
                 Ok(false) => break, // scan complete
@@ -283,7 +311,7 @@ impl Editor {
     /// and hand them to `finalize_search()` which sets search_state, moves
     /// the cursor, and creates viewport overlays.
     fn finish_search_scan(&mut self) {
-        let Some(finished) = self.search_scan.take_finished() else {
+        let Some(finished) = self.active_window_mut().search_scan.take_finished() else {
             return;
         };
 

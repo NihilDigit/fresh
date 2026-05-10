@@ -3992,7 +3992,7 @@ where
         }
 
         // Active animations force a render every FRAME_DURATION.
-        let animations_active = editor.animations.is_active();
+        let animations_active = editor.active_window().animations.is_active();
         if animations_active {
             needs_render = true;
         }
@@ -4020,10 +4020,10 @@ where
             // While animations are running, cap the timeout so the next
             // iteration fires in time for the next frame — but never past
             // the earliest animation deadline.
-            if editor.animations.is_active() {
+            if editor.active_window().animations.is_active() {
                 let until_next_frame = FRAME_DURATION.saturating_sub(last_render.elapsed());
                 timeout = timeout.min(until_next_frame);
-                if let Some(deadline) = editor.animations.next_deadline() {
+                if let Some(deadline) = editor.active_window().animations.next_deadline() {
                     let until_deadline = deadline.saturating_duration_since(Instant::now());
                     timeout = timeout.min(until_deadline);
                 }

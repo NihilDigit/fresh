@@ -43,11 +43,13 @@ use crate::app::types::WindowLayoutCache;
 use crate::app::window_resources::WindowResources;
 use crate::model::event::{Event, LeafId};
 use crate::services::lsp::manager::LspManager;
+use crate::types::LspFeature;
 use crate::view::file_tree::FileTreeView;
 use crate::view::split::{SplitManager, SplitViewState};
 use fresh_core::{BufferId, WindowId};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// A project-rooted unit of editor state.
 ///
@@ -451,6 +453,229 @@ pub struct Window {
     /// Buffer id pending close-confirmation prompt resolution.
     /// Per-window because the prompt that produced this is per-window.
     pub pending_close_buffer: Option<BufferId>,
+
+    /// Pluggable completion service that orchestrates this window's
+    /// completion providers (dabbrev, buffer words, LSP, plugin
+    /// providers). Per-window because the providers it orchestrates
+    /// (notably the LSP set) are per-window.
+    pub completion_service: crate::services::completion::CompletionService,
+
+    /// Overlay namespace for LSP diagnostic overlays in this window
+    /// (filter / bulk-remove key). The diagnostics it scopes are buffer
+    /// overlays, and buffers are per-window, so the namespace follows.
+    pub lsp_diagnostic_namespace: crate::view::overlay::OverlayNamespace,
+
+    /// Last `result_id` seen from the LSP server per URI for incremental
+    /// pull diagnostics. Per-window because each window has its own
+    /// LSP manager and therefore its own result-id stream.
+    pub diagnostic_result_ids: HashMap<String, String>,
+
+    /// `$/progress` token → progress info for this window's LSP servers.
+    /// Drives the spinner in the status bar's LSP pill. Per-window
+    /// because the LspManager that emits these tokens is per-window.
+    pub lsp_progress: HashMap<String, crate::app::LspProgressInfo>,
+
+    /// Status of each `(language, server_name)` pair attached to this
+    /// window's LspManager (running, errored, restarting, …).
+    pub lsp_server_statuses:
+        HashMap<(String, String), crate::services::async_bridge::LspServerStatus>,
+
+    /// Recent `window/showMessage` payloads from this window's LSP
+    /// servers. Bounded ring (newest entries kept, drops the oldest
+    /// when the soft cap is exceeded).
+    pub lsp_window_messages: Vec<crate::app::LspMessageEntry>,
+
+    /// Recent `window/logMessage` payloads from this window's LSP
+    /// servers, on the same bounded-ring pattern as `lsp_window_messages`.
+    pub lsp_log_messages: Vec<crate::app::LspMessageEntry>,
+
+    /// Push-model diagnostics keyed by URI, then by server name. Each
+    /// `publishDiagnostics` from a server replaces that server's slice
+    /// for the URI; the merged view is materialised in
+    /// `stored_diagnostics`.
+    pub stored_push_diagnostics: HashMap<String, HashMap<String, Vec<lsp_types::Diagnostic>>>,
+
+    /// Pull-model diagnostics (rust-analyzer-style native pull)
+    /// keyed by URI. Independent of `stored_push_diagnostics`; the
+    /// two are merged into `stored_diagnostics` for plugin / overlay
+    /// consumption.
+    pub stored_pull_diagnostics: HashMap<String, Vec<lsp_types::Diagnostic>>,
+
+    /// Merged view of push + pull diagnostics, exposed to plugins.
+    /// `Arc` wrapper so plugin snapshots can hold a refcount-bumped
+    /// reference; mutation goes through `Arc::make_mut` (CoW).
+    pub stored_diagnostics: Arc<HashMap<String, Vec<lsp_types::Diagnostic>>>,
+
+    /// Per-URI folding ranges from `textDocument/foldingRange`. Same
+    /// `Arc` + CoW pattern as `stored_diagnostics` so plugin snapshots
+    /// don't pin the underlying map across mutations.
+    pub stored_folding_ranges: Arc<HashMap<String, Vec<lsp_types::FoldingRange>>>,
+
+    /// Per-directory mtime cache (paired with `file_mod_times`) for
+    /// detecting file-tree changes in this window. Per-window because
+    /// the file tree is per-window.
+    pub dir_mod_times: HashMap<PathBuf, std::time::SystemTime>,
+
+    /// Last time auto-revert polled this window's open buffers.
+    pub last_auto_revert_poll: std::time::Instant,
+
+    /// Last time the file-tree change-detection poll fired for this window.
+    pub last_file_tree_poll: std::time::Instant,
+
+    /// Whether this window has resolved and seeded the `.git/index`
+    /// path in `dir_mod_times`.
+    pub git_index_resolved: bool,
+
+    /// Receiver for background file change poll results for this window.
+    /// `Some` while a metadata poll is in flight.
+    #[allow(clippy::type_complexity)]
+    pub pending_file_poll_rx:
+        Option<std::sync::mpsc::Receiver<Vec<(PathBuf, Option<std::time::SystemTime>)>>>,
+
+    /// Receiver for background directory change poll results for this window.
+    #[allow(clippy::type_complexity)]
+    pub pending_dir_poll_rx: Option<
+        std::sync::mpsc::Receiver<(
+            Vec<(
+                crate::view::file_tree::NodeId,
+                PathBuf,
+                Option<std::time::SystemTime>,
+            )>,
+            Option<(PathBuf, std::time::SystemTime)>,
+        )>,
+    >,
+
+    /// Terminals in this window that should not persist to the
+    /// workspace file. Plugin-created terminals default to ephemeral;
+    /// user-opened terminals are absent and persist as before.
+    pub ephemeral_terminals: std::collections::HashSet<crate::services::terminal::TerminalId>,
+
+    /// Plugin-development workspace per buffer (temp dir + LSP
+    /// configuration for plugin buffers). Buffer-keyed and buffers
+    /// are per-window, so the workspace map follows.
+    pub plugin_dev_workspaces:
+        HashMap<BufferId, crate::services::plugins::plugin_dev_workspace::PluginDevWorkspace>,
+
+    /// Mouse drag/selection/scrollbar state for this window. Drag
+    /// targets reference per-window LeafIds and BufferIds.
+    pub mouse_state: crate::app::types::MouseState,
+
+    /// Currently focused widget context (Normal / FileExplorer /
+    /// Terminal / Prompt …). Per-window because each window has its
+    /// own focus state — switching windows preserves each window's
+    /// focused widget.
+    pub key_context: crate::input::keybindings::KeyContext,
+
+    /// Pending chord sequence for multi-key bindings (e.g. C-x C-s).
+    /// Each window tracks its own in-progress chord.
+    pub chord_state: Vec<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+
+    /// Multi-click detection state (per-window because clicks land
+    /// inside a window).
+    pub previous_click_time: Option<std::time::Instant>,
+    pub previous_click_position: Option<(u16, u16)>,
+    pub click_count: u8,
+
+    /// Whether mouse capture is enabled in this window.
+    pub mouse_enabled: bool,
+
+    /// GPM software-cursor position for this window (when GPM is
+    /// active and we draw our own cursor).
+    pub mouse_cursor_position: Option<(u16, u16)>,
+    pub gpm_active: bool,
+
+    /// Per-window chrome toggles. Each window can independently show
+    /// or hide its menu bar / tab bar / status bar / prompt line.
+    pub menu_bar_visible: bool,
+    pub menu_bar_auto_shown: bool,
+    pub tab_bar_visible: bool,
+    pub status_bar_visible: bool,
+    pub prompt_line_visible: bool,
+
+    /// Timing state for auto-recovery saves and persistent auto-saves
+    /// in this window.
+    pub last_auto_recovery_save: std::time::Instant,
+    pub last_persistent_auto_save: std::time::Instant,
+
+    /// Warning domain registry for this window's status indicator.
+    pub warning_domains: crate::app::warning_domains::WarningDomainRegistry,
+
+    /// Tab context menu state (right-click on a tab in this window).
+    pub tab_context_menu: Option<crate::app::types::TabContextMenu>,
+
+    /// File-explorer context menu state (right-click in the explorer).
+    pub file_explorer_context_menu: Option<crate::app::types::FileExplorerContextMenu>,
+
+    /// Theme inspector popup (Ctrl+Right-Click) anchored in this window.
+    pub theme_info_popup: Option<crate::app::types::ThemeInfoPopup>,
+
+    /// File-open dialog state (when PromptType::OpenFile is active in
+    /// this window's prompt).
+    pub file_open_state: Option<crate::app::file_open::FileOpenState>,
+
+    /// Cached layout for the file browser (mouse hit-testing).
+    pub file_browser_layout: Option<crate::view::ui::FileBrowserLayout>,
+
+    /// Buffer groups (multiple buffers shown as one tab) in this window.
+    pub buffer_groups: HashMap<crate::app::types::BufferGroupId, crate::app::types::BufferGroup>,
+    /// Reverse index: buffer ID → group ID.
+    pub buffer_to_group: HashMap<BufferId, crate::app::types::BufferGroupId>,
+    /// Next buffer group id within this window.
+    pub next_buffer_group_id: usize,
+
+    /// Plugin keystroke-callback queue (in-flight `getNextKey()` callbacks).
+    pub pending_next_key_callbacks: std::collections::VecDeque<fresh_core::api::JsCallbackId>,
+
+    /// Whether a plugin currently has key-capture active in this window.
+    pub key_capture_active: bool,
+
+    /// Keys queued while `key_capture_active` was set but no callback
+    /// was pending — drained on the next `AwaitNextKey`.
+    pub pending_key_capture_buffer: std::collections::VecDeque<fresh_core::api::KeyEventPayload>,
+
+    /// Macro state (record/playback/registers) — one window's macro
+    /// session at a time.
+    pub macros: crate::app::macros::MacroState,
+
+    /// Plugin-defined custom contexts active in this window (drives
+    /// command palette visibility, e.g. "config-editor").
+    pub active_custom_contexts: std::collections::HashSet<String>,
+
+    /// Whether keyboard capture is active for the terminal in this
+    /// window (terminal mode swallows non-toggle keys).
+    pub keyboard_capture: bool,
+
+    /// In-flight review session hunks for this window.
+    pub review_hunks: Vec<fresh_core::api::ReviewHunk>,
+
+    /// Pending file-open queue (PendingFileOpen) for this window.
+    pub pending_file_opens: Vec<crate::app::PendingFileOpen>,
+
+    /// Whether this window has a hot-exit recovery prompt pending.
+    pub pending_hot_exit_recovery: bool,
+
+    /// Plugin "wait until file opens" tracking (buffer_id → (wait_id, …)).
+    pub wait_tracking: HashMap<BufferId, (u64, bool)>,
+
+    /// Wait ids that have completed and need to be reported back to plugins.
+    pub completed_waits: Vec<u64>,
+
+    /// Background line-scan state for this window (line counts for
+    /// large files).
+    pub line_scan: crate::app::line_scan::LineScan,
+
+    /// Background search-scan state for this window.
+    pub search_scan: crate::app::search_scan::SearchScan,
+
+    /// Anchor for the search-result overlay in this window.
+    pub search_overlay_top_byte: Option<usize>,
+
+    /// Per-window UI animation runner.
+    pub animations: crate::view::animation::AnimationRunner,
+
+    /// Plugin error log (populated when plugin status messages match
+    /// error patterns; tests assert against this).
+    pub plugin_errors: Vec<String>,
 }
 
 impl Window {
@@ -478,6 +703,267 @@ impl Window {
         let id = self.next_lsp_request_id;
         self.next_lsp_request_id += 1;
         id
+    }
+
+    /// True if this window has any in-flight LSP completion or
+    /// goto-definition request whose response would still be relevant.
+    pub fn has_pending_lsp_requests(&self) -> bool {
+        !self.pending_completion_requests.is_empty()
+            || self.pending_goto_definition_request.is_some()
+    }
+
+    /// Cancel any in-flight LSP requests on this window. Called when
+    /// the user does something that would make the response stale
+    /// (cursor movement, text edit, scroll). Drains the pending
+    /// completion id set, clears the goto-definition slot, and sends
+    /// `$/cancelRequest` to the appropriate server for each.
+    pub(crate) fn cancel_pending_lsp_requests(&mut self) {
+        self.scheduled_completion_trigger = None;
+        if !self.pending_completion_requests.is_empty() {
+            let ids: Vec<u64> = self.pending_completion_requests.drain().collect();
+            for request_id in ids {
+                tracing::debug!("Canceling pending LSP completion request {}", request_id);
+                self.send_lsp_cancel_request(request_id);
+            }
+        }
+        if let Some(request_id) = self.pending_goto_definition_request.take() {
+            tracing::debug!(
+                "Canceling pending LSP goto-definition request {}",
+                request_id
+            );
+            self.send_lsp_cancel_request(request_id);
+        }
+    }
+
+    /// Send `$/cancelRequest` to the LSP server backing the active
+    /// buffer's language, if a server is already running. Called only
+    /// from cancel paths — does not spawn a server just to cancel.
+    pub(crate) fn send_lsp_cancel_request(&mut self, request_id: u64) {
+        let buffer_id = self.active_buffer();
+        let Some(language) = self.buffers.get(&buffer_id).map(|s| s.language.clone()) else {
+            return;
+        };
+        if let Some(lsp) = self.lsp.as_mut() {
+            if let Some(handle) = lsp.get_handle_mut(&language) {
+                if let Err(e) = handle.cancel_request(request_id) {
+                    tracing::warn!("Failed to send LSP cancel request: {}", e);
+                } else {
+                    tracing::debug!("Sent $/cancelRequest for request_id={}", request_id);
+                }
+            }
+        }
+    }
+
+    /// Toggle this window's same-buffer scroll-sync flag and post a
+    /// status message announcing the new state.
+    pub fn toggle_scroll_sync(&mut self) {
+        self.same_buffer_scroll_sync = !self.same_buffer_scroll_sync;
+        let key = if self.same_buffer_scroll_sync {
+            "toggle.scroll_sync_enabled"
+        } else {
+            "toggle.scroll_sync_disabled"
+        };
+        self.set_status_message(rust_i18n::t!(key).to_string());
+    }
+
+    /// Toggle the active buffer's `debug_highlight_mode` (shows byte
+    /// positions and highlight-span info on screen). No-op if there is
+    /// no active buffer.
+    pub fn toggle_debug_highlights(&mut self) {
+        let buffer_id = self.active_buffer();
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.debug_highlight_mode = !state.debug_highlight_mode;
+            let key = if state.debug_highlight_mode {
+                "toggle.debug_mode_on"
+            } else {
+                "toggle.debug_mode_off"
+            };
+            self.set_status_message(rust_i18n::t!(key).to_string());
+        }
+    }
+
+    /// Build a compiled `regex::Regex` from this window's current
+    /// search-flags (`use_regex`, `whole_word`, `case_sensitive`)
+    /// applied to `query`. Returns the compiled regex or a
+    /// human-readable error string.
+    pub(crate) fn build_search_regex(&self, query: &str) -> Result<regex::Regex, String> {
+        crate::app::regex_replace::build_search_regex(
+            query,
+            self.search_use_regex,
+            self.search_whole_word,
+            self.search_case_sensitive,
+        )
+    }
+
+    /// True iff editing should be disabled for the active buffer
+    /// (e.g. read-only virtual buffers like the help manual).
+    pub fn is_editing_disabled(&self) -> bool {
+        self.active_state().editing_disabled
+    }
+
+    /// Recompute the active buffer's `modified` flag from the event log's
+    /// position relative to its last-saved point. Called after undo/redo
+    /// to correctly report "buffer is dirty / clean" in the status bar.
+    pub(super) fn update_modified_from_event_log(&mut self) {
+        let buffer_id = self.active_buffer();
+        let is_at_saved = self
+            .event_logs
+            .get(&buffer_id)
+            .map(|log| log.is_at_saved_position())
+            .unwrap_or(false);
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.buffer.set_modified(!is_at_saved);
+        }
+    }
+
+    /// True iff `language` is currently user-dismissed in this window's
+    /// LSP status pill.
+    pub fn is_lsp_language_user_dismissed(&self, language: &str) -> bool {
+        self.user_dismissed_lsp_languages.contains(language)
+    }
+
+    /// Dismiss the LSP pill for `language` in this window until the user
+    /// re-enables it (or the editor restarts).
+    pub fn dismiss_lsp_language(&mut self, language: &str) {
+        self.user_dismissed_lsp_languages
+            .insert(language.to_string());
+    }
+
+    /// Undo a previous dismissal — the pill for `language` returns to its
+    /// normal style.
+    pub fn undismiss_lsp_language(&mut self, language: &str) {
+        self.user_dismissed_lsp_languages.remove(language);
+    }
+
+    /// True iff at least one LSP server attached to the active buffer's
+    /// language advertises `codeAction/resolve`.
+    pub(crate) fn server_supports_code_action_resolve(&self) -> bool {
+        let Some(language) = self
+            .buffers
+            .get(&self.active_buffer())
+            .map(|s| s.language.clone())
+        else {
+            return false;
+        };
+        if let Some(lsp) = self.lsp.as_ref() {
+            for sh in lsp.get_handles(&language) {
+                if sh.capabilities.code_action_resolve {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// True iff at least one LSP server attached to the active buffer's
+    /// language advertises `completionItem/resolve`.
+    pub(crate) fn server_supports_completion_resolve(&self) -> bool {
+        let Some(language) = self
+            .buffers
+            .get(&self.active_buffer())
+            .map(|s| s.language.clone())
+        else {
+            return false;
+        };
+        if let Some(lsp) = self.lsp.as_ref() {
+            for sh in lsp.get_handles(&language) {
+                if sh.capabilities.completion_resolve {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// True iff at least one LSP server attached to the active buffer's
+    /// language advertises `textDocument/rename` (and therefore the
+    /// `prepareRename` request, which the editor surfaces only through
+    /// the rename feature flag).
+    pub(crate) fn server_supports_prepare_rename(&self) -> bool {
+        let Some(language) = self
+            .buffers
+            .get(&self.active_buffer())
+            .map(|s| s.language.clone())
+        else {
+            return false;
+        };
+        if let Some(lsp) = self.lsp.as_ref() {
+            for sh in lsp.get_handles(&language) {
+                if sh.capabilities.rename {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Send `textDocument/prepareRename` for the symbol at the active
+    /// cursor. No-op if the buffer has no LSP metadata, no language, or
+    /// no rename-capable handle. The response is dispatched to
+    /// `handle_prepare_rename_response`.
+    pub(crate) fn send_prepare_rename(&mut self) {
+        let cursor_pos = self.active_cursors().primary().position;
+        let (line, character) = self
+            .active_state()
+            .buffer
+            .position_to_lsp_position(cursor_pos);
+
+        let buffer_id = self.active_buffer();
+        let metadata = match self.buffer_metadata.get(&buffer_id) {
+            Some(m) if m.lsp_enabled => m,
+            _ => return,
+        };
+        let uri = match metadata.file_uri() {
+            Some(u) => u.clone(),
+            None => return,
+        };
+        let Some(language) = self.buffers.get(&buffer_id).map(|s| s.language.clone()) else {
+            return;
+        };
+
+        let request_id = self.alloc_lsp_request_id();
+
+        if let Some(lsp) = self.lsp.as_mut() {
+            if let Some(sh) = lsp.handle_for_feature_mut(&language, LspFeature::Rename) {
+                if let Err(e) = sh.handle.prepare_rename(
+                    request_id,
+                    uri.as_uri().clone(),
+                    line as u32,
+                    character as u32,
+                ) {
+                    tracing::warn!("Failed to send prepareRename: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Send `completionItem/resolve` for `item` to the first LSP server
+    /// (in language order) that advertises `completion_resolve` for the
+    /// active buffer's language. No-op if no server is running or no
+    /// server supports the resolve.
+    pub(crate) fn send_completion_resolve(&mut self, item: lsp_types::CompletionItem) {
+        let Some(language) = self
+            .buffers
+            .get(&self.active_buffer())
+            .map(|s| s.language.clone())
+        else {
+            return;
+        };
+        let request_id = self.alloc_lsp_request_id();
+        if let Some(lsp) = self.lsp.as_mut() {
+            for sh in lsp.get_handles_mut(&language) {
+                if sh.capabilities.completion_resolve {
+                    if let Err(e) = sh.handle.completion_resolve(request_id, item.clone()) {
+                        tracing::warn!(
+                            "Failed to send completionItem/resolve to '{}': {}",
+                            sh.name,
+                            e
+                        );
+                    }
+                    return;
+                }
+            }
+        }
     }
 
     /// Apply an event to a buffer + the cursors of a split inside this
@@ -1033,6 +1519,68 @@ impl Window {
             editor_mode: None,
             prompt_histories: HashMap::new(),
             pending_close_buffer: None,
+            completion_service: crate::services::completion::CompletionService::new(),
+            lsp_diagnostic_namespace: crate::view::overlay::OverlayNamespace::from_string(
+                "lsp-diagnostic".to_string(),
+            ),
+            diagnostic_result_ids: HashMap::new(),
+            lsp_progress: HashMap::new(),
+            lsp_server_statuses: HashMap::new(),
+            lsp_window_messages: Vec::new(),
+            lsp_log_messages: Vec::new(),
+            stored_push_diagnostics: HashMap::new(),
+            stored_pull_diagnostics: HashMap::new(),
+            stored_diagnostics: Arc::new(HashMap::new()),
+            stored_folding_ranges: Arc::new(HashMap::new()),
+            dir_mod_times: HashMap::new(),
+            last_auto_revert_poll: std::time::Instant::now(),
+            last_file_tree_poll: std::time::Instant::now(),
+            git_index_resolved: false,
+            pending_file_poll_rx: None,
+            pending_dir_poll_rx: None,
+            ephemeral_terminals: std::collections::HashSet::new(),
+            plugin_dev_workspaces: HashMap::new(),
+            mouse_state: crate::app::types::MouseState::default(),
+            key_context: crate::input::keybindings::KeyContext::Normal,
+            chord_state: Vec::new(),
+            previous_click_time: None,
+            previous_click_position: None,
+            click_count: 0,
+            mouse_enabled: false,
+            mouse_cursor_position: None,
+            gpm_active: false,
+            menu_bar_visible: resources.config.editor.show_menu_bar,
+            menu_bar_auto_shown: false,
+            tab_bar_visible: resources.config.editor.show_tab_bar,
+            status_bar_visible: resources.config.editor.show_status_bar,
+            prompt_line_visible: resources.config.editor.show_prompt_line,
+            last_auto_recovery_save: std::time::Instant::now(),
+            last_persistent_auto_save: std::time::Instant::now(),
+            warning_domains: crate::app::warning_domains::WarningDomainRegistry::default(),
+            tab_context_menu: None,
+            file_explorer_context_menu: None,
+            theme_info_popup: None,
+            file_open_state: None,
+            file_browser_layout: None,
+            buffer_groups: HashMap::new(),
+            buffer_to_group: HashMap::new(),
+            next_buffer_group_id: 0,
+            pending_next_key_callbacks: std::collections::VecDeque::new(),
+            key_capture_active: false,
+            pending_key_capture_buffer: std::collections::VecDeque::new(),
+            macros: crate::app::macros::MacroState::default(),
+            active_custom_contexts: std::collections::HashSet::new(),
+            keyboard_capture: false,
+            review_hunks: Vec::new(),
+            pending_file_opens: Vec::new(),
+            pending_hot_exit_recovery: false,
+            wait_tracking: HashMap::new(),
+            completed_waits: Vec::new(),
+            line_scan: crate::app::line_scan::LineScan::default(),
+            search_scan: crate::app::search_scan::SearchScan::default(),
+            search_overlay_top_byte: None,
+            animations: crate::view::animation::AnimationRunner::default(),
+            plugin_errors: Vec::new(),
             resources,
         }
     }

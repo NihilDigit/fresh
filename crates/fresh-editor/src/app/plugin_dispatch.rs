@@ -469,10 +469,10 @@ impl Editor {
             snapshot.authority_label = self.authority.display_label.clone();
 
             // Update LSP diagnostics: Arc refcount bump; no clone.
-            snapshot.diagnostics = Arc::clone(&self.stored_diagnostics);
+            snapshot.diagnostics = Arc::clone(&self.active_window().stored_diagnostics);
 
             // Update LSP folding ranges: Arc refcount bump; no clone.
-            snapshot.folding_ranges = Arc::clone(&self.stored_folding_ranges);
+            snapshot.folding_ranges = Arc::clone(&self.active_window().stored_folding_ranges);
 
             // Update config. Reserialize only when the underlying
             // `Arc<Config>` pointer has actually moved since the last
@@ -1000,12 +1000,12 @@ impl Editor {
                 self.handle_await_next_key(callback_id);
             }
             PluginCommand::SetKeyCaptureActive { active } => {
-                self.key_capture_active = active;
+                self.active_window_mut().key_capture_active = active;
                 if !active {
                     // Capture window closed; any leftover queued keys
                     // were intended for the plugin and should not now
                     // leak into the editor's normal dispatch.
-                    self.pending_key_capture_buffer.clear();
+                    self.active_window_mut().pending_key_capture_buffer.clear();
                 }
             }
             PluginCommand::SetPromptSuggestions { suggestions } => {
@@ -1154,7 +1154,8 @@ impl Editor {
                 self.handle_start_animation_virtual_buffer(id, buffer_id, kind);
             }
             PluginCommand::CancelAnimation { id } => {
-                self.animations
+                self.active_window_mut()
+                    .animations
                     .cancel(crate::view::animation::AnimationId::from_raw(id));
             }
 
@@ -1344,8 +1345,11 @@ impl Editor {
 
             // ==================== Review Diff Commands ====================
             PluginCommand::SetReviewDiffHunks { hunks } => {
-                self.review_hunks = hunks;
-                tracing::debug!("Set {} review hunks", self.review_hunks.len());
+                self.active_window_mut().review_hunks = hunks;
+                tracing::debug!(
+                    "Set {} review hunks",
+                    self.active_window_mut().review_hunks.len()
+                );
             }
 
             // ==================== Vi Mode Commands ====================
@@ -1471,7 +1475,8 @@ impl Editor {
                     .map(|(mgr, _)| mgr)
                     .expect("active window must have a populated split layout")
                     .active_split();
-                self.composite_next_hunk(split_id, buffer_id);
+                self.active_window_mut()
+                    .composite_next_hunk(split_id, buffer_id);
             }
             PluginCommand::CompositePrevHunk { buffer_id } => {
                 let split_id = self
@@ -1481,7 +1486,8 @@ impl Editor {
                     .map(|(mgr, _)| mgr)
                     .expect("active window must have a populated split layout")
                     .active_split();
-                self.composite_prev_hunk(split_id, buffer_id);
+                self.active_window_mut()
+                    .composite_prev_hunk(split_id, buffer_id);
             }
 
             // ==================== Buffer Groups ====================
@@ -3002,7 +3008,9 @@ impl Editor {
                         .insert(terminal_id, fixed_backing);
                 }
                 if !persistent {
-                    self.ephemeral_terminals.insert(terminal_id);
+                    self.active_window_mut()
+                        .ephemeral_terminals
+                        .insert(terminal_id);
                 }
 
                 // Pick buffer-attachment strategy based on whether the
@@ -3239,7 +3247,9 @@ impl Editor {
                 .insert(terminal_id, backing_path);
         }
         if !persistent {
-            self.ephemeral_terminals.insert(terminal_id);
+            self.active_window_mut()
+                .ephemeral_terminals
+                .insert(terminal_id);
         }
 
         // Allocate a buffer for the terminal in editor-global
@@ -3361,11 +3371,17 @@ impl Editor {
         // If keys arrived during a key-capture window while no callback was
         // pending, drain the front-most buffered key and resolve immediately.
         // Otherwise enqueue the callback for the next live keypress.
-        if let Some(payload) = self.pending_key_capture_buffer.pop_front() {
+        if let Some(payload) = self
+            .active_window_mut()
+            .pending_key_capture_buffer
+            .pop_front()
+        {
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
             self.plugin_manager.resolve_callback(callback_id, json);
         } else {
-            self.pending_next_key_callbacks.push_back(callback_id);
+            self.active_window_mut()
+                .pending_next_key_callbacks
+                .push_back(callback_id);
         }
     }
 
@@ -4924,10 +4940,14 @@ impl Editor {
 
     fn handle_set_context(&mut self, name: String, active: bool) {
         if active {
-            self.active_custom_contexts.insert(name.clone());
+            self.active_window_mut()
+                .active_custom_contexts
+                .insert(name.clone());
             tracing::debug!("Set custom context: {}", name);
         } else {
-            self.active_custom_contexts.remove(&name);
+            self.active_window_mut()
+                .active_custom_contexts
+                .remove(&name);
             tracing::debug!("Unset custom context: {}", name);
         }
     }
@@ -4960,7 +4980,7 @@ impl Editor {
             self.active_window_mut().status_message =
                 Some(format!("LSP disabled for {}", language));
         }
-        self.warning_domains.lsp.clear();
+        self.active_window_mut().warning_domains.lsp.clear();
     }
 
     fn handle_restart_lsp_for_language(&mut self, language: String) {

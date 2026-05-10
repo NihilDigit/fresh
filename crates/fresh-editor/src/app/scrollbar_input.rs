@@ -194,7 +194,7 @@ impl Editor {
         buffer_id: BufferId,
         scrollbar_rect: ratatui::layout::Rect,
     ) -> AnyhowResult<()> {
-        let drag_start_row = match self.mouse_state.drag_start_row {
+        let drag_start_row = match self.active_window_mut().mouse_state.drag_start_row {
             Some(r) => r,
             None => return Ok(()), // No drag start, shouldn't happen
         };
@@ -210,12 +210,16 @@ impl Editor {
             );
         }
 
-        let drag_start_top_byte = match self.mouse_state.drag_start_top_byte {
+        let drag_start_top_byte = match self.active_window_mut().mouse_state.drag_start_top_byte {
             Some(b) => b,
             None => return Ok(()), // No drag start, shouldn't happen
         };
 
-        let drag_start_view_line_offset = self.mouse_state.drag_start_view_line_offset.unwrap_or(0);
+        let drag_start_view_line_offset = self
+            .active_window_mut()
+            .mouse_state
+            .drag_start_view_line_offset
+            .unwrap_or(0);
 
         // Calculate the offset in rows (still used for large files)
         let row_offset = (row as i32) - (drag_start_row as i32);
@@ -628,7 +632,11 @@ impl Editor {
         buffer_id: BufferId,
         scrollbar_rect: ratatui::layout::Rect,
     ) -> AnyhowResult<()> {
-        let drag_start_scroll_row = match self.mouse_state.drag_start_composite_scroll_row {
+        let drag_start_scroll_row = match self
+            .active_window_mut()
+            .mouse_state
+            .drag_start_composite_scroll_row
+        {
             Some(r) => r,
             None => return Ok(()),
         };

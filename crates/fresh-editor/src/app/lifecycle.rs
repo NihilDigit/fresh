@@ -26,10 +26,12 @@ impl Editor {
         self.clipboard.set_session_mode(session_mode);
         // Also set custom context for command palette filtering
         if session_mode {
-            self.active_custom_contexts
+            self.active_window_mut()
+                .active_custom_contexts
                 .insert(crate::types::context_keys::SESSION_MODE.to_string());
         } else {
-            self.active_custom_contexts
+            self.active_window_mut()
+                .active_custom_contexts
                 .remove(crate::types::context_keys::SESSION_MODE);
         }
     }

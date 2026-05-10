@@ -623,7 +623,8 @@ impl Editor {
     /// Get the current mouse hover state for testing
     /// Returns Some((byte_position, screen_x, screen_y)) if hovering over text
     pub fn get_mouse_hover_state(&self) -> Option<(usize, u16, u16)> {
-        self.mouse_state
+        self.active_window()
+            .mouse_state
             .lsp_hover_state
             .map(|(pos, _, x, y)| (pos, x, y))
     }
@@ -639,14 +640,16 @@ impl Editor {
     /// Force check the mouse hover timer (for testing)
     /// This bypasses the normal 500ms delay
     pub fn force_check_mouse_hover(&mut self) -> bool {
-        if let Some((byte_pos, _, screen_x, screen_y)) = self.mouse_state.lsp_hover_state {
-            if !self.mouse_state.lsp_hover_request_sent {
+        if let Some((byte_pos, _, screen_x, screen_y)) =
+            self.active_window_mut().mouse_state.lsp_hover_state
+        {
+            if !self.active_window_mut().mouse_state.lsp_hover_request_sent {
                 self.active_window_mut()
                     .hover
                     .set_screen_position((screen_x, screen_y));
                 match self.request_hover_at_position(byte_pos) {
                     Ok(true) => {
-                        self.mouse_state.lsp_hover_request_sent = true;
+                        self.active_window_mut().mouse_state.lsp_hover_request_sent = true;
                         return true;
                     }
                     Ok(false) => return false, // no server ready, retry later

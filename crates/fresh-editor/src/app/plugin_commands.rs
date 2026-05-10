@@ -1220,7 +1220,7 @@ impl Editor {
         // Funnel through the navigation primitive so the cursor is guaranteed
         // visible in the viewport (#1689 — without this, jump_to_line_column
         // could land off-screen if a prior scroll set skip_ensure_visible).
-        self.jump_active_cursor_to(
+        self.active_window_mut().jump_active_cursor_to(
             clamped_position,
             super::navigation::JumpOptions::navigation(),
         );
@@ -1384,13 +1384,17 @@ impl Editor {
         }
 
         // If this buffer belongs to a group, route through the group's tab.
-        if let Some(&group_id) = self.buffer_to_group.get(&buffer_id) {
+        if let Some(&group_id) = self.active_window_mut().buffer_to_group.get(&buffer_id) {
             // Find the panel name for this buffer in the group, then focus it.
-            let panel_name = self.buffer_groups.get(&group_id).and_then(|g| {
-                g.panel_buffers
-                    .iter()
-                    .find_map(|(name, &bid)| (bid == buffer_id).then(|| name.clone()))
-            });
+            let panel_name = self
+                .active_window_mut()
+                .buffer_groups
+                .get(&group_id)
+                .and_then(|g| {
+                    g.panel_buffers
+                        .iter()
+                        .find_map(|(name, &bid)| (bid == buffer_id).then(|| name.clone()))
+                });
             if let Some(panel_name) = panel_name {
                 self.focus_panel(group_id.0, panel_name);
                 tracing::info!(
@@ -1802,7 +1806,7 @@ impl Editor {
                 || lower.contains("handler error")
                 || lower.contains("error in")
             {
-                self.plugin_errors.push(message.clone());
+                self.active_window_mut().plugin_errors.push(message.clone());
             }
             // Clear core status message so only plugin message shows
             self.active_window_mut().status_message = None;
@@ -3126,7 +3130,7 @@ impl Editor {
             return;
         }
         let animation_kind = translate_plugin_animation_kind(kind);
-        self.animations.start_with_id(
+        self.active_window_mut().animations.start_with_id(
             crate::view::animation::AnimationId::from_raw(id),
             area,
             animation_kind,
@@ -3151,7 +3155,7 @@ impl Editor {
         match self.virtual_buffer_screen_rect(buffer_id) {
             Some(area) => {
                 let animation_kind = translate_plugin_animation_kind(kind);
-                self.animations.start_with_id(
+                self.active_window_mut().animations.start_with_id(
                     crate::view::animation::AnimationId::from_raw(id),
                     area,
                     animation_kind,
@@ -3180,7 +3184,7 @@ impl Editor {
             match self.virtual_buffer_screen_rect(buffer_id) {
                 Some(area) => {
                     let animation_kind = translate_plugin_animation_kind(kind);
-                    self.animations.start_with_id(
+                    self.active_window_mut().animations.start_with_id(
                         crate::view::animation::AnimationId::from_raw(id),
                         area,
                         animation_kind,

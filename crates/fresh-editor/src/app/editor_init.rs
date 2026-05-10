@@ -139,10 +139,6 @@ pub(super) struct EditorParts {
     pub(super) local_filesystem: Arc<dyn FileSystem + Send + Sync>,
 
     // Chrome flags resolved from config
-    pub(super) menu_bar_visible: bool,
-    pub(super) tab_bar_visible: bool,
-    pub(super) status_bar_visible: bool,
-    pub(super) prompt_line_visible: bool,
 
     // Windows — the whole point of the split: the factory builds these
     // (from disk persistence or a single seed window), the constructor
@@ -207,10 +203,6 @@ impl Editor {
             fs_manager: parts.fs_manager,
             authority: parts.authority,
             local_filesystem: parts.local_filesystem,
-            menu_bar_visible: parts.menu_bar_visible,
-            tab_bar_visible: parts.tab_bar_visible,
-            status_bar_visible: parts.status_bar_visible,
-            prompt_line_visible: parts.prompt_line_visible,
             menu_state: crate::view::ui::MenuState::new(parts.dir_context.themes_dir()),
             working_dir: parts.working_dir,
             windows: parts.windows,
@@ -242,92 +234,34 @@ impl Editor {
             pending_escape_sequences: Vec::new(),
             restart_with_dir: None,
             last_window_title: None,
-            plugin_errors: Vec::new(),
             mode_registry: ModeRegistry::new(),
             pending_authority: None,
             remote_indicator_override: None,
             file_explorer_clipboard: None,
-            menu_bar_auto_shown: false,
-            mouse_enabled: true,
-            mouse_cursor_position: None,
-            gpm_active: false,
-            key_context: KeyContext::Normal,
             menus: crate::config::MenuConfig::translated(),
-            completion_service: crate::services::completion::CompletionService::new(),
-            lsp_diagnostic_namespace: crate::view::overlay::OverlayNamespace::from_string(
-                "lsp-diagnostic".to_string(),
-            ),
-            mouse_state: MouseState::default(),
-            tab_context_menu: None,
-            file_explorer_context_menu: None,
-            theme_info_popup: None,
             chrome_layout: ChromeLayout::default(),
-            plugin_dev_workspaces: HashMap::new(),
-            buffer_groups: HashMap::new(),
-            buffer_to_group: HashMap::new(),
-            next_buffer_group_id: 0,
             background_process_handles: HashMap::new(),
             host_process_handles: HashMap::new(),
-            pending_next_key_callbacks: std::collections::VecDeque::new(),
-            key_capture_active: false,
-            pending_key_capture_buffer: std::collections::VecDeque::new(),
-            lsp_progress: std::collections::HashMap::new(),
-            lsp_server_statuses: std::collections::HashMap::new(),
-            lsp_window_messages: Vec::new(),
-            lsp_log_messages: Vec::new(),
-            diagnostic_result_ids: HashMap::new(),
-            stored_push_diagnostics: HashMap::new(),
-            stored_pull_diagnostics: HashMap::new(),
-            stored_diagnostics: Arc::new(HashMap::new()),
-            stored_folding_ranges: Arc::new(HashMap::new()),
             event_broadcaster: crate::model::control_event::EventBroadcaster::default(),
-            macros: macros::MacroState::default(),
             #[cfg(feature = "plugins")]
             pending_plugin_actions: Vec::new(),
             #[cfg(feature = "plugins")]
             plugin_render_requested: false,
-            chord_state: Vec::new(),
-            last_auto_revert_poll: now,
-            last_file_tree_poll: now,
-            git_index_resolved: false,
-            dir_mod_times: HashMap::new(),
-            pending_file_poll_rx: None,
-            pending_dir_poll_rx: None,
-            file_open_state: None,
-            file_browser_layout: None,
             full_redraw_requested: false,
             suspend_requested: false,
-            last_auto_recovery_save: now,
-            last_persistent_auto_save: now,
-            active_custom_contexts: HashSet::new(),
             plugin_global_state: parts.plugin_global_state,
             warning_log: None,
             status_log_path: None,
-            warning_domains: WarningDomainRegistry::new(),
             file_watcher_manager: crate::services::file_watcher::FileWatcherManager::new(),
             last_path_change_for_test: None,
             last_watch_response_for_test: None,
             preview_window_id: None,
-            ephemeral_terminals: std::collections::HashSet::new(),
-            keyboard_capture: false,
-            previous_click_time: None,
-            previous_click_position: None,
-            click_count: 0,
             settings_state: None,
             calibration_wizard: None,
             event_debug: None,
             keybinding_editor: None,
-            pending_file_opens: Vec::new(),
-            pending_hot_exit_recovery: false,
-            wait_tracking: HashMap::new(),
-            completed_waits: Vec::new(),
             stdin_stream: stdin_stream::StdinStream::default(),
-            line_scan: line_scan::LineScan::default(),
-            search_scan: search_scan::SearchScan::default(),
-            search_overlay_top_byte: None,
-            review_hunks: Vec::new(),
             global_popups: crate::view::popup::PopupManager::new(),
-            animations: crate::view::animation::AnimationRunner::new(),
             previous_cursor_screen_pos: None,
             cursor_jump_animation: None,
             pending_vb_animations: Vec::new(),
@@ -1246,10 +1180,6 @@ impl Editor {
             fs_manager,
             authority,
             local_filesystem: Arc::clone(&local_filesystem),
-            menu_bar_visible: show_menu_bar,
-            tab_bar_visible: show_tab_bar,
-            status_bar_visible: show_status_bar,
-            prompt_line_visible: show_prompt_line,
             windows,
             active_window: active_window_id,
             next_window_id,
@@ -1540,10 +1470,14 @@ impl Editor {
                 *self.keybindings.write().unwrap() =
                     crate::input::keybindings::KeybindingResolver::new(&self.config);
                 self.clipboard.apply_config(&self.config.clipboard);
-                self.menu_bar_visible = self.config.editor.show_menu_bar;
-                self.tab_bar_visible = self.config.editor.show_tab_bar;
-                self.status_bar_visible = self.config.editor.show_status_bar;
-                self.prompt_line_visible = self.config.editor.show_prompt_line;
+                {
+                    let cfg = self.config.editor.clone();
+                    let win = self.active_window_mut();
+                    win.menu_bar_visible = cfg.show_menu_bar;
+                    win.tab_bar_visible = cfg.show_tab_bar;
+                    win.status_bar_visible = cfg.show_status_bar;
+                    win.prompt_line_visible = cfg.show_prompt_line;
+                }
                 #[cfg(feature = "plugins")]
                 self.update_plugin_state_snapshot();
             }

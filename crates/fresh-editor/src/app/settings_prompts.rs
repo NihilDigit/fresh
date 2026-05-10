@@ -448,6 +448,7 @@ impl Editor {
         // --- Diagnostics ---
         crate::services::lsp::diagnostics::invalidate_cache_all();
         let entries: Vec<(String, Vec<lsp_types::Diagnostic>)> = self
+            .active_window()
             .stored_diagnostics
             .iter()
             .map(|(uri, diags)| (uri.clone(), diags.clone()))

@@ -56,13 +56,19 @@ impl Editor {
     /// between iterations.
     fn try_resolve_next_key_callback(&mut self, key_event: &crossterm::event::KeyEvent) -> bool {
         let payload = key_event_to_payload(key_event);
-        if let Some(callback_id) = self.pending_next_key_callbacks.pop_front() {
+        if let Some(callback_id) = self
+            .active_window_mut()
+            .pending_next_key_callbacks
+            .pop_front()
+        {
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
             self.plugin_manager.resolve_callback(callback_id, json);
             return true;
         }
-        if self.key_capture_active {
-            self.pending_key_capture_buffer.push_back(payload);
+        if self.active_window_mut().key_capture_active {
+            self.active_window_mut()
+                .pending_key_capture_buffer
+                .push_back(payload);
             return true;
         }
         false
@@ -290,7 +296,7 @@ impl Editor {
     /// and `dispatch_modal_input` (handler routing) so the two cannot drift.
     pub(crate) fn popups_capture_keys(&self) -> bool {
         use crate::input::keybindings::KeyContext;
-        if matches!(self.key_context, KeyContext::FileExplorer) {
+        if matches!(self.active_window().key_context, KeyContext::FileExplorer) {
             return false;
         }
         self.topmost_popup_focused()
@@ -356,7 +362,7 @@ impl Editor {
         // resolves to `remove_secondary_cursors`, which would shadow the
         // popup-dismiss intent here.
         let popup_focus_match = matches!(
-            kb.resolve_in_context_only(event, self.key_context.clone()),
+            kb.resolve_in_context_only(event, self.active_window().key_context.clone()),
             Some(Action::PopupFocus),
         );
         if popup_focus_match {
@@ -434,7 +440,7 @@ impl Editor {
             KeyContext::CompositeBuffer
         } else {
             // Use the current context (can be FileExplorer or Normal)
-            self.key_context.clone()
+            self.active_window().key_context.clone()
         }
     }
 
@@ -501,11 +507,15 @@ impl Editor {
         }
 
         // Dismiss theme info popup on any key press
-        if self.theme_info_popup.is_some() {
-            self.theme_info_popup = None;
+        if self.active_window_mut().theme_info_popup.is_some() {
+            self.active_window_mut().theme_info_popup = None;
         }
 
-        if self.file_explorer_context_menu.is_some() {
+        if self
+            .active_window_mut()
+            .file_explorer_context_menu
+            .is_some()
+        {
             if let Some(result) = self.handle_file_explorer_context_menu_key(code, modifiers) {
                 return result;
             }
@@ -608,26 +618,29 @@ impl Editor {
                 // Mode chord resolution (via KeybindingResolver)
                 let (chord_result, resolved_action) = {
                     let keybindings = self.keybindings.read().unwrap();
-                    let chord_result =
-                        keybindings.resolve_chord(&self.chord_state, &key_event, mode_ctx.clone());
+                    let chord_result = keybindings.resolve_chord(
+                        &self.active_window().chord_state,
+                        &key_event,
+                        mode_ctx.clone(),
+                    );
                     let resolved = keybindings.resolve(&key_event, mode_ctx);
                     (chord_result, resolved)
                 };
                 match chord_result {
                     crate::input::keybindings::ChordResolution::Complete(action) => {
                         tracing::debug!("Mode chord resolved to action: {:?}", action);
-                        self.chord_state.clear();
+                        self.active_window_mut().chord_state.clear();
                         return self.handle_action(action);
                     }
                     crate::input::keybindings::ChordResolution::Partial => {
                         tracing::debug!("Potential chord prefix in mode '{}'", mode_name);
-                        self.chord_state.push((code, modifiers));
+                        self.active_window_mut().chord_state.push((code, modifiers));
                         return Ok(());
                     }
                     crate::input::keybindings::ChordResolution::NoMatch => {
-                        if !self.chord_state.is_empty() {
+                        if !self.active_window_mut().chord_state.is_empty() {
                             tracing::debug!("Chord sequence abandoned in mode, clearing state");
-                            self.chord_state.clear();
+                            self.active_window_mut().chord_state.clear();
                         }
                     }
                 }
@@ -700,8 +713,11 @@ impl Editor {
         let key_event = crossterm::event::KeyEvent::new(code, modifiers);
         let (chord_result, action) = {
             let keybindings = self.keybindings.read().unwrap();
-            let chord_result =
-                keybindings.resolve_chord(&self.chord_state, &key_event, context.clone());
+            let chord_result = keybindings.resolve_chord(
+                &self.active_window().chord_state,
+                &key_event,
+                context.clone(),
+            );
             let action = keybindings.resolve(&key_event, context.clone());
             (chord_result, action)
         };
@@ -710,20 +726,20 @@ impl Editor {
             crate::input::keybindings::ChordResolution::Complete(action) => {
                 // Complete chord match - execute action and clear chord state
                 tracing::debug!("Complete chord match -> Action: {:?}", action);
-                self.chord_state.clear();
+                self.active_window_mut().chord_state.clear();
                 return self.handle_action(action);
             }
             crate::input::keybindings::ChordResolution::Partial => {
                 // Partial match - add to chord state and wait for more keys
                 tracing::debug!("Partial chord match - waiting for next key");
-                self.chord_state.push((code, modifiers));
+                self.active_window_mut().chord_state.push((code, modifiers));
                 return Ok(());
             }
             crate::input::keybindings::ChordResolution::NoMatch => {
                 // No chord match - clear state and try regular resolution
-                if !self.chord_state.is_empty() {
+                if !self.active_window_mut().chord_state.is_empty() {
                     tracing::debug!("Chord sequence abandoned, clearing state");
-                    self.chord_state.clear();
+                    self.active_window_mut().chord_state.clear();
                 }
             }
         }
@@ -743,7 +759,7 @@ impl Editor {
             }
             _ => {
                 // Cancel any pending LSP requests
-                self.cancel_pending_lsp_requests();
+                self.active_window_mut().cancel_pending_lsp_requests();
             }
         }
 
@@ -932,7 +948,9 @@ impl Editor {
                         }
                     }
                 }
-                if self.key_context == crate::input::keybindings::KeyContext::FileExplorer {
+                if self.active_window_mut().key_context
+                    == crate::input::keybindings::KeyContext::FileExplorer
+                {
                     self.file_explorer_copy();
                     return Ok(());
                 }
@@ -949,22 +967,26 @@ impl Editor {
             Action::CopyFilePath => self.copy_active_buffer_path(false),
             Action::CopyRelativeFilePath => self.copy_active_buffer_path(true),
             Action::Cut => {
-                if self.key_context == crate::input::keybindings::KeyContext::FileExplorer {
+                if self.active_window_mut().key_context
+                    == crate::input::keybindings::KeyContext::FileExplorer
+                {
                     self.file_explorer_cut();
                     return Ok(());
                 }
-                if self.is_editing_disabled() {
+                if self.active_window().is_editing_disabled() {
                     self.set_status_message(t!("buffer.editing_disabled").to_string());
                     return Ok(());
                 }
                 self.cut_selection()
             }
             Action::Paste => {
-                if self.key_context == crate::input::keybindings::KeyContext::FileExplorer {
+                if self.active_window_mut().key_context
+                    == crate::input::keybindings::KeyContext::FileExplorer
+                {
                     self.file_explorer_paste();
                     return Ok(());
                 }
-                if self.is_editing_disabled() {
+                if self.active_window().is_editing_disabled() {
                     self.set_status_message(t!("buffer.editing_disabled").to_string());
                     return Ok(());
                 }
@@ -1342,7 +1364,8 @@ impl Editor {
                             // its tab list contains only the terminal,
                             // exactly the desired final state.
                             self.active_window_mut().terminal_mode = true;
-                            self.key_context = crate::input::keybindings::KeyContext::Terminal;
+                            self.active_window_mut().key_context =
+                                crate::input::keybindings::KeyContext::Terminal;
                             self.resize_visible_terminals();
                             let exit_key = self
                                 .keybindings
@@ -1703,10 +1726,10 @@ impl Editor {
             Action::ToggleVerticalScrollbar => self.toggle_vertical_scrollbar(),
             Action::ToggleHorizontalScrollbar => self.toggle_horizontal_scrollbar(),
             Action::ToggleLineNumbers => self.toggle_line_numbers(),
-            Action::ToggleScrollSync => self.toggle_scroll_sync(),
+            Action::ToggleScrollSync => self.active_window_mut().toggle_scroll_sync(),
             Action::ToggleMouseCapture => self.toggle_mouse_capture(),
             Action::ToggleMouseHover => self.toggle_mouse_hover(),
-            Action::ToggleDebugHighlights => self.toggle_debug_highlights(),
+            Action::ToggleDebugHighlights => self.active_window_mut().toggle_debug_highlights(),
             // Rulers
             Action::AddRuler => {
                 self.start_prompt(t!("rulers.add_prompt").to_string(), PromptType::AddRuler);
@@ -1814,7 +1837,10 @@ impl Editor {
             Action::FileExplorerSelectAll => self.active_window_mut().file_explorer_select_all(),
             Action::RemoveSecondaryCursors => {
                 // Convert action to events and apply them
-                if let Some(events) = self.action_to_events(Action::RemoveSecondaryCursors) {
+                if let Some(events) = self
+                    .active_window_mut()
+                    .action_to_events(Action::RemoveSecondaryCursors)
+                {
                     // Wrap in batch for atomic undo
                     let batch = Event::Batch {
                         events: events.clone(),
@@ -2051,7 +2077,7 @@ impl Editor {
                 self.start_prompt("Play macro (0-9): ".to_string(), PromptType::PlayMacro);
             }
             Action::PlayLastMacro => {
-                if let Some(key) = self.macros.last_register() {
+                if let Some(key) = self.active_window_mut().macros.last_register() {
                     self.play_macro(key);
                 } else {
                     self.set_status_message(t!("status.no_macro_recorded").to_string());
@@ -2068,20 +2094,23 @@ impl Editor {
             }
             Action::CompositeNextHunk => {
                 let buf = self.active_buffer();
-                self.composite_next_hunk_active(buf);
+                self.active_window_mut().composite_next_hunk_active(buf);
             }
             Action::CompositePrevHunk => {
                 let buf = self.active_buffer();
-                self.composite_prev_hunk_active(buf);
+                self.active_window_mut().composite_prev_hunk_active(buf);
             }
             Action::None => {}
             Action::DeleteBackward => {
-                if self.is_editing_disabled() {
+                if self.active_window().is_editing_disabled() {
                     self.set_status_message(t!("buffer.editing_disabled").to_string());
                     return Ok(());
                 }
                 // Normal backspace handling
-                if let Some(events) = self.action_to_events(Action::DeleteBackward) {
+                if let Some(events) = self
+                    .active_window_mut()
+                    .action_to_events(Action::DeleteBackward)
+                {
                     if events.len() > 1 {
                         // Multi-cursor: use optimized bulk edit (O(n) instead of O(n²))
                         let description = "Delete backward".to_string();
@@ -2256,7 +2285,7 @@ impl Editor {
                     .is_terminal_buffer(self.active_buffer())
                 {
                     self.active_window_mut().terminal_mode = true;
-                    self.key_context = KeyContext::Terminal;
+                    self.active_window_mut().key_context = KeyContext::Terminal;
                     self.set_status_message(t!("status.terminal_mode_enabled").to_string());
                 }
             }
@@ -2264,15 +2293,16 @@ impl Editor {
                 // Exit terminal mode back to editor
                 if self.active_window().terminal_mode {
                     self.active_window_mut().terminal_mode = false;
-                    self.key_context = KeyContext::Normal;
+                    self.active_window_mut().key_context = KeyContext::Normal;
                     self.set_status_message(t!("status.terminal_mode_disabled").to_string());
                 }
             }
             Action::ToggleKeyboardCapture => {
                 // Toggle keyboard capture mode in terminal
                 if self.active_window().terminal_mode {
-                    self.keyboard_capture = !self.keyboard_capture;
-                    if self.keyboard_capture {
+                    self.active_window_mut().keyboard_capture =
+                        !self.active_window_mut().keyboard_capture;
+                    if self.active_window_mut().keyboard_capture {
                         self.set_status_message(
                             "Keyboard capture ON - all keys go to terminal (F9 to toggle)"
                                 .to_string(),
@@ -2424,7 +2454,7 @@ impl Editor {
             Action::InsertChar(c) => {
                 if self.is_prompting() {
                     return self.handle_insert_char_prompt(c);
-                } else if self.key_context == KeyContext::FileExplorer {
+                } else if self.active_window_mut().key_context == KeyContext::FileExplorer {
                     self.active_window_mut().file_explorer_search_push_char(c);
                 } else {
                     self.handle_insert_char_editor(c)?;

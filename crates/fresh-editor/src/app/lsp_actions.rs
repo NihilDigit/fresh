@@ -393,30 +393,6 @@ impl Editor {
         }
     }
 
-    /// Is the given language currently user-dismissed via the LSP popup?
-    pub fn is_lsp_language_user_dismissed(&self, language: &str) -> bool {
-        self.active_window()
-            .user_dismissed_lsp_languages
-            .contains(language)
-    }
-
-    /// Dismiss the LSP pill for a language until the next editor session
-    /// (or until the user re-enables it from the popup). See docs on
-    /// `Editor::user_dismissed_lsp_languages` for the rationale.
-    pub fn dismiss_lsp_language(&mut self, language: &str) {
-        self.active_window_mut()
-            .user_dismissed_lsp_languages
-            .insert(language.to_string());
-    }
-
-    /// Undo a previous dismissal — the pill returns to the normal
-    /// yellow `LSP (off)` for this language.
-    pub fn undismiss_lsp_language(&mut self, language: &str) {
-        self.active_window_mut()
-            .user_dismissed_lsp_languages
-            .remove(language);
-    }
-
     /// Handle an action from the LSP status details popup.
     ///
     /// Action keys have the format:
@@ -527,7 +503,8 @@ impl Editor {
                     lsp.shutdown_server_by_name(language, server_name);
                 }
                 // Remove the status entry so it gets re-created on spawn
-                self.lsp_server_statuses
+                self.active_window_mut()
+                    .lsp_server_statuses
                     .remove(&(language.to_string(), server_name.to_string()));
                 let __active_id = self.active_window;
                 if let Some(lsp) = self
@@ -591,7 +568,7 @@ impl Editor {
             // the persisted state until the in-memory cache next
             // re-reads config.
             let lang = language.to_string();
-            self.dismiss_lsp_language(&lang);
+            self.active_window_mut().dismiss_lsp_language(&lang);
             let mut changed = false;
             if let Some(lsp_configs) = self.config_mut().lsp.get_mut(&lang) {
                 for c in lsp_configs.as_mut_slice() {
@@ -622,7 +599,7 @@ impl Editor {
             // the disable action, so it must undo both halves —
             // session dismissal and the on-disk flag.
             let lang = language.to_string();
-            self.undismiss_lsp_language(&lang);
+            self.active_window_mut().undismiss_lsp_language(&lang);
             let mut changed = false;
             if let Some(lsp_configs) = self.config_mut().lsp.get_mut(&lang) {
                 for c in lsp_configs.as_mut_slice() {
@@ -970,7 +947,8 @@ impl Editor {
         }
 
         for name in &stopping_names {
-            self.lsp_server_statuses
+            self.active_window_mut()
+                .lsp_server_statuses
                 .remove(&(language.to_string(), name.clone()));
             // Clear diagnostics this server published so overlays clear
             // from every buffer it touched (not just the active one).
@@ -996,7 +974,8 @@ impl Editor {
             .as_ref()
             .is_some_and(|lsp| lsp.has_handles(language));
         if !any_handle_left {
-            self.lsp_progress
+            self.active_window_mut()
+                .lsp_progress
                 .retain(|_, info| info.language != language);
         }
 
@@ -1072,9 +1051,15 @@ impl Editor {
 
         if let Some(uri_str) = uri {
             self.stored_diagnostics_mut().remove(&uri_str);
-            self.stored_push_diagnostics.remove(&uri_str);
-            self.stored_pull_diagnostics.remove(&uri_str);
-            self.diagnostic_result_ids.remove(&uri_str);
+            self.active_window_mut()
+                .stored_push_diagnostics
+                .remove(&uri_str);
+            self.active_window_mut()
+                .stored_pull_diagnostics
+                .remove(&uri_str);
+            self.active_window_mut()
+                .diagnostic_result_ids
+                .remove(&uri_str);
             self.stored_folding_ranges_mut().remove(&uri_str);
         }
 
@@ -1177,12 +1162,12 @@ impl Editor {
                 )
             });
         let __active_id = self.active_window;
-        let diagnostic_result_ids = &self.diagnostic_result_ids;
         let enable_inlay_hints = self.config.editor.enable_inlay_hints;
 
         let Some(__win) = self.windows.get_mut(&__active_id) else {
             return;
         };
+        let diagnostic_result_ids = &__win.diagnostic_result_ids;
         let __next_id = &mut __win.next_lsp_request_id;
         let buffer_metadata = &mut __win.buffer_metadata;
         let Some(lsp) = __win.lsp.as_mut() else {
@@ -1363,7 +1348,9 @@ impl Editor {
 
                 // Store workspace for cleanup
                 let workspace_dir = workspace.dir().to_path_buf();
-                self.plugin_dev_workspaces.insert(buffer_id, workspace);
+                self.active_window_mut()
+                    .plugin_dev_workspaces
+                    .insert(buffer_id, workspace);
 
                 // Actually spawn the LSP server and send didOpen for this buffer
                 self.send_lsp_did_open_for_buffer(buffer_id, "typescript");

@@ -231,15 +231,18 @@ impl Editor {
     /// Handle character insertion in normal editor mode.
     pub(super) fn handle_insert_char_editor(&mut self, c: char) -> AnyhowResult<()> {
         // Check if editing is disabled (show_cursors = false)
-        if self.is_editing_disabled() {
+        if self.active_window().is_editing_disabled() {
             self.set_status_message(t!("buffer.editing_disabled").to_string());
             return Ok(());
         }
 
         // Cancel any pending LSP requests since the text is changing
-        self.cancel_pending_lsp_requests();
+        self.active_window_mut().cancel_pending_lsp_requests();
 
-        if let Some(events) = self.action_to_events(Action::InsertChar(c)) {
+        if let Some(events) = self
+            .active_window_mut()
+            .action_to_events(Action::InsertChar(c))
+        {
             if events.len() > 1 {
                 // Multi-cursor: use optimized bulk edit (O(n) instead of O(n²))
                 let description = format!("Insert '{}'", c);
@@ -300,12 +303,12 @@ impl Editor {
                 | Action::ToggleComment
         );
 
-        if is_editing_action && self.is_editing_disabled() {
+        if is_editing_action && self.active_window().is_editing_disabled() {
             self.set_status_message(t!("buffer.editing_disabled").to_string());
             return Ok(());
         }
 
-        if let Some(events) = self.action_to_events(action) {
+        if let Some(events) = self.active_window_mut().action_to_events(action) {
             if events.len() > 1 {
                 // Check if this batch contains buffer modifications
                 let has_buffer_mods = events
@@ -394,7 +397,8 @@ impl Editor {
                     ScrollAction::Down(n) => n as isize,
                     _ => return Some(Ok(())),
                 };
-                self.composite_scroll(split_id, buffer_id, delta);
+                self.active_window_mut()
+                    .composite_scroll(split_id, buffer_id, delta);
                 Some(Ok(()))
             }
 

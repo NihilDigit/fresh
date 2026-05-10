@@ -21,17 +21,6 @@ impl Editor {
     /// Line number visibility is stored per-split in `BufferViewState` so that
     /// different splits of the same buffer can independently show/hide line numbers
     /// (e.g., source mode shows them, compose mode hides them).
-    /// Toggle scroll sync for same-buffer splits.
-    pub fn toggle_scroll_sync(&mut self) {
-        self.active_window_mut().same_buffer_scroll_sync =
-            !self.active_window().same_buffer_scroll_sync;
-        if self.active_window().same_buffer_scroll_sync {
-            self.set_status_message(t!("toggle.scroll_sync_enabled").to_string());
-        } else {
-            self.set_status_message(t!("toggle.scroll_sync_disabled").to_string());
-        }
-    }
-
     pub fn toggle_line_numbers(&mut self) {
         let active_split = self
             .windows
@@ -57,43 +46,23 @@ impl Editor {
         }
     }
 
-    /// Toggle debug highlight mode for the active buffer
-    /// When enabled, shows byte positions and highlight span info for debugging
-    pub fn toggle_debug_highlights(&mut self) {
-        let __buffer_id = self.active_buffer();
-        if let Some(state) = self
-            .windows
-            .get_mut(&self.active_window)
-            .map(|w| &mut w.buffers)
-            .expect("active window present")
-            .get_mut(&__buffer_id)
-        {
-            state.debug_highlight_mode = !state.debug_highlight_mode;
-            if state.debug_highlight_mode {
-                self.set_status_message(t!("toggle.debug_mode_on").to_string());
-            } else {
-                self.set_status_message(t!("toggle.debug_mode_off").to_string());
-            }
-        }
-    }
-
     /// Toggle menu bar visibility.
     ///
     /// `editor.show_menu_bar` is a global preference, so the toggle updates the
     /// runtime config and persists the change to the user config layer (same
     /// pattern as the file-explorer toggles). See issue #1156.
     pub fn toggle_menu_bar(&mut self) {
-        let new_value = !self.menu_bar_visible;
+        let new_value = !self.active_window_mut().menu_bar_visible;
         self.config_mut().editor.show_menu_bar = new_value;
-        self.menu_bar_visible = new_value;
+        self.active_window_mut().menu_bar_visible = new_value;
         // When explicitly toggling, clear auto-show state
-        self.menu_bar_auto_shown = false;
+        self.active_window_mut().menu_bar_auto_shown = false;
         // Close any open menu when hiding the menu bar
-        if !self.menu_bar_visible {
+        if !self.active_window_mut().menu_bar_visible {
             self.menu_state.close_menu();
         }
         self.persist_config_change("/editor/show_menu_bar", serde_json::Value::Bool(new_value));
-        let status = if self.menu_bar_visible {
+        let status = if self.active_window_mut().menu_bar_visible {
             t!("toggle.menu_bar_shown")
         } else {
             t!("toggle.menu_bar_hidden")
@@ -103,8 +72,8 @@ impl Editor {
 
     /// Toggle tab bar visibility
     pub fn toggle_tab_bar(&mut self) {
-        self.tab_bar_visible = !self.tab_bar_visible;
-        let status = if self.tab_bar_visible {
+        self.active_window_mut().tab_bar_visible = !self.active_window_mut().tab_bar_visible;
+        let status = if self.active_window_mut().tab_bar_visible {
             t!("toggle.tab_bar_shown")
         } else {
             t!("toggle.tab_bar_hidden")
@@ -114,13 +83,13 @@ impl Editor {
 
     /// Get tab bar visibility
     pub fn tab_bar_visible(&self) -> bool {
-        self.tab_bar_visible
+        self.active_window().tab_bar_visible
     }
 
     /// Toggle status bar visibility
     pub fn toggle_status_bar(&mut self) {
-        self.status_bar_visible = !self.status_bar_visible;
-        let status = if self.status_bar_visible {
+        self.active_window_mut().status_bar_visible = !self.active_window_mut().status_bar_visible;
+        let status = if self.active_window_mut().status_bar_visible {
             t!("toggle.status_bar_shown")
         } else {
             t!("toggle.status_bar_hidden")
@@ -130,13 +99,14 @@ impl Editor {
 
     /// Get status bar visibility
     pub fn status_bar_visible(&self) -> bool {
-        self.status_bar_visible
+        self.active_window().status_bar_visible
     }
 
     /// Toggle prompt line visibility
     pub fn toggle_prompt_line(&mut self) {
-        self.prompt_line_visible = !self.prompt_line_visible;
-        let status = if self.prompt_line_visible {
+        self.active_window_mut().prompt_line_visible =
+            !self.active_window_mut().prompt_line_visible;
+        let status = if self.active_window_mut().prompt_line_visible {
             t!("toggle.prompt_line_shown")
         } else {
             t!("toggle.prompt_line_hidden")
@@ -146,7 +116,7 @@ impl Editor {
 
     /// Get prompt line visibility
     pub fn prompt_line_visible(&self) -> bool {
-        self.prompt_line_visible
+        self.active_window().prompt_line_visible
     }
 
     /// Toggle vertical scrollbar visibility
@@ -235,9 +205,9 @@ impl Editor {
     pub fn toggle_mouse_capture(&mut self) {
         use std::io::stdout;
 
-        self.mouse_enabled = !self.mouse_enabled;
+        self.active_window_mut().mouse_enabled = !self.active_window_mut().mouse_enabled;
 
-        if self.mouse_enabled {
+        if self.active_window_mut().mouse_enabled {
             // Best-effort terminal mouse capture toggle.
             #[allow(clippy::let_underscore_must_use)]
             let _ = crossterm::execute!(stdout(), crossterm::event::EnableMouseCapture);
@@ -252,7 +222,7 @@ impl Editor {
 
     /// Check if mouse capture is enabled
     pub fn is_mouse_enabled(&self) -> bool {
-        self.mouse_enabled
+        self.active_window().mouse_enabled
     }
 
     /// Toggle mouse hover for LSP on/off
@@ -267,8 +237,8 @@ impl Editor {
             self.set_status_message(t!("toggle.mouse_hover_enabled").to_string());
         } else {
             // Clear any pending hover state
-            self.mouse_state.lsp_hover_state = None;
-            self.mouse_state.lsp_hover_request_sent = false;
+            self.active_window_mut().mouse_state.lsp_hover_state = None;
+            self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
             self.set_status_message(t!("toggle.mouse_hover_disabled").to_string());
         }
 
@@ -297,7 +267,7 @@ impl Editor {
     /// our own mouse cursor because GPM can't draw on the alternate screen
     /// buffer used by TUI applications.
     pub fn set_gpm_active(&mut self, active: bool) {
-        self.gpm_active = active;
+        self.active_window_mut().gpm_active = active;
     }
 
     /// Toggle inlay hints visibility
@@ -422,10 +392,10 @@ impl Editor {
         self.clipboard.apply_config(&self.config.clipboard);
 
         // Apply bar visibility changes immediately
-        self.menu_bar_visible = self.config.editor.show_menu_bar;
-        self.tab_bar_visible = self.config.editor.show_tab_bar;
-        self.status_bar_visible = self.config.editor.show_status_bar;
-        self.prompt_line_visible = self.config.editor.show_prompt_line;
+        self.active_window_mut().menu_bar_visible = self.config.editor.show_menu_bar;
+        self.active_window_mut().tab_bar_visible = self.config.editor.show_tab_bar;
+        self.active_window_mut().status_bar_visible = self.config.editor.show_status_bar;
+        self.active_window_mut().prompt_line_visible = self.config.editor.show_prompt_line;
 
         // Update LSP configs
         let __active_id = self.active_window;

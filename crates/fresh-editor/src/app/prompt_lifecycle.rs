@@ -193,8 +193,8 @@ impl Editor {
                 .file_path()
                 .map(|p| p.display().to_string()),
             has_selection: self.has_active_selection(),
-            key_context: self.key_context.clone(),
-            custom_contexts: self.active_custom_contexts.clone(),
+            key_context: self.active_window().key_context.clone(),
+            custom_contexts: self.active_window().active_custom_contexts.clone(),
             buffer_mode: self
                 .active_window()
                 .buffer_metadata
@@ -451,7 +451,7 @@ impl Editor {
 
         // Create the file open state with config-based show_hidden setting
         let show_hidden = self.config.file_browser.show_hidden;
-        self.file_open_state = Some(file_open::FileOpenState::new(
+        self.active_window_mut().file_open_state = Some(file_open::FileOpenState::new(
             initial_dir.clone(),
             show_hidden,
             self.authority.filesystem.clone(),
@@ -472,7 +472,7 @@ impl Editor {
 
         // Create the file open state with config-based show_hidden setting
         let show_hidden = self.config.file_browser.show_hidden;
-        self.file_open_state = Some(file_open::FileOpenState::new(
+        self.active_window_mut().file_open_state = Some(file_open::FileOpenState::new(
             initial_dir.clone(),
             show_hidden,
             self.authority.filesystem.clone(),
@@ -504,7 +504,7 @@ impl Editor {
     /// Load directory contents for the file open dialog
     pub(super) fn load_file_open_directory(&mut self, path: PathBuf) {
         // Update state to loading
-        if let Some(state) = &mut self.file_open_state {
+        if let Some(state) = &mut self.active_window_mut().file_open_state {
             state.current_dir = path.clone();
             state.loading = true;
             state.error = None;
@@ -526,7 +526,7 @@ impl Editor {
             });
         } else {
             // No runtime, set error
-            if let Some(state) = &mut self.file_open_state {
+            if let Some(state) = &mut self.active_window_mut().file_open_state {
                 state.set_error("Async runtime not available".to_string());
             }
         }
@@ -539,7 +539,7 @@ impl Editor {
     ) {
         match result {
             Ok(entries) => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.set_entries(entries);
                 }
                 // Re-apply filter from prompt (entries were just loaded, filter needs to select matching entry)
@@ -550,13 +550,13 @@ impl Editor {
                     .map(|p| p.input.clone())
                     .unwrap_or_default();
                 if !filter.is_empty() {
-                    if let Some(state) = &mut self.file_open_state {
+                    if let Some(state) = &mut self.active_window_mut().file_open_state {
                         state.apply_filter(&filter);
                     }
                 }
             }
             Err(e) => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.set_error(e.to_string());
                 }
             }
@@ -593,7 +593,7 @@ impl Editor {
         &mut self,
         shortcuts: Vec<file_open::NavigationShortcut>,
     ) {
-        if let Some(state) = &mut self.file_open_state {
+        if let Some(state) = &mut self.active_window_mut().file_open_state {
             state.merge_async_shortcuts(shortcuts);
         }
     }
@@ -751,8 +751,8 @@ impl Editor {
                 }
                 PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs => {
                     // Clear file browser state
-                    self.file_open_state = None;
-                    self.file_browser_layout = None;
+                    self.active_window_mut().file_open_state = None;
+                    self.active_window_mut().file_browser_layout = None;
 
                     // Cancelling a Save-As that was opened as part of the
                     // "save and quit" chain aborts the quit — the user
@@ -1073,7 +1073,7 @@ impl Editor {
 
     /// Check if file explorer has focus
     pub fn file_explorer_is_focused(&self) -> bool {
-        self.key_context == KeyContext::FileExplorer
+        self.active_window().key_context == KeyContext::FileExplorer
     }
 
     /// Get current prompt input (for display)
@@ -1112,12 +1112,12 @@ impl Editor {
     /// Get accumulated plugin errors (for test assertions)
     /// Returns all error messages that were detected in plugin status messages
     pub fn get_plugin_errors(&self) -> &[String] {
-        &self.plugin_errors
+        &self.active_window().plugin_errors
     }
 
     /// Clear accumulated plugin errors
     pub fn clear_plugin_errors(&mut self) {
-        self.plugin_errors.clear();
+        self.active_window_mut().plugin_errors.clear();
     }
 
     /// Update prompt suggestions based on current input
