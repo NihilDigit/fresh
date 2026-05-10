@@ -816,7 +816,7 @@ impl Editor {
                     }
                 }
 
-                self.notify_lsp_save();
+                self.active_window_mut().notify_lsp_save();
 
                 self.emit_event(
                     crate::model::control_event::events::FILE_SAVED.name,
@@ -1167,7 +1167,8 @@ impl Editor {
                 }
 
                 // Reset key context to Normal so editor gets focus
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
 
                 // Open the file with the specified encoding
                 if let Err(e) = self.open_file_with_encoding(path, enc) {

@@ -164,7 +164,11 @@ impl Editor {
                 // from being serialized, which is what used to cause a newly
                 // spawned plugin terminal to come back with scrollback from
                 // the prior run.
-                if self.ephemeral_terminals.contains(&terminal_id) {
+                if self
+                    .active_window()
+                    .ephemeral_terminals
+                    .contains(&terminal_id)
+                {
                     continue;
                 }
                 let idx = terminals.len();
@@ -326,7 +330,7 @@ impl Editor {
             line_wrap: Some(self.config.editor.line_wrap),
             syntax_highlighting: Some(self.config.editor.syntax_highlighting),
             enable_inlay_hints: Some(self.config.editor.enable_inlay_hints),
-            mouse_enabled: Some(self.mouse_enabled),
+            mouse_enabled: Some(self.active_window().mouse_enabled),
             menu_bar_hidden: None,
         };
 
@@ -872,7 +876,7 @@ impl Editor {
             self.config_mut().editor.enable_inlay_hints = enable_inlay_hints;
         }
         if let Some(mouse_enabled) = overrides.mouse_enabled {
-            self.mouse_enabled = mouse_enabled;
+            self.active_window_mut().mouse_enabled = mouse_enabled;
         }
         // `overrides.menu_bar_hidden` is a legacy field — kept for serde
         // compatibility with workspaces written by older builds, but no

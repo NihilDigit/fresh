@@ -20,7 +20,7 @@ impl Editor {
     /// Schedule hot exit recovery to run after the next batch of pending file opens.
     pub fn schedule_hot_exit_recovery(&mut self) {
         if self.config.editor.hot_exit {
-            self.pending_hot_exit_recovery = true;
+            self.active_window_mut().pending_hot_exit_recovery = true;
         }
     }
 
@@ -35,15 +35,17 @@ impl Editor {
         message: Option<String>,
         wait_id: Option<u64>,
     ) {
-        self.pending_file_opens.push(super::PendingFileOpen {
-            path,
-            line,
-            column,
-            end_line,
-            end_column,
-            message,
-            wait_id,
-        });
+        self.active_window_mut()
+            .pending_file_opens
+            .push(super::PendingFileOpen {
+                path,
+                line,
+                column,
+                end_line,
+                end_column,
+                message,
+                wait_id,
+            });
     }
 
     /// Process pending file opens (called from the event loop).
@@ -51,12 +53,12 @@ impl Editor {
     /// Opens files that were queued during startup, using the same error handling
     /// as interactive file opens. Returns true if any files were processed.
     pub fn process_pending_file_opens(&mut self) -> bool {
-        if self.pending_file_opens.is_empty() {
+        if self.active_window_mut().pending_file_opens.is_empty() {
             return false;
         }
 
         // Take all pending files to process
-        let pending = std::mem::take(&mut self.pending_file_opens);
+        let pending = std::mem::take(&mut self.active_window_mut().pending_file_opens);
         let mut processed_any = false;
 
         for pending_file in pending {
@@ -87,7 +89,9 @@ impl Editor {
                     // Track wait ID for --wait support
                     if let Some(wait_id) = pending_file.wait_id {
                         let buffer_id = self.active_buffer();
-                        self.wait_tracking.insert(buffer_id, (wait_id, has_popup));
+                        self.active_window_mut()
+                            .wait_tracking
+                            .insert(buffer_id, (wait_id, has_popup));
                     }
                     processed_any = true;
                 }
@@ -110,8 +114,8 @@ impl Editor {
         }
 
         // Apply hot exit recovery if flagged (one-shot after CLI files are opened)
-        if processed_any && self.pending_hot_exit_recovery {
-            self.pending_hot_exit_recovery = false;
+        if processed_any && self.active_window_mut().pending_hot_exit_recovery {
+            self.active_window_mut().pending_hot_exit_recovery = false;
             match self.apply_hot_exit_recovery() {
                 Ok(count) if count > 0 => {
                     tracing::info!("Hot exit: restored unsaved changes for {} buffer(s)", count);
@@ -128,11 +132,13 @@ impl Editor {
 
     /// Take and return completed wait IDs (for --wait support).
     pub fn take_completed_waits(&mut self) -> Vec<u64> {
-        std::mem::take(&mut self.completed_waits)
+        std::mem::take(&mut self.active_window_mut().completed_waits)
     }
 
     /// Remove wait tracking for a given wait_id (e.g., when waiting client disconnects).
     pub fn remove_wait_tracking(&mut self, wait_id: u64) {
-        self.wait_tracking.retain(|_, (wid, _)| *wid != wait_id);
+        self.active_window_mut()
+            .wait_tracking
+            .retain(|_, (wid, _)| *wid != wait_id);
     }
 }

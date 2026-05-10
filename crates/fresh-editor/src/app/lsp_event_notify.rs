@@ -156,7 +156,7 @@ impl Window {
     }
 }
 
-impl Editor {
+impl crate::app::window::Window {
     // === LSP Diagnostics Display ===
     // NOTE: Diagnostics are now applied automatically via process_async_messages()
     // when received from the LSP server asynchronously. No manual polling needed!
@@ -170,7 +170,7 @@ impl Editor {
     /// Notify LSP of a file save for a specific buffer
     pub(super) fn notify_lsp_save_buffer(&mut self, buffer_id: BufferId) {
         // Check if LSP is enabled for this buffer
-        let metadata = match self.active_window().buffer_metadata.get(&buffer_id) {
+        let metadata = match self.buffer_metadata.get(&buffer_id) {
             Some(m) => m,
             None => {
                 tracing::debug!(
@@ -204,7 +204,7 @@ impl Editor {
         // Get the file path for language detection
         // Use buffer's stored language
         let language = match self
-            .buffers()
+            .buffers
             .get(&self.active_buffer())
             .map(|s| s.language.clone())
         {
@@ -230,12 +230,7 @@ impl Editor {
         );
 
         // Only send didSave if LSP is already running (respect auto_start setting)
-        let __active_id = self.active_window;
-        if let Some(lsp) = self
-            .windows
-            .get_mut(&__active_id)
-            .and_then(|w| w.lsp.as_mut())
-        {
+        if let Some(lsp) = self.lsp.as_mut() {
             use crate::services::lsp::manager::LspSpawnResult;
             if lsp.try_spawn(&language, file_path.as_deref()) != LspSpawnResult::Spawned {
                 tracing::debug!(

@@ -129,8 +129,8 @@ impl Editor {
 
         // Complete --wait tracking if this buffer had a popup-based wait
         let active = self.active_buffer();
-        if let Some((wait_id, true)) = self.wait_tracking.remove(&active) {
-            self.completed_waits.push(wait_id);
+        if let Some((wait_id, true)) = self.active_window_mut().wait_tracking.remove(&active) {
+            self.active_window_mut().completed_waits.push(wait_id);
         }
 
         // Clear hover symbol highlight if present
@@ -187,8 +187,8 @@ impl Editor {
         self.active_state_mut().on_focus_lost();
 
         // Clear hover state
-        self.mouse_state.lsp_hover_state = None;
-        self.mouse_state.lsp_hover_request_sent = false;
+        self.active_window_mut().mouse_state.lsp_hover_state = None;
+        self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
         self.active_window_mut().hover.clear_pending();
 
         // Clear hover symbol highlight if present
@@ -454,12 +454,12 @@ impl Editor {
 
         // Send didOpen to all LSP handles (use force_spawn to ensure they're started)
         let __active_id = self.active_window;
-        let diagnostic_result_ids = &self.diagnostic_result_ids;
         let enable_inlay_hints = self.config.editor.enable_inlay_hints;
         let __win = self
             .windows
             .get_mut(&__active_id)
             .expect("active window must exist");
+        let diagnostic_result_ids = &__win.diagnostic_result_ids;
         let __next_id = &mut __win.next_lsp_request_id;
         if let Some(lsp) = __win.lsp.as_mut() {
             // force_spawn starts all servers for this language

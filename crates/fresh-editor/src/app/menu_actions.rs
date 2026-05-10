@@ -61,9 +61,9 @@ impl Editor {
     /// If the menu bar is hidden, it will be temporarily shown.
     pub fn handle_menu_activate(&mut self) {
         // Auto-show menu bar if hidden
-        if !self.menu_bar_visible {
-            self.menu_bar_visible = true;
-            self.menu_bar_auto_shown = true;
+        if !self.active_window_mut().menu_bar_visible {
+            self.active_window_mut().menu_bar_visible = true;
+            self.active_window_mut().menu_bar_auto_shown = true;
         }
         self.on_editor_focus_lost();
         self.menu_state.open_menu(0);
@@ -73,9 +73,9 @@ impl Editor {
     /// Use this method instead of `menu_state.close_menu()` to ensure auto-hide works.
     pub fn close_menu_with_auto_hide(&mut self) {
         self.menu_state.close_menu();
-        if self.menu_bar_auto_shown {
-            self.menu_bar_visible = false;
-            self.menu_bar_auto_shown = false;
+        if self.active_window_mut().menu_bar_auto_shown {
+            self.active_window_mut().menu_bar_visible = false;
+            self.active_window_mut().menu_bar_auto_shown = false;
         }
     }
 
@@ -135,13 +135,13 @@ impl Editor {
 
         // Update context before checking if action is enabled
         use crate::view::ui::context_keys;
+        let has_sel = self.has_active_selection();
+        let fe_focused =
+            self.active_window().key_context == crate::input::keybindings::KeyContext::FileExplorer;
         self.menu_state
             .context
-            .set(context_keys::HAS_SELECTION, self.has_active_selection())
-            .set(
-                context_keys::FILE_EXPLORER_FOCUSED,
-                self.key_context == crate::input::keybindings::KeyContext::FileExplorer,
-            );
+            .set(context_keys::HAS_SELECTION, has_sel)
+            .set(context_keys::FILE_EXPLORER_FOCUSED, fe_focused);
 
         if let Some((action_name, args)) = self.menu_state.get_highlighted_action(&all_menus) {
             // Close the menu with auto-hide support
@@ -163,9 +163,9 @@ impl Editor {
     /// If the menu bar is hidden, it will be temporarily shown.
     pub fn handle_menu_open(&mut self, menu_name: &str) {
         // Auto-show menu bar if hidden
-        if !self.menu_bar_visible {
-            self.menu_bar_visible = true;
-            self.menu_bar_auto_shown = true;
+        if !self.active_window_mut().menu_bar_visible {
+            self.active_window_mut().menu_bar_visible = true;
+            self.active_window_mut().menu_bar_auto_shown = true;
         }
         self.on_editor_focus_lost();
 

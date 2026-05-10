@@ -63,9 +63,9 @@ impl Editor {
 
         // Update mouse cursor position for software cursor rendering (used by GPM)
         // When GPM is active, we always need to re-render to update the cursor position
-        let cursor_moved = self.mouse_cursor_position != Some((col, row));
-        self.mouse_cursor_position = Some((col, row));
-        if self.gpm_active && cursor_moved {
+        let cursor_moved = self.active_window_mut().mouse_cursor_position != Some((col, row));
+        self.active_window_mut().mouse_cursor_position = Some((col, row));
+        if self.active_window_mut().gpm_active && cursor_moved {
             needs_render = true;
         }
 
@@ -83,7 +83,7 @@ impl Editor {
         }
 
         // Dismiss theme info popup on any left-click; check if click is on the button first
-        if self.theme_info_popup.is_some() {
+        if self.active_window_mut().theme_info_popup.is_some() {
             if let MouseEventKind::Down(MouseButton::Left) = mouse_event.kind {
                 if let Some((popup_rect, button_row_offset)) = self.theme_info_popup_rect() {
                     if in_rect(col, row, popup_rect) {
@@ -91,10 +91,11 @@ impl Editor {
                         let actual_button_row = popup_rect.y + button_row_offset;
                         if row == actual_button_row {
                             let fg_key = self
+                                .active_window_mut()
                                 .theme_info_popup
                                 .as_ref()
                                 .and_then(|p| p.info.fg_key.clone());
-                            self.theme_info_popup = None;
+                            self.active_window_mut().theme_info_popup = None;
                             if let Some(key) = fg_key {
                                 self.fire_theme_inspect_hook(key);
                             }
@@ -105,7 +106,7 @@ impl Editor {
                     }
                 }
                 // Click outside popup - dismiss
-                self.theme_info_popup = None;
+                self.active_window_mut().theme_info_popup = None;
                 needs_render = true;
             }
         }
@@ -142,10 +143,14 @@ impl Editor {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 // Check if we were dragging a separator to trigger terminal resize
-                let was_dragging_separator = self.mouse_state.dragging_separator.is_some();
+                let was_dragging_separator = self
+                    .active_window_mut()
+                    .mouse_state
+                    .dragging_separator
+                    .is_some();
 
                 // Check if we were dragging a tab and complete the drop
-                if let Some(drag_state) = self.mouse_state.dragging_tab.take() {
+                if let Some(drag_state) = self.active_window_mut().mouse_state.dragging_tab.take() {
                     if drag_state.is_dragging() {
                         if let Some(drop_zone) = drag_state.drop_zone {
                             self.execute_tab_drop(
@@ -158,30 +163,38 @@ impl Editor {
                 }
 
                 // Stop dragging and clear drag state
-                self.mouse_state.dragging_scrollbar = None;
-                self.mouse_state.drag_start_row = None;
-                self.mouse_state.drag_start_top_byte = None;
-                self.mouse_state.dragging_horizontal_scrollbar = None;
-                self.mouse_state.drag_start_hcol = None;
-                self.mouse_state.drag_start_left_column = None;
-                self.mouse_state.dragging_separator = None;
-                self.mouse_state.drag_start_position = None;
-                self.mouse_state.drag_start_ratio = None;
-                self.mouse_state.dragging_file_explorer = false;
-                self.mouse_state.drag_start_explorer_width = None;
+                self.active_window_mut().mouse_state.dragging_scrollbar = None;
+                self.active_window_mut().mouse_state.drag_start_row = None;
+                self.active_window_mut().mouse_state.drag_start_top_byte = None;
+                self.active_window_mut()
+                    .mouse_state
+                    .dragging_horizontal_scrollbar = None;
+                self.active_window_mut().mouse_state.drag_start_hcol = None;
+                self.active_window_mut().mouse_state.drag_start_left_column = None;
+                self.active_window_mut().mouse_state.dragging_separator = None;
+                self.active_window_mut().mouse_state.drag_start_position = None;
+                self.active_window_mut().mouse_state.drag_start_ratio = None;
+                self.active_window_mut().mouse_state.dragging_file_explorer = false;
+                self.active_window_mut()
+                    .mouse_state
+                    .drag_start_explorer_width = None;
                 // Clear text selection drag state (selection remains in cursor)
-                self.mouse_state.dragging_text_selection = false;
-                self.mouse_state.drag_selection_split = None;
-                self.mouse_state.drag_selection_anchor = None;
-                self.mouse_state.drag_selection_by_words = false;
-                self.mouse_state.drag_selection_word_end = None;
+                self.active_window_mut().mouse_state.dragging_text_selection = false;
+                self.active_window_mut().mouse_state.drag_selection_split = None;
+                self.active_window_mut().mouse_state.drag_selection_anchor = None;
+                self.active_window_mut().mouse_state.drag_selection_by_words = false;
+                self.active_window_mut().mouse_state.drag_selection_word_end = None;
                 // Clear popup scrollbar drag state
-                self.mouse_state.dragging_popup_scrollbar = None;
-                self.mouse_state.drag_start_popup_scroll = None;
+                self.active_window_mut()
+                    .mouse_state
+                    .dragging_popup_scrollbar = None;
+                self.active_window_mut().mouse_state.drag_start_popup_scroll = None;
                 // Clear prompt scrollbar drag state (issue #1796)
-                self.mouse_state.dragging_prompt_scrollbar = false;
+                self.active_window_mut()
+                    .mouse_state
+                    .dragging_prompt_scrollbar = false;
                 // Clear popup text selection drag state (selection remains in popup)
-                self.mouse_state.selecting_in_popup = None;
+                self.active_window_mut().mouse_state.selecting_in_popup = None;
 
                 // If we finished dragging a separator, resize visible terminals
                 if was_dragging_separator {
@@ -225,7 +238,7 @@ impl Editor {
                     let new_highlighted = row == button_row
                         && col >= popup_rect.x
                         && col < popup_rect.x + popup_rect.width;
-                    if let Some(ref mut popup) = self.theme_info_popup {
+                    if let Some(ref mut popup) = self.active_window_mut().theme_info_popup {
                         if popup.button_highlighted != new_highlighted {
                             popup.button_highlighted = new_highlighted;
                             needs_render = true;
@@ -272,7 +285,7 @@ impl Editor {
             }
         }
 
-        self.mouse_state.last_position = Some((col, row));
+        self.active_window_mut().mouse_state.last_position = Some((col, row));
         Ok(needs_render)
     }
 
@@ -289,26 +302,27 @@ impl Editor {
         }
         let now = self.time_source.now();
         let threshold = std::time::Duration::from_millis(self.config.editor.double_click_time_ms);
-        let is_consecutive = if let (Some(prev_time), Some(prev_pos)) =
-            (self.previous_click_time, self.previous_click_position)
-        {
+        let is_consecutive = if let (Some(prev_time), Some(prev_pos)) = (
+            self.active_window_mut().previous_click_time,
+            self.active_window_mut().previous_click_position,
+        ) {
             now.duration_since(prev_time) < threshold && prev_pos == (col, row)
         } else {
             false
         };
         if is_consecutive {
-            self.click_count += 1;
+            self.active_window_mut().click_count += 1;
         } else {
-            self.click_count = 1;
+            self.active_window_mut().click_count = 1;
         }
-        self.previous_click_time = Some(now);
-        self.previous_click_position = Some((col, row));
-        let is_triple = self.click_count >= 3;
-        let is_double = self.click_count == 2;
+        self.active_window_mut().previous_click_time = Some(now);
+        self.active_window_mut().previous_click_position = Some((col, row));
+        let is_triple = self.active_window_mut().click_count >= 3;
+        let is_double = self.active_window_mut().click_count == 2;
         if is_triple {
-            self.click_count = 0;
-            self.previous_click_time = None;
-            self.previous_click_position = None;
+            self.active_window_mut().click_count = 0;
+            self.active_window_mut().previous_click_time = None;
+            self.active_window_mut().previous_click_position = None;
         }
         (is_double, is_triple)
     }
@@ -347,7 +361,8 @@ impl Editor {
             {
                 self.sync_terminal_to_buffer(self.active_buffer());
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
             }
             self.dismiss_transient_popups();
             self.handle_mouse_scroll(col, row, delta)?;
@@ -358,10 +373,10 @@ impl Editor {
     /// Update the current hover target based on mouse position
     /// Returns true if the hover target changed (requiring a re-render)
     pub(super) fn update_hover_target(&mut self, col: u16, row: u16) -> bool {
-        let old_target = self.mouse_state.hover_target.clone();
+        let old_target = self.active_window_mut().mouse_state.hover_target.clone();
         let new_target = self.compute_hover_target(col, row);
         let changed = old_target != new_target;
-        self.mouse_state.hover_target = new_target.clone();
+        self.active_window_mut().mouse_state.hover_target = new_target.clone();
 
         // If a menu is currently open and we're hovering over a different menu bar item,
         // switch to that menu automatically
@@ -487,7 +502,7 @@ impl Editor {
 
         // Handle tab context menu hover - update highlighted item
         if let Some(HoverTarget::TabContextMenuItem(item_idx)) = new_target.clone() {
-            if let Some(ref mut menu) = self.tab_context_menu {
+            if let Some(ref mut menu) = self.active_window_mut().tab_context_menu {
                 if menu.highlighted != item_idx {
                     menu.highlighted = item_idx;
                     return true;
@@ -496,7 +511,7 @@ impl Editor {
         }
 
         if let Some(&HoverTarget::FileExplorerContextMenuItem(item_idx)) = new_target.as_ref() {
-            if let Some(ref mut menu) = self.file_explorer_context_menu {
+            if let Some(ref mut menu) = self.active_window_mut().file_explorer_context_menu {
                 if menu.highlighted != item_idx {
                     menu.highlighted = item_idx;
                     return true;
@@ -539,13 +554,21 @@ impl Editor {
 
         // Suppress LSP hover when a popup is already visible (e.g. theme info popup,
         // tab context menu) to avoid hover tooltips overlapping other popups.
-        if self.theme_info_popup.is_some()
-            || self.tab_context_menu.is_some()
-            || self.file_explorer_context_menu.is_some()
+        if self.active_window_mut().theme_info_popup.is_some()
+            || self.active_window_mut().tab_context_menu.is_some()
+            || self
+                .active_window_mut()
+                .file_explorer_context_menu
+                .is_some()
         {
-            if self.mouse_state.lsp_hover_state.is_some() {
-                self.mouse_state.lsp_hover_state = None;
-                self.mouse_state.lsp_hover_request_sent = false;
+            if self
+                .active_window_mut()
+                .mouse_state
+                .lsp_hover_state
+                .is_some()
+            {
+                self.active_window_mut().mouse_state.lsp_hover_state = None;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
                 self.dismiss_transient_popups();
             }
             return;
@@ -568,9 +591,14 @@ impl Editor {
 
         let Some((split_id, buffer_id, content_rect)) = split_info else {
             // Mouse is not over editor content - clear hover state and dismiss popup
-            if self.mouse_state.lsp_hover_state.is_some() {
-                self.mouse_state.lsp_hover_state = None;
-                self.mouse_state.lsp_hover_request_sent = false;
+            if self
+                .active_window_mut()
+                .mouse_state
+                .lsp_hover_state
+                .is_some()
+            {
+                self.active_window_mut().mouse_state.lsp_hover_state = None;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
                 self.dismiss_transient_popups();
             }
             return;
@@ -617,9 +645,14 @@ impl Editor {
             // Mouse is in the gutter — stop tracking a pending request but keep
             // any existing popup visible. The popup is only dismissed when the
             // mouse leaves the editor area entirely (see docstring).
-            if self.mouse_state.lsp_hover_state.is_some() {
-                self.mouse_state.lsp_hover_state = None;
-                self.mouse_state.lsp_hover_request_sent = false;
+            if self
+                .active_window_mut()
+                .mouse_state
+                .lsp_hover_state
+                .is_some()
+            {
+                self.active_window_mut().mouse_state.lsp_hover_state = None;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
             }
             return;
         };
@@ -671,9 +704,14 @@ impl Editor {
             // request but keep any existing popup visible. The popup is only
             // dismissed when the mouse leaves the editor area entirely
             // (see docstring).
-            if self.mouse_state.lsp_hover_state.is_some() {
-                self.mouse_state.lsp_hover_state = None;
-                self.mouse_state.lsp_hover_request_sent = false;
+            if self
+                .active_window_mut()
+                .mouse_state
+                .lsp_hover_state
+                .is_some()
+            {
+                self.active_window_mut().mouse_state.lsp_hover_state = None;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
             }
             return;
         }
@@ -687,7 +725,7 @@ impl Editor {
         }
 
         // Check if we're still hovering the same position
-        if let Some((old_pos, _, _, _)) = self.mouse_state.lsp_hover_state {
+        if let Some((old_pos, _, _, _)) = self.active_window_mut().mouse_state.lsp_hover_state {
             if old_pos == byte_pos {
                 // Same position - keep existing state
                 return;
@@ -700,8 +738,9 @@ impl Editor {
         }
 
         // Start tracking new hover position
-        self.mouse_state.lsp_hover_state = Some((byte_pos, std::time::Instant::now(), col, row));
-        self.mouse_state.lsp_hover_request_sent = false;
+        self.active_window_mut().mouse_state.lsp_hover_state =
+            Some((byte_pos, std::time::Instant::now(), col, row));
+        self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
     }
 
     /// Check if mouse position is over a transient popup (hover, signature help)
@@ -735,7 +774,8 @@ impl Editor {
 
     /// Check if mouse position is over the file browser popup
     fn is_mouse_over_file_browser(&self, col: u16, row: u16) -> bool {
-        self.file_browser_layout
+        self.active_window()
+            .file_browser_layout
             .as_ref()
             .is_some_and(|layout| layout.contains(col, row))
     }
@@ -759,7 +799,7 @@ impl Editor {
 
     /// Compute what hover target is at the given position
     fn compute_hover_target(&self, col: u16, row: u16) -> Option<HoverTarget> {
-        if let Some(ref menu) = self.file_explorer_context_menu {
+        if let Some(ref menu) = self.active_window().file_explorer_context_menu {
             let (menu_x, menu_y) = menu.clamped_position(
                 self.chrome_layout.last_frame_width,
                 self.chrome_layout.last_frame_height,
@@ -780,7 +820,7 @@ impl Editor {
         }
 
         // Check tab context menu first (it's rendered on top)
-        if let Some(ref menu) = self.tab_context_menu {
+        if let Some(ref menu) = self.active_window().tab_context_menu {
             let menu_x = menu.position.0;
             let menu_y = menu.position.1;
             let menu_width = 22u16;
@@ -838,7 +878,7 @@ impl Editor {
 
         // Check menu bar (row 0, only when visible)
         // Check menu bar using cached layout from previous render
-        if self.menu_bar_visible {
+        if self.active_window().menu_bar_visible {
             if let Some(ref menu_layout) = self.chrome_layout.menu_layout {
                 if let Some(menu_idx) = menu_layout.menu_at(col, row) {
                     return Some(HoverTarget::MenuBarItem(menu_idx));
@@ -1070,12 +1110,14 @@ impl Editor {
             if in_rect(col, row, *content_rect) {
                 // Double-clicked on an editor split
                 if self.active_window().is_terminal_buffer(*buffer_id) {
-                    self.key_context = crate::input::keybindings::KeyContext::Terminal;
+                    self.active_window_mut().key_context =
+                        crate::input::keybindings::KeyContext::Terminal;
                     // Don't select word in terminal buffers
                     return Ok(());
                 }
 
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
 
                 // Position cursor at click location and select word
                 self.handle_editor_double_click(col, row, *split_id, *buffer_id, *content_rect)?;
@@ -1199,11 +1241,11 @@ impl Editor {
             // anchor when dragging forward (use word start) vs backward (use word end).
             let sel_start = cursor.selection_start();
             let sel_end = cursor.selection_end();
-            self.mouse_state.dragging_text_selection = true;
-            self.mouse_state.drag_selection_split = Some(split_id);
-            self.mouse_state.drag_selection_anchor = Some(sel_start);
-            self.mouse_state.drag_selection_by_words = true;
-            self.mouse_state.drag_selection_word_end = Some(sel_end);
+            self.active_window_mut().mouse_state.dragging_text_selection = true;
+            self.active_window_mut().mouse_state.drag_selection_split = Some(split_id);
+            self.active_window_mut().mouse_state.drag_selection_anchor = Some(sel_start);
+            self.active_window_mut().mouse_state.drag_selection_by_words = true;
+            self.active_window_mut().mouse_state.drag_selection_word_end = Some(sel_end);
         }
 
         Ok(())
@@ -1230,7 +1272,8 @@ impl Editor {
                     return Ok(());
                 }
 
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
 
                 // Use the same pattern as handle_editor_double_click:
                 // first focus and position cursor, then select line
@@ -1443,12 +1486,16 @@ impl Editor {
     // Each returns Some(result) if the click was consumed, None to fall through.
 
     fn handle_click_context_menus(&mut self, col: u16, row: u16) -> Option<AnyhowResult<()>> {
-        if self.file_explorer_context_menu.is_some() {
+        if self
+            .active_window_mut()
+            .file_explorer_context_menu
+            .is_some()
+        {
             if let Some(result) = self.handle_file_explorer_context_menu_click(col, row) {
                 return Some(result);
             }
         }
-        if self.tab_context_menu.is_some() {
+        if self.active_window_mut().tab_context_menu.is_some() {
             if let Some(result) = self.handle_tab_context_menu_click(col, row) {
                 return Some(result);
             }
@@ -1548,7 +1595,9 @@ impl Editor {
         prompt.scroll_offset = state.click_to_offset(track_height, click_row);
         // Hand off to the drag follow-up so subsequent mouse moves
         // keep tracking the thumb.
-        self.mouse_state.dragging_prompt_scrollbar = true;
+        self.active_window_mut()
+            .mouse_state
+            .dragging_prompt_scrollbar = true;
         Some(Ok(()))
     }
 
@@ -1583,15 +1632,17 @@ impl Editor {
                 },
             );
         let (popup_idx, target_scroll) = scrollbar_info?;
-        self.mouse_state.dragging_popup_scrollbar = Some(popup_idx);
-        self.mouse_state.drag_start_row = Some(row);
+        self.active_window_mut()
+            .mouse_state
+            .dragging_popup_scrollbar = Some(popup_idx);
+        self.active_window_mut().mouse_state.drag_start_row = Some(row);
         let current_scroll = self
             .active_state()
             .popups
             .get(popup_idx)
             .map(|p| p.scroll_offset)
             .unwrap_or(0);
-        self.mouse_state.drag_start_popup_scroll = Some(current_scroll);
+        self.active_window_mut().mouse_state.drag_start_popup_scroll = Some(current_scroll);
         let state = self.active_state_mut();
         if let Some(popup) = state.popups.get_mut(popup_idx) {
             popup.scroll_by(target_scroll - current_scroll as i32);
@@ -1710,7 +1761,7 @@ impl Editor {
                 if let Some(popup) = state.popups.top_mut() {
                     popup.start_selection(line, relative_col);
                 }
-                self.mouse_state.selecting_in_popup = Some(popup_idx_copy);
+                self.active_window_mut().mouse_state.selecting_in_popup = Some(popup_idx_copy);
                 return Some(Ok(()));
             }
         }
@@ -1718,7 +1769,7 @@ impl Editor {
     }
 
     fn handle_click_menu_bar(&mut self, col: u16, row: u16) -> Option<AnyhowResult<()>> {
-        if self.menu_bar_visible {
+        if self.active_window_mut().menu_bar_visible {
             // Resolve the hit before any &mut operations to avoid borrow conflicts.
             let hit = self
                 .chrome_layout
@@ -1769,10 +1820,11 @@ impl Editor {
         let border_x = explorer_area.x + explorer_area.width.saturating_sub(1);
         if col == border_x && row >= explorer_area.y && row < explorer_area.y + explorer_area.height
         {
-            self.mouse_state.dragging_file_explorer = true;
-            self.mouse_state.drag_start_position = Some((col, row));
-            self.mouse_state.drag_start_explorer_width =
-                Some(self.active_window().file_explorer_width);
+            self.active_window_mut().mouse_state.dragging_file_explorer = true;
+            self.active_window_mut().mouse_state.drag_start_position = Some((col, row));
+            self.active_window_mut()
+                .mouse_state
+                .drag_start_explorer_width = Some(self.active_window().file_explorer_width);
             return Some(Ok(()));
         }
         if in_rect(col, row, explorer_area) {
@@ -1797,36 +1849,42 @@ impl Editor {
 
         self.focus_split(split_id, buffer_id);
         if is_on_thumb {
-            self.mouse_state.dragging_scrollbar = Some(split_id);
-            self.mouse_state.drag_start_row = Some(row);
+            self.active_window_mut().mouse_state.dragging_scrollbar = Some(split_id);
+            self.active_window_mut().mouse_state.drag_start_row = Some(row);
             if self.active_window().is_composite_buffer(buffer_id) {
                 if let Some(vs) = self
                     .active_window()
                     .composite_view_states
                     .get(&(split_id, buffer_id))
                 {
-                    self.mouse_state.drag_start_composite_scroll_row = Some(vs.scroll_row);
+                    self.active_window_mut()
+                        .mouse_state
+                        .drag_start_composite_scroll_row = Some(vs.scroll_row);
                 }
-            } else if let Some(vs) = self
-                .windows
-                .get(&self.active_window)
-                .and_then(|w| w.splits.as_ref())
-                .map(|(_, vs)| vs)
-                .expect("active window must have a populated split layout")
-                .get(&split_id)
-            {
-                self.mouse_state.drag_start_top_byte = Some(vs.viewport.top_byte);
-                self.mouse_state.drag_start_view_line_offset =
-                    Some(vs.viewport.top_view_line_offset);
+            } else {
+                let snap = self
+                    .windows
+                    .get(&self.active_window)
+                    .and_then(|w| w.splits.as_ref())
+                    .map(|(_, vs)| vs)
+                    .expect("active window must have a populated split layout")
+                    .get(&split_id)
+                    .map(|vs| (vs.viewport.top_byte, vs.viewport.top_view_line_offset));
+                if let Some((top_byte, top_view_line_offset)) = snap {
+                    let ms = &mut self.active_window_mut().mouse_state;
+                    ms.drag_start_top_byte = Some(top_byte);
+                    ms.drag_start_view_line_offset = Some(top_view_line_offset);
+                }
             }
         } else {
-            self.mouse_state.dragging_scrollbar = Some(split_id);
+            self.active_window_mut().mouse_state.dragging_scrollbar = Some(split_id);
             if let Err(e) =
                 self.handle_scrollbar_jump(col, row, split_id, buffer_id, scrollbar_rect)
             {
                 return Some(Err(e));
             }
-            self.mouse_state.hover_target = Some(HoverTarget::ScrollbarThumb(split_id));
+            self.active_window_mut().mouse_state.hover_target =
+                Some(HoverTarget::ScrollbarThumb(split_id));
         }
         Some(Ok(()))
     }
@@ -1870,9 +1928,11 @@ impl Editor {
             )?;
 
         self.focus_split(split_id, buffer_id);
-        self.mouse_state.dragging_horizontal_scrollbar = Some(split_id);
+        self.active_window_mut()
+            .mouse_state
+            .dragging_horizontal_scrollbar = Some(split_id);
         if is_on_thumb {
-            self.mouse_state.drag_start_hcol = Some(col);
+            self.active_window_mut().mouse_state.drag_start_hcol = Some(col);
             if let Some(vs) = self
                 .windows
                 .get(&self.active_window)
@@ -1881,11 +1941,12 @@ impl Editor {
                 .expect("active window must have a populated split layout")
                 .get(&split_id)
             {
-                self.mouse_state.drag_start_left_column = Some(vs.viewport.left_column);
+                self.active_window_mut().mouse_state.drag_start_left_column =
+                    Some(vs.viewport.left_column);
             }
         } else {
-            self.mouse_state.drag_start_hcol = None;
-            self.mouse_state.drag_start_left_column = None;
+            self.active_window_mut().mouse_state.drag_start_hcol = None;
+            self.active_window_mut().mouse_state.drag_start_left_column = None;
             let relative_col = col.saturating_sub(hscrollbar_rect.x) as f64;
             let track_width = hscrollbar_rect.width as f64;
             let ratio = if track_width > 1.0 {
@@ -1983,14 +2044,15 @@ impl Editor {
                 }
             };
             if is_on_separator {
-                self.mouse_state.dragging_separator = Some((*split_id, *direction));
-                self.mouse_state.drag_start_position = Some((col, row));
+                self.active_window_mut().mouse_state.dragging_separator =
+                    Some((*split_id, *direction));
+                self.active_window_mut().mouse_state.drag_start_position = Some((col, row));
                 let ratio = self
                     .split_manager_mut()
                     .get_ratio((*split_id).into())
                     .or_else(|| self.grouped_split_ratio(*split_id));
                 if let Some(ratio) = ratio {
-                    self.mouse_state.drag_start_ratio = Some(ratio);
+                    self.active_window_mut().mouse_state.drag_start_ratio = Some(ratio);
                 }
                 return Some(Ok(()));
             }
@@ -2162,11 +2224,9 @@ impl Editor {
                         self.focus_split(split_id, buffer_id);
                         self.active_window_mut()
                             .promote_buffer_from_preview(buffer_id);
-                        self.mouse_state.dragging_tab = Some(super::types::TabDragState::new(
-                            buffer_id,
-                            split_id,
-                            (col, row),
-                        ));
+                        self.active_window_mut().mouse_state.dragging_tab = Some(
+                            super::types::TabDragState::new(buffer_id, split_id, (col, row)),
+                        );
                     }
                     crate::view::split::TabTarget::Group(group_leaf) => {
                         self.activate_group_tab(split_id, group_leaf);
@@ -2207,14 +2267,14 @@ impl Editor {
     /// Handle mouse drag event
     pub(super) fn handle_mouse_drag(&mut self, col: u16, row: u16) -> AnyhowResult<()> {
         // If dragging scrollbar, update scroll position
-        if let Some(dragging_split_id) = self.mouse_state.dragging_scrollbar {
+        if let Some(dragging_split_id) = self.active_window_mut().mouse_state.dragging_scrollbar {
             // Find the buffer and scrollbar rect for this split
             for (split_id, buffer_id, _content_rect, scrollbar_rect, _thumb_start, _thumb_end) in
                 &self.active_layout().split_areas
             {
                 if *split_id == dragging_split_id {
                     // Check if we started dragging from the thumb (have drag_start_row)
-                    if self.mouse_state.drag_start_row.is_some() {
+                    if self.active_window().mouse_state.drag_start_row.is_some() {
                         // Relative drag from thumb
                         self.handle_scrollbar_drag_relative(
                             row,
@@ -2238,7 +2298,11 @@ impl Editor {
         }
 
         // If dragging horizontal scrollbar, update horizontal scroll position
-        if let Some(dragging_split_id) = self.mouse_state.dragging_horizontal_scrollbar {
+        if let Some(dragging_split_id) = self
+            .active_window_mut()
+            .mouse_state
+            .dragging_horizontal_scrollbar
+        {
             // Clone the scrollbar layout so the loop doesn't hold an
             // immutable borrow on `self` while it mutates
             // `self.split_view_states`. The active window's layout cache
@@ -2260,8 +2324,8 @@ impl Editor {
                     }
 
                     if let (Some(drag_start_hcol), Some(drag_start_left_column)) = (
-                        self.mouse_state.drag_start_hcol,
-                        self.mouse_state.drag_start_left_column,
+                        self.active_window_mut().mouse_state.drag_start_hcol,
+                        self.active_window_mut().mouse_state.drag_start_left_column,
                     ) {
                         // Relative drag from thumb - move proportionally to mouse offset
                         // Use thumb size to compute the correct ratio so thumb tracks with mouse
@@ -2313,7 +2377,7 @@ impl Editor {
         }
 
         // If selecting text in popup, extend selection
-        if let Some(popup_idx) = self.mouse_state.selecting_in_popup {
+        if let Some(popup_idx) = self.active_window_mut().mouse_state.selecting_in_popup {
             // Find the popup area from cached layout
             if let Some((_, _, inner_rect, scroll_offset, _, _, _)) = self
                 .chrome_layout
@@ -2344,7 +2408,11 @@ impl Editor {
         // (issue #1796), update its scroll_offset using the same
         // math as the click handler. Same shared-widget logic the
         // popup-scrollbar drag uses below.
-        if self.mouse_state.dragging_prompt_scrollbar {
+        if self
+            .active_window_mut()
+            .mouse_state
+            .dragging_prompt_scrollbar
+        {
             use crate::view::ui::scrollbar::ScrollbarState;
             // Snapshot chrome rects up front so the prompt borrow on
             // active_window_mut() doesn't conflict.
@@ -2374,7 +2442,11 @@ impl Editor {
         }
 
         // If dragging popup scrollbar, update popup scroll position
-        if let Some(popup_idx) = self.mouse_state.dragging_popup_scrollbar {
+        if let Some(popup_idx) = self
+            .active_window_mut()
+            .mouse_state
+            .dragging_popup_scrollbar
+        {
             // Find the popup's scrollbar rect from cached layout
             if let Some((_, _, inner_rect, _, _, Some(sb_rect), total_lines)) = self
                 .chrome_layout
@@ -2406,25 +2478,26 @@ impl Editor {
         }
 
         // If dragging separator, update split ratio
-        if let Some((split_id, direction)) = self.mouse_state.dragging_separator {
+        if let Some((split_id, direction)) = self.active_window_mut().mouse_state.dragging_separator
+        {
             self.handle_separator_drag(col, row, split_id, direction)?;
             return Ok(());
         }
 
         // If dragging file explorer border, update width
-        if self.mouse_state.dragging_file_explorer {
+        if self.active_window_mut().mouse_state.dragging_file_explorer {
             self.handle_file_explorer_border_drag(col)?;
             return Ok(());
         }
 
         // If dragging to select text
-        if self.mouse_state.dragging_text_selection {
+        if self.active_window_mut().mouse_state.dragging_text_selection {
             self.handle_text_selection_drag(col, row)?;
             return Ok(());
         }
 
         // If dragging a tab, update position and compute drop zone
-        if self.mouse_state.dragging_tab.is_some() {
+        if self.active_window_mut().mouse_state.dragging_tab.is_some() {
             self.handle_tab_drag(col, row)?;
             return Ok(());
         }
@@ -2437,10 +2510,11 @@ impl Editor {
         use crate::model::event::Event;
         use crate::primitives::word_navigation::{find_word_end, find_word_start};
 
-        let Some(split_id) = self.mouse_state.drag_selection_split else {
+        let Some(split_id) = self.active_window_mut().mouse_state.drag_selection_split else {
             return Ok(());
         };
-        let Some(anchor_position) = self.mouse_state.drag_selection_anchor else {
+        let Some(anchor_position) = self.active_window_mut().mouse_state.drag_selection_anchor
+        else {
             return Ok(());
         };
 
@@ -2488,8 +2562,8 @@ impl Editor {
         // Calculate the target position and selection geometry by
         // reading buffer state directly, then dispatch the move via
         // Window helpers.
-        let drag_by_words = self.mouse_state.drag_selection_by_words;
-        let drag_word_end = self.mouse_state.drag_selection_word_end;
+        let drag_by_words = self.active_window_mut().mouse_state.drag_selection_by_words;
+        let drag_word_end = self.active_window_mut().mouse_state.drag_selection_word_end;
 
         let Some((target_position, new_position, anchor_position, new_sticky_column)) = self
             .active_window()
@@ -2568,10 +2642,16 @@ impl Editor {
 
     /// Handle file explorer border drag for resizing
     pub(super) fn handle_file_explorer_border_drag(&mut self, col: u16) -> AnyhowResult<()> {
-        let Some((start_col, _start_row)) = self.mouse_state.drag_start_position else {
+        let Some((start_col, _start_row)) =
+            self.active_window_mut().mouse_state.drag_start_position
+        else {
             return Ok(());
         };
-        let Some(start_width) = self.mouse_state.drag_start_explorer_width else {
+        let Some(start_width) = self
+            .active_window_mut()
+            .mouse_state
+            .drag_start_explorer_width
+        else {
             return Ok(());
         };
 
@@ -2607,10 +2687,11 @@ impl Editor {
         split_id: ContainerId,
         direction: SplitDirection,
     ) -> AnyhowResult<()> {
-        let Some((start_col, start_row)) = self.mouse_state.drag_start_position else {
+        let Some((start_col, start_row)) = self.active_window_mut().mouse_state.drag_start_position
+        else {
             return Ok(());
         };
-        let Some(start_ratio) = self.mouse_state.drag_start_ratio else {
+        let Some(start_ratio) = self.active_window_mut().mouse_state.drag_start_ratio else {
             return Ok(());
         };
         let Some(editor_area) = self.active_layout().editor_content_area else {
@@ -2667,11 +2748,10 @@ impl Editor {
 
     /// Handle right-click event
     pub(super) fn handle_right_click(&mut self, col: u16, row: u16) -> AnyhowResult<()> {
-        if let Some(ref menu) = self.file_explorer_context_menu {
-            let (menu_x, menu_y) = menu.clamped_position(
-                self.chrome_layout.last_frame_width,
-                self.chrome_layout.last_frame_height,
-            );
+        let frame_w = self.chrome_layout.last_frame_width;
+        let frame_h = self.chrome_layout.last_frame_height;
+        if let Some(ref menu) = self.active_window().file_explorer_context_menu {
+            let (menu_x, menu_y) = menu.clamped_position(frame_w, frame_h);
             let menu_width = super::types::FILE_EXPLORER_CONTEXT_MENU_WIDTH;
             let menu_height = menu.height();
             if col >= menu_x
@@ -2684,7 +2764,7 @@ impl Editor {
         }
 
         // First check if a tab context menu is open and the click is on a menu item
-        if let Some(ref menu) = self.tab_context_menu {
+        if let Some(ref menu) = self.active_window_mut().tab_context_menu {
             let menu_x = menu.position.0;
             let menu_y = menu.position.1;
             let menu_width = 22u16; // "Close to the Right" + padding
@@ -2724,19 +2804,21 @@ impl Editor {
                     } else {
                         (false, false)
                     };
-                self.key_context = crate::input::keybindings::KeyContext::FileExplorer;
-                self.tab_context_menu = None;
-                self.file_explorer_context_menu = Some(super::types::FileExplorerContextMenu::new(
-                    col,
-                    row + 1,
-                    is_multi,
-                    is_root_selected,
-                ));
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::FileExplorer;
+                self.active_window_mut().tab_context_menu = None;
+                self.active_window_mut().file_explorer_context_menu =
+                    Some(super::types::FileExplorerContextMenu::new(
+                        col,
+                        row + 1,
+                        is_multi,
+                        is_root_selected,
+                    ));
                 return Ok(());
             }
         }
 
-        self.file_explorer_context_menu = None;
+        self.active_window_mut().file_explorer_context_menu = None;
 
         // Check if right-click is on a tab
         let tab_hit = self
@@ -2756,10 +2838,11 @@ impl Editor {
 
         if let Some((split_id, buffer_id)) = tab_hit {
             // Open tab context menu
-            self.tab_context_menu = Some(TabContextMenu::new(buffer_id, split_id, col, row + 1));
+            self.active_window_mut().tab_context_menu =
+                Some(TabContextMenu::new(buffer_id, split_id, col, row + 1));
         } else {
             // Click outside tab - close context menu if open
-            self.tab_context_menu = None;
+            self.active_window_mut().tab_context_menu = None;
         }
 
         Ok(())
@@ -2771,7 +2854,7 @@ impl Editor {
         col: u16,
         row: u16,
     ) -> Option<AnyhowResult<()>> {
-        let menu = self.tab_context_menu.as_ref()?;
+        let menu = self.active_window_mut().tab_context_menu.as_ref()?;
         let menu_x = menu.position.0;
         let menu_y = menu.position.1;
         let menu_width = 22u16;
@@ -2782,7 +2865,7 @@ impl Editor {
         if col < menu_x || col >= menu_x + menu_width || row < menu_y || row >= menu_y + menu_height
         {
             // Click outside menu - close it
-            self.tab_context_menu = None;
+            self.active_window_mut().tab_context_menu = None;
             return Some(Ok(()));
         }
 
@@ -2803,7 +2886,7 @@ impl Editor {
         let item = items[item_idx];
 
         // Close the menu
-        self.tab_context_menu = None;
+        self.active_window_mut().tab_context_menu = None;
 
         // Execute the action
         Some(self.execute_tab_context_menu_action(item, buffer_id, split_id))
@@ -2860,28 +2943,31 @@ impl Editor {
 
         match code {
             KeyCode::Up => {
-                if let Some(ref mut menu) = self.file_explorer_context_menu {
+                if let Some(ref mut menu) = self.active_window_mut().file_explorer_context_menu {
                     menu.prev_item();
                 }
                 Some(Ok(()))
             }
             KeyCode::Down => {
-                if let Some(ref mut menu) = self.file_explorer_context_menu {
+                if let Some(ref mut menu) = self.active_window_mut().file_explorer_context_menu {
                     menu.next_item();
                 }
                 Some(Ok(()))
             }
             KeyCode::Enter => {
                 let item = {
-                    let menu = self.file_explorer_context_menu.as_ref()?;
+                    let menu = self
+                        .active_window_mut()
+                        .file_explorer_context_menu
+                        .as_ref()?;
                     menu.items()[menu.highlighted]
                 };
-                self.file_explorer_context_menu = None;
+                self.active_window_mut().file_explorer_context_menu = None;
                 self.execute_file_explorer_context_menu_action(item);
                 Some(Ok(()))
             }
             KeyCode::Esc => {
-                self.file_explorer_context_menu = None;
+                self.active_window_mut().file_explorer_context_menu = None;
                 Some(Ok(()))
             }
             _ => None,
@@ -2895,12 +2981,11 @@ impl Editor {
         row: u16,
     ) -> Option<AnyhowResult<()>> {
         // Extract all needed values while the immutable borrow is live, then mutate.
+        let frame_w = self.chrome_layout.last_frame_width;
+        let frame_h = self.chrome_layout.last_frame_height;
         let clicked_item: Option<super::types::FileExplorerContextMenuItem> = {
-            let menu = self.file_explorer_context_menu.as_ref()?;
-            let (menu_x, menu_y) = menu.clamped_position(
-                self.chrome_layout.last_frame_width,
-                self.chrome_layout.last_frame_height,
-            );
+            let menu = self.active_window().file_explorer_context_menu.as_ref()?;
+            let (menu_x, menu_y) = menu.clamped_position(frame_w, frame_h);
             let menu_width = super::types::FILE_EXPLORER_CONTEXT_MENU_WIDTH;
             let menu_height = menu.height();
 
@@ -2909,7 +2994,7 @@ impl Editor {
                 || row < menu_y
                 || row >= menu_y + menu_height
             {
-                self.file_explorer_context_menu = None;
+                self.active_window_mut().file_explorer_context_menu = None;
                 return Some(Ok(()));
             }
 
@@ -2921,7 +3006,7 @@ impl Editor {
             menu.items().get(item_idx).copied()
         };
 
-        self.file_explorer_context_menu = None;
+        self.active_window_mut().file_explorer_context_menu = None;
         if let Some(item) = clicked_item {
             self.execute_file_explorer_context_menu_action(item);
         }

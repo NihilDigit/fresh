@@ -41,7 +41,7 @@ impl Editor {
         let page_view = self.is_page_view();
         let file_explorer_visible = self.active_window().file_explorer_visible;
         let file_explorer_focused = self.is_file_explorer_focused();
-        let mouse_capture = self.mouse_enabled;
+        let mouse_capture = self.active_window_mut().mouse_enabled;
         let mouse_hover = self.config.editor.mouse_hover_enabled;
         let inlay_hints = self.config.editor.enable_inlay_hints;
         // True for any real buffer; false when the active buffer is the
@@ -69,7 +69,7 @@ impl Editor {
         } else {
             has_buffer && self.file_explorer_clipboard.is_none()
         };
-        let menu_bar = self.menu_bar_visible;
+        let menu_bar = self.active_window_mut().menu_bar_visible;
         let vertical_scrollbar = self.config.editor.show_vertical_scrollbar;
         let horizontal_scrollbar = self.config.editor.show_horizontal_scrollbar;
 
@@ -183,7 +183,7 @@ impl Editor {
 
     /// Check if the file explorer is currently focused.
     fn is_file_explorer_focused(&self) -> bool {
-        self.key_context == crate::input::keybindings::KeyContext::FileExplorer
+        self.active_window().key_context == crate::input::keybindings::KeyContext::FileExplorer
     }
 
     /// Check if the file explorer is showing hidden files.

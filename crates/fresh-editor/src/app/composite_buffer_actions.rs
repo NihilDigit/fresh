@@ -173,6 +173,161 @@ impl crate::app::window::Window {
             view_state.focus_prev_pane();
         }
     }
+
+    /// Effective viewport height for composite-buffer scrolling on
+    /// `split_id`. Subtracts the one-row composite header from the
+    /// raw split viewport. Falls back to a 24-row default when the
+    /// split doesn't yet have a viewport (pre-first-render).
+    fn get_composite_viewport_height(&self, split_id: LeafId) -> usize {
+        const COMPOSITE_HEADER_HEIGHT: u16 = 1;
+        const DEFAULT_VIEWPORT_HEIGHT: usize = 24;
+
+        self.splits
+            .as_ref()
+            .map(|(_, vs)| vs)
+            .expect("window must have a populated split layout")
+            .get(&split_id)
+            .map(|vs| vs.viewport.height.saturating_sub(COMPOSITE_HEADER_HEIGHT) as usize)
+            .unwrap_or(DEFAULT_VIEWPORT_HEIGHT)
+    }
+
+    /// Mirror the composite view's cursor row/column back onto the
+    /// underlying buffer's `EditorState` and the active split's view
+    /// state. Called from hunk-navigation handlers so the status-bar
+    /// `Ln/Col` reflects the new alignment row instead of stale
+    /// pre-jump data.
+    fn sync_editor_cursor_from_composite(&mut self, split_id: LeafId, buffer_id: BufferId) {
+        let (cursor_row, cursor_column, focused_pane) = self
+            .composite_view_states
+            .get(&(split_id, buffer_id))
+            .map(|vs| (vs.cursor_row, vs.cursor_column, vs.focused_pane))
+            .unwrap_or((0, 0, 0));
+
+        let display_line = self
+            .composite_buffers
+            .get(&buffer_id)
+            .and_then(|composite| composite.alignment.get_row(cursor_row))
+            .and_then(|row| row.get_pane_line(focused_pane))
+            .map(|line_ref| line_ref.line)
+            .unwrap_or(cursor_row);
+
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.primary_cursor_line_number =
+                crate::model::buffer::LineNumber::Absolute(display_line);
+        }
+
+        let active_split = self
+            .splits
+            .as_ref()
+            .map(|(mgr, _)| mgr)
+            .expect("window must have a populated split layout")
+            .active_split();
+        if let Some((_, vs_map)) = self.splits.as_mut() {
+            if let Some(view_state) = vs_map.get_mut(&active_split) {
+                view_state.cursors.primary_mut().position = cursor_column;
+            }
+        }
+    }
+
+    /// Navigate to the next hunk (composite-buffer diff view) on
+    /// `split_id`. Centers the new hunk header roughly a third of the
+    /// way down the viewport and syncs the editor cursor so the status
+    /// bar's Ln/Col follows. Returns `true` iff a next hunk existed.
+    pub fn composite_next_hunk(&mut self, split_id: LeafId, buffer_id: BufferId) -> bool {
+        let viewport_height = self.get_composite_viewport_height(split_id);
+        let moved = if let (Some(composite), Some(view_state)) = (
+            self.composite_buffers.get(&buffer_id),
+            self.composite_view_states.get_mut(&(split_id, buffer_id)),
+        ) {
+            if let Some(next_row) = composite.alignment.next_hunk_row(view_state.cursor_row) {
+                view_state.cursor_row = next_row;
+                let context_above = viewport_height / 3;
+                view_state.scroll_row = next_row.saturating_sub(context_above);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if moved {
+            self.sync_editor_cursor_from_composite(split_id, buffer_id);
+        }
+        moved
+    }
+
+    /// Navigate to the previous hunk in a composite-buffer diff view.
+    /// See `composite_next_hunk` for behaviour.
+    pub fn composite_prev_hunk(&mut self, split_id: LeafId, buffer_id: BufferId) -> bool {
+        let viewport_height = self.get_composite_viewport_height(split_id);
+        let moved = if let (Some(composite), Some(view_state)) = (
+            self.composite_buffers.get(&buffer_id),
+            self.composite_view_states.get_mut(&(split_id, buffer_id)),
+        ) {
+            if let Some(prev_row) = composite.alignment.prev_hunk_row(view_state.cursor_row) {
+                view_state.cursor_row = prev_row;
+                let context_above = viewport_height / 3;
+                view_state.scroll_row = prev_row.saturating_sub(context_above);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if moved {
+            self.sync_editor_cursor_from_composite(split_id, buffer_id);
+        }
+        moved
+    }
+
+    /// Hunk navigation entry point that resolves `split_id` from this
+    /// window's active split. Used by keybinding handlers that don't
+    /// carry a split id.
+    pub fn composite_next_hunk_active(&mut self, buffer_id: BufferId) -> bool {
+        let split_id = self
+            .splits
+            .as_ref()
+            .map(|(mgr, _)| mgr)
+            .expect("window must have a populated split layout")
+            .active_split();
+        self.composite_next_hunk(split_id, buffer_id)
+    }
+
+    /// `composite_prev_hunk` flavour for the active split.
+    pub fn composite_prev_hunk_active(&mut self, buffer_id: BufferId) -> bool {
+        let split_id = self
+            .splits
+            .as_ref()
+            .map(|(mgr, _)| mgr)
+            .expect("window must have a populated split layout")
+            .active_split();
+        self.composite_prev_hunk(split_id, buffer_id)
+    }
+
+    /// Scroll a composite-buffer view by `delta` rows, clamped to the
+    /// composite's row count. No-op if the buffer or view state is
+    /// missing.
+    pub fn composite_scroll(&mut self, split_id: LeafId, buffer_id: BufferId, delta: isize) {
+        if let (Some(composite), Some(view_state)) = (
+            self.composite_buffers.get(&buffer_id),
+            self.composite_view_states.get_mut(&(split_id, buffer_id)),
+        ) {
+            let max_row = composite.row_count().saturating_sub(1);
+            view_state.scroll(delta, max_row);
+        }
+    }
+
+    /// Scroll a composite-buffer view to absolute row `row`, clamped.
+    pub fn composite_scroll_to(&mut self, split_id: LeafId, buffer_id: BufferId, row: usize) {
+        if let (Some(composite), Some(view_state)) = (
+            self.composite_buffers.get(&buffer_id),
+            self.composite_view_states.get_mut(&(split_id, buffer_id)),
+        ) {
+            let max_row = composite.row_count().saturating_sub(1);
+            view_state.set_scroll_row(row, max_row);
+        }
+    }
 }
 
 impl Editor {
@@ -338,132 +493,9 @@ impl Editor {
     // `impl Window` above. Editor callers reach them via
     // `self.active_window_mut().X(...)`.
 
-    /// Navigate to the next hunk using the active split.
-    pub fn composite_next_hunk_active(&mut self, buffer_id: BufferId) -> bool {
-        let split_id = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
-            .map(|(mgr, _)| mgr)
-            .expect("active window must have a populated split layout")
-            .active_split();
-        self.composite_next_hunk(split_id, buffer_id)
-    }
-
-    /// Navigate to the previous hunk using the active split.
-    pub fn composite_prev_hunk_active(&mut self, buffer_id: BufferId) -> bool {
-        let split_id = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
-            .map(|(mgr, _)| mgr)
-            .expect("active window must have a populated split layout")
-            .active_split();
-        self.composite_prev_hunk(split_id, buffer_id)
-    }
-
-    /// Navigate to the next hunk in a composite buffer's diff view.
-    /// Centers the hunk header in the viewport and moves the cursor to it.
-    pub fn composite_next_hunk(&mut self, split_id: LeafId, buffer_id: BufferId) -> bool {
-        let viewport_height = self.get_composite_viewport_height(split_id);
-        let win = self.active_window_mut();
-        let moved = if let (Some(composite), Some(view_state)) = (
-            win.composite_buffers.get(&buffer_id),
-            win.composite_view_states.get_mut(&(split_id, buffer_id)),
-        ) {
-            // Search from cursor position (not scroll position) to avoid
-            // finding the same hunk when scroll is offset for centering
-            if let Some(next_row) = composite.alignment.next_hunk_row(view_state.cursor_row) {
-                view_state.cursor_row = next_row;
-                // Scroll so the hunk header is ~1/3 from the top of the viewport
-                let context_above = viewport_height / 3;
-                view_state.scroll_row = next_row.saturating_sub(context_above);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        // Keep the EditorState / split-view cursor in lockstep with the
-        // composite view so the status bar's Ln/Col reflects the new row.
-        // Arrow keys do this via handle_cursor_movement_action; hunk
-        // navigation used to skip it, leaving "Ln 1" stale after n/p.
-        if moved {
-            self.sync_editor_cursor_from_composite(split_id, buffer_id);
-        }
-        moved
-    }
-
-    /// Navigate to the previous hunk in a composite buffer's diff view.
-    /// Centers the hunk header in the viewport and moves the cursor to it.
-    pub fn composite_prev_hunk(&mut self, split_id: LeafId, buffer_id: BufferId) -> bool {
-        let viewport_height = self.get_composite_viewport_height(split_id);
-        let win = self.active_window_mut();
-        let moved = if let (Some(composite), Some(view_state)) = (
-            win.composite_buffers.get(&buffer_id),
-            win.composite_view_states.get_mut(&(split_id, buffer_id)),
-        ) {
-            if let Some(prev_row) = composite.alignment.prev_hunk_row(view_state.cursor_row) {
-                view_state.cursor_row = prev_row;
-                let context_above = viewport_height / 3;
-                view_state.scroll_row = prev_row.saturating_sub(context_above);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        if moved {
-            self.sync_editor_cursor_from_composite(split_id, buffer_id);
-        }
-        moved
-    }
-
-    /// Scroll a composite buffer view
-    pub fn composite_scroll(&mut self, split_id: LeafId, buffer_id: BufferId, delta: isize) {
-        let win = self.active_window_mut();
-        if let (Some(composite), Some(view_state)) = (
-            win.composite_buffers.get(&buffer_id),
-            win.composite_view_states.get_mut(&(split_id, buffer_id)),
-        ) {
-            let max_row = composite.row_count().saturating_sub(1);
-            view_state.scroll(delta, max_row);
-        }
-    }
-
-    /// Scroll composite buffer to a specific row
-    pub fn composite_scroll_to(&mut self, split_id: LeafId, buffer_id: BufferId, row: usize) {
-        let win = self.active_window_mut();
-        if let (Some(composite), Some(view_state)) = (
-            win.composite_buffers.get(&buffer_id),
-            win.composite_view_states.get_mut(&(split_id, buffer_id)),
-        ) {
-            let max_row = composite.row_count().saturating_sub(1);
-            view_state.set_scroll_row(row, max_row);
-        }
-    }
-
     // =========================================================================
     // Action Handling for Composite Buffers
     // =========================================================================
-
-    /// Get the effective viewport height for composite buffer scrolling.
-    /// This accounts for the composite header row showing pane labels (e.g., "OLD (HEAD)" / "NEW (Working)")
-    fn get_composite_viewport_height(&self, split_id: LeafId) -> usize {
-        const COMPOSITE_HEADER_HEIGHT: u16 = 1;
-        const DEFAULT_VIEWPORT_HEIGHT: usize = 24;
-
-        self.windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
-            .map(|(_, vs)| vs)
-            .expect("active window must have a populated split layout")
-            .get(&split_id)
-            .map(|vs| vs.viewport.height.saturating_sub(COMPOSITE_HEADER_HEIGHT) as usize)
-            .unwrap_or(DEFAULT_VIEWPORT_HEIGHT)
-    }
 
     /// Get information about the line at the cursor position
     fn get_cursor_line_info(&self, split_id: LeafId, buffer_id: BufferId) -> CursorLineInfo {
@@ -834,56 +866,6 @@ impl Editor {
         }
     }
 
-    /// Sync the EditorState cursor with CompositeViewState (for status bar display)
-    fn sync_editor_cursor_from_composite(&mut self, split_id: LeafId, buffer_id: BufferId) {
-        let (cursor_row, cursor_column, focused_pane) = self
-            .active_window_mut()
-            .composite_view_states
-            .get(&(split_id, buffer_id))
-            .map(|vs| (vs.cursor_row, vs.cursor_column, vs.focused_pane))
-            .unwrap_or((0, 0, 0));
-
-        // Look up the actual file line number from the alignment
-        // The cursor_row is an alignment row index, which may include hunk headers
-        // We want to display the actual source file line number
-        let display_line = self
-            .active_window_mut()
-            .composite_buffers
-            .get(&buffer_id)
-            .and_then(|composite| composite.alignment.get_row(cursor_row))
-            .and_then(|row| row.get_pane_line(focused_pane))
-            .map(|line_ref| line_ref.line)
-            .unwrap_or(cursor_row); // Fall back to cursor_row if no source line
-
-        if let Some(state) = self
-            .windows
-            .get_mut(&self.active_window)
-            .map(|w| &mut w.buffers)
-            .expect("active window present")
-            .get_mut(&buffer_id)
-        {
-            state.primary_cursor_line_number =
-                crate::model::buffer::LineNumber::Absolute(display_line);
-        }
-        // Update cursor position in SplitViewState
-        let active_split = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
-            .map(|(mgr, _)| mgr)
-            .expect("active window must have a populated split layout")
-            .active_split();
-        if let Some(view_state) = self
-            .windows
-            .get_mut(&self.active_window)
-            .and_then(|w| w.split_view_states_mut())
-            .expect("active window must have a populated split layout")
-            .get_mut(&active_split)
-        {
-            view_state.cursors.primary_mut().position = cursor_column;
-        }
-    }
-
     /// Handle cursor movement actions (both Move and Select variants)
     fn handle_cursor_movement_action(
         &mut self,
@@ -892,7 +874,7 @@ impl Editor {
         movement: CursorMovement,
         extend_selection: bool,
     ) -> Option<bool> {
-        let viewport_height = self.get_composite_viewport_height(split_id);
+        let viewport_height = self.active_window().get_composite_viewport_height(split_id);
 
         let line_info = self.get_cursor_line_info(split_id, buffer_id);
 
@@ -921,7 +903,8 @@ impl Editor {
         }
 
         self.apply_cursor_movement(split_id, buffer_id, movement, &line_info, viewport_height);
-        self.sync_editor_cursor_from_composite(split_id, buffer_id);
+        self.active_window_mut()
+            .sync_editor_cursor_from_composite(split_id, buffer_id);
 
         Some(true)
     }
@@ -1069,7 +1052,7 @@ impl Editor {
 
             // Page navigation
             Action::MovePageDown | Action::MovePageUp => {
-                let viewport_height = self.get_composite_viewport_height(split_id);
+                let viewport_height = self.active_window().get_composite_viewport_height(split_id);
                 let win = self.active_window_mut();
                 if let Some(view_state) = win.composite_view_states.get_mut(&(split_id, buffer_id))
                 {
@@ -1084,13 +1067,14 @@ impl Editor {
                         view_state.cursor_row = view_state.scroll_row;
                     }
                 }
-                self.sync_editor_cursor_from_composite(split_id, buffer_id);
+                self.active_window_mut()
+                    .sync_editor_cursor_from_composite(split_id, buffer_id);
                 Some(true)
             }
 
             // Document start/end
             Action::MoveDocumentStart | Action::MoveDocumentEnd => {
-                let viewport_height = self.get_composite_viewport_height(split_id);
+                let viewport_height = self.active_window().get_composite_viewport_height(split_id);
                 let win = self.active_window_mut();
                 if let Some(view_state) = win.composite_view_states.get_mut(&(split_id, buffer_id))
                 {
@@ -1101,7 +1085,8 @@ impl Editor {
                         view_state.move_cursor_to_bottom(max_row, viewport_height);
                     }
                 }
-                self.sync_editor_cursor_from_composite(split_id, buffer_id);
+                self.active_window_mut()
+                    .sync_editor_cursor_from_composite(split_id, buffer_id);
                 Some(true)
             }
 
@@ -1112,7 +1097,8 @@ impl Editor {
                 } else {
                     -1
                 };
-                self.composite_scroll(split_id, buffer_id, delta);
+                self.active_window_mut()
+                    .composite_scroll(split_id, buffer_id, delta);
                 Some(true)
             }
 
@@ -1475,11 +1461,12 @@ impl Editor {
         }
 
         // Store state for potential text selection drag
-        self.mouse_state.dragging_text_selection = false; // Disable regular text selection for composite
-        self.mouse_state.drag_selection_split = Some(split_id);
+        self.active_window_mut().mouse_state.dragging_text_selection = false; // Disable regular text selection for composite
+        self.active_window_mut().mouse_state.drag_selection_split = Some(split_id);
 
         // Sync cursor position to EditorState for status bar display
-        self.sync_editor_cursor_from_composite(split_id, buffer_id);
+        self.active_window_mut()
+            .sync_editor_cursor_from_composite(split_id, buffer_id);
 
         Ok(())
     }

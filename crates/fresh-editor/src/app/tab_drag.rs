@@ -18,7 +18,7 @@ impl Editor {
     pub(super) fn handle_tab_drag(&mut self, col: u16, row: u16) -> AnyhowResult<()> {
         // Update current position and check if we're dragging
         let (is_dragging, source_split_id) =
-            if let Some(ref mut drag_state) = self.mouse_state.dragging_tab {
+            if let Some(ref mut drag_state) = self.active_window_mut().mouse_state.dragging_tab {
                 drag_state.current_position = (col, row);
                 (drag_state.is_dragging(), drag_state.source_split_id)
             } else {
@@ -27,7 +27,7 @@ impl Editor {
 
         // Only compute drop zone if we've moved past threshold
         if !is_dragging {
-            if let Some(ref mut drag_state) = self.mouse_state.dragging_tab {
+            if let Some(ref mut drag_state) = self.active_window_mut().mouse_state.dragging_tab {
                 drag_state.drop_zone = None;
             }
             return Ok(());
@@ -35,7 +35,7 @@ impl Editor {
 
         // Compute the drop zone based on mouse position
         let drop_zone = self.compute_tab_drop_zone(col, row, source_split_id);
-        if let Some(ref mut drag_state) = self.mouse_state.dragging_tab {
+        if let Some(ref mut drag_state) = self.active_window_mut().mouse_state.dragging_tab {
             drag_state.drop_zone = drop_zone;
         }
 

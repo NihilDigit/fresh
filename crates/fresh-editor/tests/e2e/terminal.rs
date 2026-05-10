@@ -2966,7 +2966,7 @@ fn test_terminal_exit_keeps_buffer_with_message() {
 
     // Buffer should be read-only (editing disabled) - verify via is_editing_disabled
     assert!(
-        harness.editor().is_editing_disabled(),
+        harness.editor().active_window().is_editing_disabled(),
         "Buffer should be read-only after terminal exit"
     );
 

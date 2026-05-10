@@ -58,7 +58,7 @@ impl JumpOptions {
     }
 }
 
-impl Editor {
+impl crate::app::window::Window {
     /// Move the active cursor to `position` and guarantee that position is
     /// rendered in the active viewport.
     ///
@@ -73,16 +73,13 @@ impl Editor {
     /// [`Editor::ensure_active_cursor_visible_for_navigation`] afterwards.
     pub fn jump_active_cursor_to(&mut self, position: usize, opts: JumpOptions) {
         let active_split = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
+            .splits
+            .as_ref()
             .map(|(mgr, _)| mgr)
             .expect("active window must have a populated split layout")
             .active_split();
         let active_buffer = self.active_buffer();
-        if let Some(view_state) = self
-            .windows
-            .get_mut(&self.active_window)
+        if let Some(view_state) = Some(&mut *self)
             .and_then(|w| w.split_view_states_mut())
             .expect("active window must have a populated split layout")
             .get_mut(&active_split)
@@ -91,13 +88,7 @@ impl Editor {
             if opts.clear_anchor {
                 view_state.cursors.primary_mut().anchor = None;
             }
-            if let Some(state) = self
-                .windows
-                .get_mut(&self.active_window)
-                .map(|w| &mut w.buffers)
-                .expect("active window present")
-                .get_mut(&active_buffer)
-            {
+            if let Some(state) = (&mut self.buffers).get_mut(&active_buffer) {
                 if let Some(pos) = state.buffer.offset_to_position(position) {
                     state.primary_cursor_line_number = LineNumber::Absolute(pos.line);
                 }
@@ -127,8 +118,7 @@ impl Editor {
     /// lower-level scroll machinery decides to do.
     pub fn ensure_active_cursor_visible_for_navigation(&mut self, recenter_on_scroll: bool) {
         let active_buffer = self.active_buffer();
-        self.active_window_mut()
-            .ensure_cursor_visible_for_navigation(active_buffer, recenter_on_scroll);
+        self.ensure_cursor_visible_for_navigation(active_buffer, recenter_on_scroll);
     }
 }
 

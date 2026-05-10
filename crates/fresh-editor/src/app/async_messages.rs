@@ -118,12 +118,12 @@ impl Editor {
     fn merge_and_apply_diagnostics(&mut self, uri: &str) {
         // Merge diagnostics from all servers (push model) and pull model
         let mut merged = Vec::new();
-        if let Some(server_map) = self.stored_push_diagnostics.get(uri) {
+        if let Some(server_map) = self.active_window_mut().stored_push_diagnostics.get(uri) {
             for diagnostics in server_map.values() {
                 merged.extend(diagnostics.iter().cloned());
             }
         }
-        if let Some(pull) = self.stored_pull_diagnostics.get(uri) {
+        if let Some(pull) = self.active_window_mut().stored_pull_diagnostics.get(uri) {
             merged.extend(pull.iter().cloned());
         }
 
@@ -192,12 +192,18 @@ impl Editor {
             uri
         );
 
-        let server_map = self.stored_push_diagnostics.entry(uri.clone()).or_default();
+        let server_map = self
+            .active_window_mut()
+            .stored_push_diagnostics
+            .entry(uri.clone())
+            .or_default();
         if diagnostics.is_empty() {
             server_map.remove(&server_name);
             // Clean up empty outer entry
             if server_map.is_empty() {
-                self.stored_push_diagnostics.remove(&uri);
+                self.active_window_mut()
+                    .stored_push_diagnostics
+                    .remove(&uri);
             }
         } else {
             server_map.insert(server_name, diagnostics);
@@ -232,13 +238,18 @@ impl Editor {
 
         // Store result_id for incremental updates
         if let Some(result_id) = result_id {
-            self.diagnostic_result_ids.insert(uri.clone(), result_id);
+            self.active_window_mut()
+                .diagnostic_result_ids
+                .insert(uri.clone(), result_id);
         }
 
         if diagnostics.is_empty() {
-            self.stored_pull_diagnostics.remove(&uri);
+            self.active_window_mut()
+                .stored_pull_diagnostics
+                .remove(&uri);
         } else {
-            self.stored_pull_diagnostics
+            self.active_window_mut()
+                .stored_pull_diagnostics
                 .insert(uri.clone(), diagnostics);
         }
 
@@ -253,6 +264,7 @@ impl Editor {
     pub(crate) fn clear_diagnostics_for_server(&mut self, server_name: &str) {
         // Collect URIs that have diagnostics from this server.
         let affected_uris: Vec<String> = self
+            .active_window()
             .stored_push_diagnostics
             .iter()
             .filter_map(|(uri, server_map)| {
@@ -275,10 +287,14 @@ impl Editor {
         );
 
         for uri in &affected_uris {
-            if let Some(server_map) = self.stored_push_diagnostics.get_mut(uri) {
+            if let Some(server_map) = self
+                .active_window_mut()
+                .stored_push_diagnostics
+                .get_mut(uri)
+            {
                 server_map.remove(server_name);
                 if server_map.is_empty() {
-                    self.stored_push_diagnostics.remove(uri);
+                    self.active_window_mut().stored_push_diagnostics.remove(uri);
                 }
             }
 
@@ -437,6 +453,7 @@ impl Editor {
         }
 
         let lsp_ranges = self
+            .active_window()
             .stored_folding_ranges
             .get(&uri)
             .cloned()
@@ -894,11 +911,10 @@ impl Editor {
         }
 
         let __active_id = self.active_window;
-        let diagnostic_result_ids = &self.diagnostic_result_ids;
-
         let Some(__win) = self.windows.get_mut(&__active_id) else {
             return;
         };
+        let diagnostic_result_ids = &__win.diagnostic_result_ids;
         let Some(lsp) = __win.lsp.as_mut() else {
             return;
         };
@@ -940,7 +956,7 @@ impl Editor {
                 message,
                 percentage,
             } => {
-                self.lsp_progress.insert(
+                self.active_window_mut().lsp_progress.insert(
                     token.clone(),
                     LspProgressInfo {
                         language,
@@ -954,13 +970,13 @@ impl Editor {
                 message,
                 percentage,
             } => {
-                if let Some(info) = self.lsp_progress.get_mut(&token) {
+                if let Some(info) = self.active_window_mut().lsp_progress.get_mut(&token) {
                     info.message = message;
                     info.percentage = percentage;
                 }
             }
             LspProgressValue::End { .. } => {
-                self.lsp_progress.remove(&token);
+                self.active_window_mut().lsp_progress.remove(&token);
             }
         }
         // If the LSP status popup is open, rebuild it so the progress line
@@ -978,16 +994,18 @@ impl Editor {
         message: String,
     ) {
         // Add to window messages list
-        self.lsp_window_messages.push(LspMessageEntry {
-            language: language.clone(),
-            message_type,
-            message: message.clone(),
-            timestamp: Instant::now(),
-        });
+        self.active_window_mut()
+            .lsp_window_messages
+            .push(LspMessageEntry {
+                language: language.clone(),
+                message_type,
+                message: message.clone(),
+                timestamp: Instant::now(),
+            });
 
         // Keep only last 100 messages
-        if self.lsp_window_messages.len() > 100 {
-            self.lsp_window_messages.remove(0);
+        if self.active_window_mut().lsp_window_messages.len() > 100 {
+            self.active_window_mut().lsp_window_messages.remove(0);
         }
 
         // Show important messages in status bar
@@ -1009,16 +1027,18 @@ impl Editor {
         message_type: LspMessageType,
         message: String,
     ) {
-        self.lsp_log_messages.push(LspMessageEntry {
-            language,
-            message_type,
-            message,
-            timestamp: Instant::now(),
-        });
+        self.active_window_mut()
+            .lsp_log_messages
+            .push(LspMessageEntry {
+                language,
+                message_type,
+                message,
+                timestamp: Instant::now(),
+            });
 
         // Keep only last 500 log messages
-        if self.lsp_log_messages.len() > 500 {
-            self.lsp_log_messages.remove(0);
+        if self.active_window_mut().lsp_log_messages.len() > 500 {
+            self.active_window_mut().lsp_log_messages.remove(0);
         }
     }
 
@@ -1035,10 +1055,16 @@ impl Editor {
         let key = (language.clone(), server_name);
 
         // Get old status for event
-        let old_status = self.lsp_server_statuses.get(&key).cloned();
+        let old_status = self
+            .active_window_mut()
+            .lsp_server_statuses
+            .get(&key)
+            .cloned();
 
         // Update server status
-        self.lsp_server_statuses.insert(key, status);
+        self.active_window_mut()
+            .lsp_server_statuses
+            .insert(key, status);
 
         // Update warning domain for LSP status indicator
         self.update_lsp_warning_domain();

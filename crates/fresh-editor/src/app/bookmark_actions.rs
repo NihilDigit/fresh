@@ -121,7 +121,8 @@ impl Editor {
         // Bookmarks can point anywhere in the file; the viewport must scroll
         // to follow the jump even when the bookmark target is in the same
         // buffer that's already visible (#1689).
-        self.ensure_active_cursor_visible_for_navigation(true);
+        self.active_window_mut()
+            .ensure_active_cursor_visible_for_navigation(true);
         self.set_status_message(t!("bookmark.jumped", key = key).to_string());
     }
 }

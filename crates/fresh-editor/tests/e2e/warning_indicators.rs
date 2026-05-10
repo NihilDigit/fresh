@@ -312,7 +312,7 @@ fn test_status_log_stays_read_only_after_revert() {
 
     // Verify the buffer is read-only
     assert!(
-        harness.editor().is_editing_disabled(),
+        harness.editor().active_window().is_editing_disabled(),
         "Status log buffer should be read-only immediately after opening"
     );
 
@@ -338,7 +338,7 @@ fn test_status_log_stays_read_only_after_revert() {
 
     // The key assertion: editing_disabled must survive the revert
     assert!(
-        harness.editor().is_editing_disabled(),
+        harness.editor().active_window().is_editing_disabled(),
         "Status log buffer should remain read-only after revert"
     );
 }

@@ -152,7 +152,7 @@ impl Editor {
         }
 
         // Notify LSP of save
-        self.notify_lsp_save_buffer(buffer_id);
+        self.active_window_mut().notify_lsp_save_buffer(buffer_id);
 
         // Delete recovery file (buffer is now saved)
         if let Err(e) = self.delete_buffer_recovery(buffer_id) {
@@ -223,13 +223,13 @@ impl Editor {
             std::time::Duration::from_secs(self.config.editor.auto_save_interval_secs as u64);
         if self
             .time_source
-            .elapsed_since(self.last_persistent_auto_save)
+            .elapsed_since(self.active_window().last_persistent_auto_save)
             < interval
         {
             return Ok(0);
         }
 
-        self.last_persistent_auto_save = self.time_source.now();
+        self.active_window_mut().last_persistent_auto_save = self.time_source.now();
 
         // Collect info for modified buffers that have a file path
         let mut to_save = Vec::new();
@@ -556,10 +556,10 @@ impl Editor {
 
         // Check for results from a previous background poll
         let mut any_changed = false;
-        if let Some(ref rx) = self.pending_file_poll_rx {
+        if let Some(ref rx) = self.active_window_mut().pending_file_poll_rx {
             match rx.try_recv() {
                 Ok(results) => {
-                    self.pending_file_poll_rx = None;
+                    self.active_window_mut().pending_file_poll_rx = None;
                     any_changed = self.process_file_poll_results(results);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -568,7 +568,7 @@ impl Editor {
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     // Background task panicked or was dropped
-                    self.pending_file_poll_rx = None;
+                    self.active_window_mut().pending_file_poll_rx = None;
                 }
             }
         }
@@ -576,7 +576,8 @@ impl Editor {
         // Check poll interval
         let poll_interval =
             std::time::Duration::from_millis(self.config.editor.auto_revert_poll_interval_ms);
-        let elapsed = self.time_source.elapsed_since(self.last_auto_revert_poll);
+        let last_poll = self.active_window().last_auto_revert_poll;
+        let elapsed = self.time_source.elapsed_since(last_poll);
         tracing::trace!(
             "poll_file_changes: elapsed={:?}, poll_interval={:?}",
             elapsed,
@@ -585,7 +586,7 @@ impl Editor {
         if elapsed < poll_interval {
             return any_changed;
         }
-        self.last_auto_revert_poll = self.time_source.now();
+        self.active_window_mut().last_auto_revert_poll = self.time_source.now();
 
         // Collect paths of open files that need checking
         let files_to_check: Vec<PathBuf> = self
@@ -616,7 +617,7 @@ impl Editor {
                 if tx.send(results).is_err() {}
             })
             .ok();
-        self.pending_file_poll_rx = Some(rx);
+        self.active_window_mut().pending_file_poll_rx = Some(rx);
 
         any_changed
     }
@@ -660,17 +661,17 @@ impl Editor {
         // Check for results from a previous background poll
         let mut any_refreshed = false;
         let mut dir_poll_pending = false;
-        if let Some(ref rx) = self.pending_dir_poll_rx {
+        if let Some(ref rx) = self.active_window_mut().pending_dir_poll_rx {
             match rx.try_recv() {
                 Ok((dir_results, git_index_mtime)) => {
-                    self.pending_dir_poll_rx = None;
+                    self.active_window_mut().pending_dir_poll_rx = None;
                     any_refreshed = self.process_dir_poll_results(dir_results, git_index_mtime);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     dir_poll_pending = true;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.pending_dir_poll_rx = None;
+                    self.active_window_mut().pending_dir_poll_rx = None;
                 }
             }
         }
@@ -678,10 +679,11 @@ impl Editor {
         // Check poll interval
         let poll_interval =
             std::time::Duration::from_millis(self.config.editor.file_tree_poll_interval_ms);
-        if self.time_source.elapsed_since(self.last_file_tree_poll) < poll_interval {
+        let last_tree_poll = self.active_window().last_file_tree_poll;
+        if self.time_source.elapsed_since(last_tree_poll) < poll_interval {
             return any_refreshed;
         }
-        self.last_file_tree_poll = self.time_source.now();
+        self.active_window_mut().last_file_tree_poll = self.time_source.now();
 
         // Re-stat every loaded .gitignore and reload/drop as needed, so
         // external edits (git pull, sed, another editor) and deletions take
@@ -700,12 +702,12 @@ impl Editor {
         // Resolve the git index path once (first poll only). This uses the
         // ProcessSpawner which may block briefly on the first call, but only
         // happens once per session.
-        if !self.git_index_resolved {
-            self.git_index_resolved = true;
+        if !self.active_window_mut().git_index_resolved {
+            self.active_window_mut().git_index_resolved = true;
             if let Some(path) = self.resolve_git_index() {
                 if let Ok(meta) = self.authority.filesystem.metadata(&path) {
                     if let Some(mtime) = meta.modified {
-                        self.dir_mod_times.insert(path, mtime);
+                        self.active_window_mut().dir_mod_times.insert(path, mtime);
                     }
                 }
             }
@@ -726,6 +728,7 @@ impl Editor {
 
         // Find the git index path to include in the background metadata check
         let git_index_path: Option<PathBuf> = self
+            .active_window()
             .dir_mod_times
             .keys()
             .find(|p| p.ends_with(".git/index") || p.ends_with(".git\\index"))
@@ -759,7 +762,7 @@ impl Editor {
                 if tx.send((results, git_index_mtime)).is_err() {}
             })
             .ok();
-        self.pending_dir_poll_rx = Some(rx);
+        self.active_window_mut().pending_dir_poll_rx = Some(rx);
 
         any_refreshed
     }
@@ -781,22 +784,28 @@ impl Editor {
                 continue;
             };
 
-            if let Some(&stored_mtime) = self.dir_mod_times.get(&path) {
+            if let Some(&stored_mtime) = self.active_window_mut().dir_mod_times.get(&path) {
                 if current_mtime != stored_mtime {
-                    self.dir_mod_times.insert(path.clone(), current_mtime);
+                    self.active_window_mut()
+                        .dir_mod_times
+                        .insert(path.clone(), current_mtime);
                     dirs_to_refresh.push((node_id, path.clone()));
                     tracing::debug!("Directory changed: {:?}", path);
                 }
             } else {
-                self.dir_mod_times.insert(path, current_mtime);
+                self.active_window_mut()
+                    .dir_mod_times
+                    .insert(path, current_mtime);
             }
         }
 
         // Check if .git/index mtime changed (detected in background thread)
         let git_index_changed = if let Some((path, current_mtime)) = git_index_mtime {
-            if let Some(&stored_mtime) = self.dir_mod_times.get(&path) {
+            if let Some(&stored_mtime) = self.active_window_mut().dir_mod_times.get(&path) {
                 if current_mtime != stored_mtime {
-                    self.dir_mod_times.insert(path, current_mtime);
+                    self.active_window_mut()
+                        .dir_mod_times
+                        .insert(path, current_mtime);
                     self.plugin_manager.run_hook(
                         "focus_gained",
                         crate::services::plugins::hooks::HookArgs::FocusGained {},
@@ -1015,7 +1024,11 @@ impl Editor {
         };
 
         let enable_inlay_hints = self.config.editor.enable_inlay_hints;
-        let previous_result_id = self.diagnostic_result_ids.get(uri.as_str()).cloned();
+        let previous_result_id = self
+            .active_window()
+            .diagnostic_result_ids
+            .get(uri.as_str())
+            .cloned();
 
         // Get buffer line count and version for inlay hints
         let (last_line, last_char, buffer_version) = self

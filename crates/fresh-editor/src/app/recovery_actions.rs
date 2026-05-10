@@ -418,12 +418,16 @@ impl Editor {
         let interval = std::time::Duration::from_secs(
             self.config.editor.auto_recovery_save_interval_secs as u64,
         );
-        if self.time_source.elapsed_since(self.last_auto_recovery_save) < interval {
+        if self
+            .time_source
+            .elapsed_since(self.active_window().last_auto_recovery_save)
+            < interval
+        {
             return Ok(0);
         }
 
         let saved = self.save_pending_recovery_buffers()?;
-        self.last_auto_recovery_save = self.time_source.now();
+        self.active_window_mut().last_auto_recovery_save = self.time_source.now();
         Ok(saved)
     }
 

@@ -57,7 +57,7 @@ impl Editor {
                 .terminal_mode_resume
                 .insert(previous);
             self.active_window_mut().terminal_mode = false;
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         // Capture the previous focus target BEFORE set_pane_buffer runs,
@@ -105,7 +105,7 @@ impl Editor {
             && self.active_window().is_terminal_buffer(buffer_id)
         {
             self.active_window_mut().terminal_mode = true;
-            self.key_context = crate::input::keybindings::KeyContext::Terminal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Terminal;
         } else if self.active_window().is_terminal_buffer(buffer_id) {
             // Switching to terminal in read-only mode - sync buffer to show current terminal content
             // This ensures the backing file content and cursor position are up to date
@@ -129,7 +129,8 @@ impl Editor {
 
         if self.active_window().file_explorer_visible
             && self.config.file_explorer.follow_active_buffer
-            && self.key_context != crate::input::keybindings::KeyContext::FileExplorer
+            && self.active_window_mut().key_context
+                != crate::input::keybindings::KeyContext::FileExplorer
         {
             self.sync_file_explorer_to_active_file();
         }
@@ -172,8 +173,10 @@ impl Editor {
         // subsequent keystrokes target the buffer. The terminal branch
         // below can still upgrade to KeyContext::Terminal when needed.
         // Issue #1540.
-        if self.key_context == crate::input::keybindings::KeyContext::FileExplorer {
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+        if self.active_window_mut().key_context
+            == crate::input::keybindings::KeyContext::FileExplorer
+        {
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         let previous_split = self
@@ -259,7 +262,8 @@ impl Editor {
                 {
                     inner_vs.switch_buffer(buffer_id);
                 }
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
                 return;
             }
             // Fall through: we couldn't find the group; the original path
@@ -272,7 +276,8 @@ impl Editor {
                 && self.active_window().is_terminal_buffer(previous_buffer)
             {
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
             }
 
             // Update split manager to focus this split
@@ -292,11 +297,13 @@ impl Editor {
             // Set key context based on target buffer type
             if self.active_window().is_terminal_buffer(buffer_id) {
                 self.active_window_mut().terminal_mode = true;
-                self.key_context = crate::input::keybindings::KeyContext::Terminal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Terminal;
             } else {
                 // Ensure key context is Normal when focusing a non-terminal buffer
                 // This handles the case of clicking on editor from FileExplorer context
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
             }
 
             // Handle buffer change side effects

@@ -165,7 +165,7 @@ impl Editor {
 
         // Enable terminal mode
         self.active_window_mut().terminal_mode = true;
-        self.key_context = crate::input::keybindings::KeyContext::Terminal;
+        self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Terminal;
 
         // Resize terminal to match actual split content area
         self.resize_visible_terminals();
@@ -343,7 +343,9 @@ impl Editor {
             // Close the terminal
             self.active_window_mut().terminal_manager.close(terminal_id);
             self.active_window_mut().terminal_buffers.remove(&buffer_id);
-            self.ephemeral_terminals.remove(&terminal_id);
+            self.active_window_mut()
+                .ephemeral_terminals
+                .remove(&terminal_id);
 
             // Clean up backing/rendering file
             let backing_file = self
@@ -370,7 +372,7 @@ impl Editor {
 
             // Exit terminal mode
             self.active_window_mut().terminal_mode = false;
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
 
             // Close the buffer
             if let Err(e) = self.close_buffer(buffer_id) {
@@ -581,7 +583,8 @@ impl Editor {
                 | crossterm::event::KeyCode::Char('`') => {
                     // Exit terminal mode and sync buffer
                     self.active_window_mut().terminal_mode = false;
-                    self.key_context = crate::input::keybindings::KeyContext::Normal;
+                    self.active_window_mut().key_context =
+                        crate::input::keybindings::KeyContext::Normal;
                     self.sync_terminal_to_buffer(self.active_buffer());
                     self.set_status_message(
                         "Terminal mode disabled - read only (Ctrl+Space to resume)".to_string(),
@@ -708,7 +711,7 @@ impl Editor {
             .is_terminal_buffer(self.active_buffer())
         {
             self.active_window_mut().terminal_mode = true;
-            self.key_context = crate::input::keybindings::KeyContext::Terminal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Terminal;
 
             // Re-enable editing when in terminal mode (input goes to PTY)
             let __buffer_id = self.active_buffer();
@@ -805,7 +808,7 @@ impl Editor {
 
     /// Check if keyboard capture is enabled in terminal mode (for testing)
     pub fn is_keyboard_capture(&self) -> bool {
-        self.keyboard_capture
+        self.active_window().keyboard_capture
     }
 
     /// Set terminal jump_to_end_on_output config option (for testing)

@@ -471,7 +471,7 @@ impl EditorServer {
                 // switch paints its first frame and then freezes mid-slide
                 // until the user nudges the terminal. Mirrors the direct
                 // (non-server) loop in `main.rs`.
-                if editor.animations.is_active() {
+                if editor.active_window().animations.is_active() {
                     needs_render = true;
                 }
             }

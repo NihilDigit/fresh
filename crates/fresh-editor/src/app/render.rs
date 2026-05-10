@@ -12,7 +12,7 @@ impl Editor {
         // from the runner's own cache. We can't read the live
         // `frame.buffer_mut()` — ratatui resets it before each draw —
         // so the runner keeps a post-apply clone from the last frame.
-        self.animations.capture_before_all();
+        self.active_window_mut().animations.capture_before_all();
 
         // Save frame dimensions for recompute_layout (used by macro replay)
         self.chrome_layout.last_frame_width = size.width;
@@ -34,14 +34,15 @@ impl Editor {
             .active_split();
         {
             let _span = tracing::info_span!("pre_sync_ensure_visible").entered();
-            self.pre_sync_ensure_visible(active_split);
+            self.active_window_mut()
+                .pre_sync_ensure_visible(active_split);
         }
 
         // Synchronize scroll sync groups (anchor-based scroll for side-by-side diffs)
         // This sets viewport positions based on the authoritative scroll_line in each group
         {
             let _span = tracing::info_span!("sync_scroll_groups").entered();
-            self.sync_scroll_groups();
+            self.active_window_mut().sync_scroll_groups();
         }
 
         // NOTE: Viewport sync with cursor is handled by split_rendering.rs which knows the
@@ -190,7 +191,7 @@ impl Editor {
                 p.prompt_type,
                 PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs
             )
-        }) && self.file_open_state.is_some();
+        }) && self.active_window_mut().file_open_state.is_some();
 
         // Build main vertical layout: [menu_bar, main_content, status_bar, search_options, prompt_line]
         // Status bar is hidden when suggestions popup is shown
@@ -198,23 +199,31 @@ impl Editor {
         let mut main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Length(if self.menu_bar_visible { 1 } else { 0 }), // Menu bar
-                Constraint::Min(0),                                            // Main content area
+                Constraint::Length(if self.active_window_mut().menu_bar_visible {
+                    1
+                } else {
+                    0
+                }), // Menu bar
+                Constraint::Min(0), // Main content area
                 Constraint::Length(
-                    if !self.status_bar_visible || has_suggestions || has_file_browser {
+                    if !self.active_window_mut().status_bar_visible
+                        || has_suggestions
+                        || has_file_browser
+                    {
                         0
                     } else {
                         1
                     },
                 ), // Status bar (hidden when toggled off or with popups)
-                Constraint::Length(if show_search_options { 1 } else { 0 }),   // Search options bar
+                Constraint::Length(if show_search_options { 1 } else { 0 }), // Search options bar
                 Constraint::Length(
                     // Prompt line is auto-hidden when no prompt active.
                     // Overlay prompts (Live Grep, issue #1796) host the
                     // input row inside the centred frame, so the
                     // bottom row stays available for editor content
                     // rather than being reserved as dead space.
-                    if (self.prompt_line_visible || self.active_window().prompt.is_some())
+                    if (self.active_window_mut().prompt_line_visible
+                        || self.active_window().prompt.is_some())
                         && !prompt_is_overlay
                     {
                         1
@@ -279,6 +288,14 @@ impl Editor {
             // can keep reading other Editor fields (buffers, theme, keybindings, …) — Rust
             // splits the borrow on `self.windows` from the borrows on those other fields.
             let active_id = self.active_window;
+            // Read window-state inputs before taking the &mut borrow on the
+            // window for the explorer/buffer access below.
+            let is_focused = self.active_window().key_context == KeyContext::FileExplorer;
+            let key_context_clone = self.active_window().key_context.clone();
+            let close_button_hovered = matches!(
+                &self.active_window().mouse_state.hover_target,
+                Some(HoverTarget::FileExplorerCloseButton)
+            );
             // Take one &mut on the active window; the explorer + buffers
             // come from disjoint sub-fields so they can coexist.
             let __win = self
@@ -287,8 +304,6 @@ impl Editor {
                 .expect("active window must exist");
             let __buffers_ref: &HashMap<BufferId, EditorState> = &__win.buffers;
             if let Some(explorer) = __win.file_explorer.as_mut() {
-                let is_focused = self.key_context == KeyContext::FileExplorer;
-
                 // Build set of files with unsaved changes
                 let mut files_with_unsaved_changes = std::collections::HashSet::new();
                 for (buffer_id, state) in __buffers_ref {
@@ -301,10 +316,6 @@ impl Editor {
                     }
                 }
 
-                let close_button_hovered = matches!(
-                    &self.mouse_state.hover_target,
-                    Some(HoverTarget::FileExplorerCloseButton)
-                );
                 let keybindings = self.keybindings.read().unwrap();
                 let empty: Vec<std::path::PathBuf> = Vec::new();
                 let cut_paths = self
@@ -321,7 +332,7 @@ impl Editor {
                     &files_with_unsaved_changes,
                     &__win.file_explorer_decoration_cache,
                     &keybindings,
-                    self.key_context.clone(),
+                    key_context_clone,
                     &self.theme,
                     close_button_hovered,
                     remote_connection.as_deref(),
@@ -565,14 +576,21 @@ impl Editor {
                         p.prompt_type,
                         PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs
                     )
-                }) && self.file_open_state.is_some();
+                }) && self.active_window_mut().file_open_state.is_some();
                 main_chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints(vec![
-                        Constraint::Length(if self.menu_bar_visible { 1 } else { 0 }),
+                        Constraint::Length(if self.active_window_mut().menu_bar_visible {
+                            1
+                        } else {
+                            0
+                        }),
                         Constraint::Min(0),
                         Constraint::Length(
-                            if !self.status_bar_visible || has_suggestions || has_file_browser {
+                            if !self.active_window_mut().status_bar_visible
+                                || has_suggestions
+                                || has_file_browser
+                            {
                                 0
                             } else {
                                 1
@@ -580,7 +598,8 @@ impl Editor {
                         ),
                         Constraint::Length(if show_search_options { 1 } else { 0 }),
                         Constraint::Length(
-                            if (self.prompt_line_visible || self.active_window().prompt.is_some())
+                            if (self.active_window_mut().prompt_line_visible
+                                || self.active_window().prompt.is_some())
                                 && !prompt_is_overlay
                             {
                                 1
@@ -608,26 +627,26 @@ impl Editor {
         // This also causes visual cursor indicators in the editor to be dimmed
         let settings_visible = self.settings_state.as_ref().is_some_and(|s| s.visible);
         let hide_cursor = self.menu_state.active_menu.is_some()
-            || self.key_context == KeyContext::FileExplorer
+            || self.active_window_mut().key_context == KeyContext::FileExplorer
             || self.active_window().terminal_mode
             || settings_visible
             || self.keybinding_editor.is_some();
 
         // Convert HoverTarget to tab hover info for rendering
-        let hovered_tab = match &self.mouse_state.hover_target {
+        let hovered_tab = match &self.active_window_mut().mouse_state.hover_target {
             Some(HoverTarget::TabName(target, split_id)) => Some((*target, *split_id, false)),
             Some(HoverTarget::TabCloseButton(target, split_id)) => Some((*target, *split_id, true)),
             _ => None,
         };
 
         // Get hovered close split button
-        let hovered_close_split = match &self.mouse_state.hover_target {
+        let hovered_close_split = match &self.active_window_mut().mouse_state.hover_target {
             Some(HoverTarget::CloseSplitButton(split_id)) => Some(*split_id),
             _ => None,
         };
 
         // Get hovered maximize split button
-        let hovered_maximize_split = match &self.mouse_state.hover_target {
+        let hovered_maximize_split = match &self.active_window_mut().mouse_state.hover_target {
             Some(HoverTarget::MaximizeSplitButton(split_id)) => Some(*split_id),
             _ => None,
         };
@@ -711,7 +730,7 @@ impl Editor {
             hovered_maximize_split,
             is_maximized,
             self.config.editor.relative_line_numbers,
-            self.tab_bar_visible,
+            __win.tab_bar_visible,
             self.config.editor.use_terminal_bg,
             self.session_mode || !self.software_cursor_only,
             self.software_cursor_only,
@@ -874,7 +893,7 @@ impl Editor {
         // Initialize popup/suggestion layout state (rendered after status bar below)
         self.chrome_layout.suggestions_area = None;
         self.chrome_layout.suggestions_outer_area = None;
-        self.file_browser_layout = None;
+        self.active_window_mut().file_browser_layout = None;
 
         // Clone all immutable values before the mutable borrow
         let display_name = self
@@ -928,20 +947,20 @@ impl Editor {
         let (lsp_status, lsp_indicator_state) = compose_lsp_status(
             &current_language,
             buffer_lsp_disabled_reason,
-            &self.lsp_progress,
-            &self.lsp_server_statuses,
+            &self.active_window().lsp_progress,
+            &self.active_window().lsp_server_statuses,
             &self.config.lsp,
             &self.active_window().user_dismissed_lsp_languages,
         );
         let theme = self.theme.clone();
         let keybindings_cloned = self.keybindings.read().unwrap().clone(); // Clone the keybindings
-        let chord_state_cloned = self.chord_state.clone(); // Clone the chord state
+        let chord_state_cloned = self.active_window_mut().chord_state.clone(); // Clone the chord state
 
         // Get update availability info
         let update_available = self.latest_version().map(|v| v.to_string());
 
         // Render status bar (hidden when toggled off, or when suggestions/file browser popup is shown)
-        if self.status_bar_visible && !has_suggestions && !has_file_browser {
+        if self.active_window_mut().status_bar_visible && !has_suggestions && !has_file_browser {
             // Get warning level for colored indicator (respects config setting)
             // LSP warning level is scoped to the current buffer's language
             let (warning_level, general_warning_count) =
@@ -949,7 +968,7 @@ impl Editor {
                     let lsp_level = {
                         use crate::services::async_bridge::LspServerStatus;
                         let mut level = WarningLevel::None;
-                        for ((lang, _), status) in &self.lsp_server_statuses {
+                        for ((lang, _), status) in &self.active_window().lsp_server_statuses {
                             if lang == &current_language {
                                 match status {
                                     LspServerStatus::Error => {
@@ -974,7 +993,7 @@ impl Editor {
 
             // Compute status bar hover state for styling
             use crate::view::ui::status_bar::StatusBarHover;
-            let status_bar_hover = match &self.mouse_state.hover_target {
+            let status_bar_hover = match &self.active_window_mut().mouse_state.hover_target {
                 Some(HoverTarget::StatusBarLspIndicator) => StatusBarHover::LspIndicator,
                 Some(HoverTarget::StatusBarWarningBadge) => StatusBarHover::WarningBadge,
                 Some(HoverTarget::StatusBarLineEndingIndicator) => {
@@ -1087,7 +1106,7 @@ impl Editor {
 
             // Determine hover state for search options
             use crate::view::ui::status_bar::SearchOptionsHover;
-            let search_options_hover = match &self.mouse_state.hover_target {
+            let search_options_hover = match &self.active_window_mut().mouse_state.hover_target {
                 Some(HoverTarget::SearchOptionCaseSensitive) => SearchOptionsHover::CaseSensitive,
                 Some(HoverTarget::SearchOptionWholeWord) => SearchOptionsHover::WholeWord,
                 Some(HoverTarget::SearchOptionRegex) => SearchOptionsHover::Regex,
@@ -1123,7 +1142,7 @@ impl Editor {
                     crate::view::prompt::PromptType::OpenFile
                         | crate::view::prompt::PromptType::SwitchProject
                 ) {
-                    if let Some(file_open_state) = &self.file_open_state {
+                    if let Some(file_open_state) = &self.active_window_mut().file_open_state {
                         StatusBarRenderer::render_file_open_prompt(
                             frame,
                             main_chunks[prompt_line_idx],
@@ -1170,7 +1189,7 @@ impl Editor {
         // Render popups from the active buffer state
         // Clone theme to avoid borrow checker issues with active_state_mut()
         let theme_clone = self.theme.clone();
-        let hover_target = self.mouse_state.hover_target.clone();
+        let hover_target = self.active_window_mut().mouse_state.hover_target.clone();
 
         // Clear popup areas and recalculate
         self.chrome_layout.popup_areas.clear();
@@ -1449,7 +1468,7 @@ impl Editor {
             crate::view::event_debug::render_event_debug(frame, size, debug, &self.theme);
         }
 
-        if self.menu_bar_visible {
+        if self.active_window_mut().menu_bar_visible {
             // Pre-expand DynamicSubmenu items once per registry; without this
             // MenuRenderer::render rescans + reparses every theme JSON file
             // on every frame.
@@ -1458,6 +1477,8 @@ impl Editor {
                 &self.menus,
                 &self.menu_state.themes_dir,
             );
+            let hover_target = self.active_window().mouse_state.hover_target.clone();
+            let menu_bar_mnemonics = self.config.editor.menu_bar_mnemonics;
             let expanded = self.expanded_menus_cache.get().expect("just updated");
             let keybindings = self.keybindings.read().unwrap();
             self.chrome_layout.menu_layout = Some(crate::view::ui::MenuRenderer::render(
@@ -1467,20 +1488,22 @@ impl Editor {
                 &self.menu_state,
                 &keybindings,
                 &self.theme,
-                self.mouse_state.hover_target.as_ref(),
-                self.config.editor.menu_bar_mnemonics,
+                hover_target.as_ref(),
+                menu_bar_mnemonics,
             ));
         } else {
             self.chrome_layout.menu_layout = None;
         }
 
         // Render tab context menu if open
-        if let Some(ref menu) = self.tab_context_menu {
-            self.render_tab_context_menu(frame, menu);
+        let tab_ctx_menu = self.active_window().tab_context_menu.clone();
+        if let Some(menu) = tab_ctx_menu {
+            self.render_tab_context_menu(frame, &menu);
         }
 
-        if let Some(ref menu) = self.file_explorer_context_menu {
-            self.render_file_explorer_context_menu(frame, menu);
+        let fe_ctx_menu = self.active_window().file_explorer_context_menu.clone();
+        if let Some(menu) = fe_ctx_menu {
+            self.render_file_explorer_context_menu(frame, &menu);
         }
 
         // Record non-editor region theme keys for the theme inspector
@@ -1490,7 +1513,8 @@ impl Editor {
         self.render_theme_info_popup(frame);
 
         // Render tab drag drop zone overlay if dragging a tab
-        if let Some(ref drag_state) = self.mouse_state.dragging_tab {
+        let drag_state_clone = self.active_window().mouse_state.dragging_tab.clone();
+        if let Some(ref drag_state) = drag_state_clone {
             if drag_state.is_dragging() {
                 self.render_tab_drop_zone(frame, drag_state);
             }
@@ -1501,8 +1525,8 @@ impl Editor {
         // so we draw our own cursor at the tracked mouse position.
         // This must happen LAST in the render flow so we can read the already-rendered
         // cell content and invert it.
-        if self.gpm_active {
-            if let Some((col, row)) = self.mouse_cursor_position {
+        if self.active_window_mut().gpm_active {
+            if let Some((col, row)) = self.active_window_mut().mouse_cursor_position {
                 use ratatui::style::Modifier;
 
                 // Only render if within screen bounds
@@ -1518,7 +1542,7 @@ impl Editor {
 
         // When keyboard capture mode is active, dim all UI elements outside the terminal
         // to visually indicate that focus is exclusively on the terminal
-        if self.keyboard_capture && self.active_window().terminal_mode {
+        if self.active_window_mut().keyboard_capture && self.active_window().terminal_mode {
             // Find the active split's content area
             let active_split = self
                 .windows
@@ -1562,7 +1586,9 @@ impl Editor {
         );
 
         // Frame-buffer animations run last so they mutate the final paint.
-        self.animations.apply_all(frame.buffer_mut());
+        self.active_window_mut()
+            .animations
+            .apply_all(frame.buffer_mut());
     }
 
     /// Compare the hardware cursor's screen position to the previous frame's
@@ -1633,10 +1659,12 @@ impl Editor {
 
         // Cancel any prior cursor-jump animation so trails don't stack.
         if let Some(prev_anim) = self.cursor_jump_animation.take() {
-            self.animations.cancel(prev_anim);
+            self.active_window_mut().animations.cancel(prev_anim);
         }
 
-        let id = self.animations.start(
+        let cursor_color = self.theme.cursor;
+        let bg_color = self.theme.editor_bg;
+        let id = self.active_window_mut().animations.start(
             // The bounding box is for runner bookkeeping only — CursorJump
             // paints at absolute screen coords and ignores `area`.
             ratatui::layout::Rect {
@@ -1649,8 +1677,8 @@ impl Editor {
                 from: prev,
                 to: current,
                 duration: std::time::Duration::from_millis(140),
-                cursor_color: self.theme.cursor,
-                bg_color: self.theme.editor_bg,
+                cursor_color,
+                bg_color,
             },
         );
         self.cursor_jump_animation = Some(id);
@@ -1688,7 +1716,7 @@ impl Editor {
                 return true;
             }
         }
-        if let Some(ref fb) = self.file_browser_layout {
+        if let Some(ref fb) = self.active_window().file_browser_layout {
             if inside(fb.popup_area) {
                 return true;
             }
@@ -1760,9 +1788,11 @@ impl Editor {
             prompt.prompt_type,
             PromptType::OpenFile | PromptType::SwitchProject | PromptType::SaveFileAs
         ) {
-            let Some(file_open_state) = &mut self.file_open_state else {
-                return;
-            };
+            let hover_target = self.active_window().mouse_state.hover_target.clone();
+            let theme = self.theme.clone();
+            let keybindings = self.keybindings.read().unwrap();
+            let kb_clone = keybindings.clone();
+            drop(keybindings);
             let max_height = prompt_area.y.saturating_sub(1).min(20);
             let popup_area = ratatui::layout::Rect {
                 x: 0,
@@ -1770,14 +1800,17 @@ impl Editor {
                 width,
                 height: max_height,
             };
-            let keybindings = self.keybindings.read().unwrap();
-            self.file_browser_layout = crate::view::ui::FileBrowserRenderer::render(
+            let __win = self.active_window_mut();
+            let Some(file_open_state) = &mut __win.file_open_state else {
+                return;
+            };
+            __win.file_browser_layout = crate::view::ui::FileBrowserRenderer::render(
                 frame,
                 popup_area,
                 file_open_state,
-                &self.theme,
-                &self.mouse_state.hover_target,
-                Some(&*keybindings),
+                &theme,
+                &hover_target,
+                Some(&kb_clone),
             );
             return;
         }
@@ -1814,7 +1847,7 @@ impl Editor {
             suggestions_area,
             prompt,
             &self.theme,
-            self.mouse_state.hover_target.as_ref(),
+            self.active_window().mouse_state.hover_target.as_ref(),
             true,
         );
         if self.chrome_layout.suggestions_area.is_some() {
@@ -1996,7 +2029,7 @@ impl Editor {
             None,
             false, // not maximized
             self.config.editor.relative_line_numbers,
-            self.tab_bar_visible,
+            __win_for_preview.tab_bar_visible,
             self.config.editor.use_terminal_bg,
             self.session_mode || !self.software_cursor_only,
             self.software_cursor_only,
@@ -2606,7 +2639,7 @@ impl Editor {
                 list_area,
                 &prompt,
                 &theme,
-                self.mouse_state.hover_target.as_ref(),
+                self.active_window_mut().mouse_state.hover_target.as_ref(),
                 false,
             );
             if self.chrome_layout.suggestions_area.is_some() {
@@ -2807,7 +2840,7 @@ impl Editor {
         use ratatui::text::Span;
         use ratatui::widgets::Paragraph;
 
-        match &self.mouse_state.hover_target {
+        match &self.active_window().mouse_state.hover_target {
             Some(HoverTarget::SplitSeparator(split_id, direction)) => {
                 // Highlight the separator with hover color
                 for (sid, dir, x, y, length) in &self.active_layout().separator_areas {
@@ -3169,17 +3202,30 @@ impl Editor {
             .map(|(mgr, _)| mgr)
             .expect("active window must have a populated split layout")
             .active_split();
-        self.pre_sync_ensure_visible(active_split);
-        self.sync_scroll_groups();
+        self.active_window_mut()
+            .pre_sync_ensure_visible(active_split);
+        self.active_window_mut().sync_scroll_groups();
 
         // Replicate the layout computation that produces editor_content_area.
         // Same constraints as render(): [menu_bar, main_content, status_bar, search_options, prompt_line]
         let constraints = vec![
-            Constraint::Length(if self.menu_bar_visible { 1 } else { 0 }),
+            Constraint::Length(if self.active_window_mut().menu_bar_visible {
+                1
+            } else {
+                0
+            }),
             Constraint::Min(0),
-            Constraint::Length(if self.status_bar_visible { 1 } else { 0 }), // status bar
+            Constraint::Length(if self.active_window_mut().status_bar_visible {
+                1
+            } else {
+                0
+            }), // status bar
             Constraint::Length(0), // search options (doesn't matter for layout)
-            Constraint::Length(if self.prompt_line_visible { 1 } else { 0 }), // prompt line
+            Constraint::Length(if self.active_window_mut().prompt_line_visible {
+                1
+            } else {
+                0
+            }), // prompt line
         ];
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -3235,7 +3281,7 @@ impl Editor {
             self.config.editor.use_terminal_bg,
             self.session_mode || !self.software_cursor_only,
             self.software_cursor_only,
-            self.tab_bar_visible,
+            __win_l.tab_bar_visible,
             self.config.editor.show_vertical_scrollbar,
             self.config.editor.show_horizontal_scrollbar,
             self.config.editor.diagnostics_inline_text,

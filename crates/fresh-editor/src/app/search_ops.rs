@@ -40,16 +40,6 @@ impl Editor {
             .update_search_highlights(query, search_fg, search_bg);
     }
 
-    /// Build a compiled regex from the current search settings and query.
-    fn build_search_regex(&self, query: &str) -> Result<regex::Regex, String> {
-        super::regex_replace::build_search_regex(
-            query,
-            self.active_window().search_use_regex,
-            self.active_window().search_whole_word,
-            self.active_window().search_case_sensitive,
-        )
-    }
-
     /// Perform a search and update search state.
     ///
     /// For large files (lazy-loaded buffers), this starts an incremental
@@ -69,7 +59,8 @@ impl Editor {
     /// vertically centered on the match to provide surrounding context
     /// (issue #1251); matches already visible are not re-scrolled.
     fn move_cursor_to_match(&mut self, position: usize) {
-        self.jump_active_cursor_to(position, super::navigation::JumpOptions::navigation());
+        self.active_window_mut()
+            .jump_active_cursor_to(position, super::navigation::JumpOptions::navigation());
     }
 
     pub(super) fn perform_search(&mut self, query: &str) {
@@ -82,7 +73,7 @@ impl Editor {
         let search_range = self.active_window_mut().pending_search_range.take();
 
         // Build the regex early so we can bail on invalid patterns
-        let regex = match self.build_search_regex(query) {
+        let regex = match self.active_window().build_search_regex(query) {
             Ok(r) => r,
             Err(e) => {
                 self.active_window_mut().search_state = None;
@@ -275,7 +266,7 @@ impl Editor {
 
         // Remember the viewport we computed overlays for so we can detect
         // scrolling in check_search_overlay_refresh().
-        self.search_overlay_top_byte = Some(top_byte);
+        self.active_window_mut().search_overlay_top_byte = Some(top_byte);
 
         let state = self.active_state_mut();
 
@@ -362,7 +353,7 @@ impl Editor {
             .expect("active window must have a populated split layout")
             .get(&active_split)
             .map(|vs| vs.viewport.top_byte);
-        if current_top != self.search_overlay_top_byte {
+        if current_top != self.active_window_mut().search_overlay_top_byte {
             self.refresh_search_overlays();
             true
         } else {
@@ -397,15 +388,18 @@ impl Editor {
                 super::SearchState::MAX_MATCHES,
                 query.len(),
             );
-            self.search_scan.start(
+            let cs = self.active_window().search_case_sensitive;
+            let ww = self.active_window().search_whole_word;
+            let ur = self.active_window().search_use_regex;
+            self.active_window_mut().search_scan.start(
                 buffer_id,
                 leaves,
                 scan,
                 query.to_string(),
                 None,
-                self.active_window().search_case_sensitive,
-                self.active_window().search_whole_word,
-                self.active_window().search_use_regex,
+                cs,
+                ww,
+                ur,
             );
             self.set_status_message(t!("goto.scanning_progress", percent = 0).to_string());
         }

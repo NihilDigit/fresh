@@ -16,14 +16,14 @@ impl Editor {
     pub(super) fn show_theme_info_popup(&mut self, col: u16, row: u16) -> AnyhowResult<()> {
         if let Some(info) = self.resolve_theme_key_at(col, row) {
             // Dismiss any existing LSP hover popup to avoid overlapping popups
-            self.mouse_state.lsp_hover_state = None;
-            self.mouse_state.lsp_hover_request_sent = false;
+            self.active_window_mut().mouse_state.lsp_hover_state = None;
+            self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
             self.dismiss_transient_popups();
 
             // Position the popup near the click, offset down-right by 1
             let popup_x = col.saturating_add(1);
             let popup_y = row.saturating_add(1);
-            self.theme_info_popup = Some(ThemeInfoPopup {
+            self.active_window_mut().theme_info_popup = Some(ThemeInfoPopup {
                 position: (popup_x, popup_y),
                 info,
                 button_highlighted: false,
@@ -258,7 +258,7 @@ impl Editor {
 
     /// Render the theme info popup.
     pub(super) fn render_theme_info_popup(&self, frame: &mut Frame) {
-        let popup = match &self.theme_info_popup {
+        let popup = match &self.active_window().theme_info_popup {
             Some(p) => p,
             None => return,
         };
@@ -334,7 +334,7 @@ impl Editor {
 
     /// Compute the bounding rect of the theme info popup (for hit-testing).
     pub(super) fn theme_info_popup_rect(&self) -> Option<(Rect, u16)> {
-        let popup = self.theme_info_popup.as_ref()?;
+        let popup = self.active_window().theme_info_popup.as_ref()?;
         let info = &popup.info;
 
         // Count lines (must match render_theme_info_popup logic)

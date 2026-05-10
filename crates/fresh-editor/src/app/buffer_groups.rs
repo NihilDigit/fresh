@@ -61,8 +61,8 @@ impl super::Editor {
             serde_json::from_str(&layout_json).map_err(|e| format!("Invalid layout: {}", e))?;
 
         // Allocate group ID
-        let group_id = BufferGroupId(self.next_buffer_group_id);
-        self.next_buffer_group_id += 1;
+        let group_id = BufferGroupId(self.active_window_mut().next_buffer_group_id);
+        self.active_window_mut().next_buffer_group_id += 1;
 
         // Build buffers for each leaf in the layout
         let mut panel_buffers: HashMap<String, BufferId> = HashMap::new();
@@ -191,10 +191,14 @@ impl super::Editor {
 
         // Register reverse mapping
         for buffer_id in panel_buffers.values() {
-            self.buffer_to_group.insert(*buffer_id, group_id);
+            self.active_window_mut()
+                .buffer_to_group
+                .insert(*buffer_id, group_id);
         }
 
-        self.buffer_groups.insert(group_id, group);
+        self.active_window_mut()
+            .buffer_groups
+            .insert(group_id, group);
 
         // Build result
         let panels: HashMap<String, u64> = panel_buffers
@@ -368,6 +372,7 @@ impl super::Editor {
     ) {
         let bg_id = BufferGroupId(group_id);
         let buffer_id = self
+            .active_window_mut()
             .buffer_groups
             .get(&bg_id)
             .and_then(|g| g.panel_buffers.get(&panel_name).copied());
@@ -386,10 +391,10 @@ impl super::Editor {
     pub(super) fn close_buffer_group(&mut self, group_id: usize) {
         use crate::view::split::TabTarget;
         let bg_id = BufferGroupId(group_id);
-        if let Some(group) = self.buffer_groups.remove(&bg_id) {
+        if let Some(group) = self.active_window_mut().buffer_groups.remove(&bg_id) {
             // Remove reverse mappings
             for buffer_id in group.panel_buffers.values() {
-                self.buffer_to_group.remove(buffer_id);
+                self.active_window_mut().buffer_to_group.remove(buffer_id);
             }
 
             // Find the group_leaf_id (it's the `representative_split` now).
@@ -468,7 +473,7 @@ impl super::Editor {
     /// and marks the panel's leaf as the focused inner leaf.
     pub(super) fn focus_panel(&mut self, group_id: usize, panel_name: String) {
         let bg_id = BufferGroupId(group_id);
-        let (group_leaf_id, inner_leaf) = match self.buffer_groups.get(&bg_id) {
+        let (group_leaf_id, inner_leaf) = match self.active_window_mut().buffer_groups.get(&bg_id) {
             Some(group) => {
                 let Some(&inner) = group.panel_splits.get(&panel_name) else {
                     return;
@@ -523,7 +528,7 @@ impl super::Editor {
             }
             // Transfer focus away from File Explorer (or any other context)
             // to the editor, since we're explicitly focusing a panel.
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
     }
 
@@ -559,8 +564,11 @@ impl super::Editor {
         {
             self.active_window_mut()
                 .promote_preview_if_not_in_split(split_id);
-            if self.key_context == crate::input::keybindings::KeyContext::FileExplorer {
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+            if self.active_window_mut().key_context
+                == crate::input::keybindings::KeyContext::FileExplorer
+            {
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
             }
             self.windows
                 .get_mut(&self.active_window)
@@ -612,6 +620,7 @@ impl super::Editor {
         // Find the BufferGroupId whose stored representative_split matches
         // this Grouped node's LeafId.
         let bg_id_opt = self
+            .active_window_mut()
             .buffer_groups
             .iter()
             .find(|(_, g)| g.representative_split == Some(group_leaf))

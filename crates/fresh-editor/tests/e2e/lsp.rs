@@ -1500,7 +1500,7 @@ fn test_lsp_completion_canceled_on_cursor_move() -> anyhow::Result<()> {
     // Verify pending request is cleared in editor
     let editor = harness.editor();
     assert!(
-        !editor.has_pending_lsp_requests(),
+        !editor.active_window().has_pending_lsp_requests(),
         "Expected no pending LSP requests after cursor move"
     );
 
@@ -1649,7 +1649,7 @@ fn test_lsp_completion_canceled_on_text_edit() -> anyhow::Result<()> {
     // Verify pending request is cleared
     let editor = harness.editor();
     assert!(
-        !editor.has_pending_lsp_requests(),
+        !editor.active_window().has_pending_lsp_requests(),
         "Expected no pending LSP requests after text edit"
     );
 

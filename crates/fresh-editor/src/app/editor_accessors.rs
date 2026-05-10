@@ -50,21 +50,22 @@ impl Editor {
         self.user_config_raw = Arc::new(value);
     }
 
-    /// Mutable access to the merged diagnostics map. Routes through
-    /// `Arc::make_mut`, which CoW-clones while the plugin snapshot still
-    /// holds the old map — readers never observe an in-place mutation.
+    /// Mutable access to the active window's merged diagnostics map.
+    /// Routes through `Arc::make_mut`, which CoW-clones while the
+    /// plugin snapshot still holds the old map — readers never
+    /// observe an in-place mutation.
     pub(crate) fn stored_diagnostics_mut(
         &mut self,
     ) -> &mut HashMap<String, Vec<lsp_types::Diagnostic>> {
-        Arc::make_mut(&mut self.stored_diagnostics)
+        Arc::make_mut(&mut self.active_window_mut().stored_diagnostics)
     }
 
-    /// Mutable access to the folding-ranges map. CoW-clones through
-    /// `Arc::make_mut` for the same reason as `stored_diagnostics_mut`.
+    /// Mutable access to the active window's folding-ranges map.
+    /// Same `Arc::make_mut` CoW pattern as `stored_diagnostics_mut`.
     pub(crate) fn stored_folding_ranges_mut(
         &mut self,
     ) -> &mut HashMap<String, Vec<lsp_types::FoldingRange>> {
-        Arc::make_mut(&mut self.stored_folding_ranges)
+        Arc::make_mut(&mut self.active_window_mut().stored_folding_ranges)
     }
 
     /// Get a reference to the key translator (for input calibration)
@@ -136,7 +137,7 @@ impl Editor {
         self.keybindings
             .read()
             .unwrap()
-            .find_keybinding_for_action(action_name, self.key_context.clone())
+            .find_keybinding_for_action(action_name, self.active_window().key_context.clone())
     }
 
     /// Raw-event counterpart: return the `(KeyCode, KeyModifiers)` currently
@@ -293,12 +294,6 @@ impl Editor {
         false
     }
 
-    /// Check if editing should be disabled for the active buffer
-    /// This returns true when editing_disabled is true (e.g., for read-only virtual buffers)
-    pub fn is_editing_disabled(&self) -> bool {
-        self.active_state().editing_disabled
-    }
-
     /// Mark a buffer as read-only, setting both metadata and editor state consistently.
     /// This is the single entry point for making a buffer read-only.
     pub fn mark_buffer_read_only(&mut self, buffer_id: BufferId, read_only: bool) {
@@ -328,12 +323,13 @@ impl Editor {
 
     /// Check if LSP has any active progress tasks (e.g., indexing)
     pub fn has_active_lsp_progress(&self) -> bool {
-        !self.lsp_progress.is_empty()
+        !self.active_window().lsp_progress.is_empty()
     }
 
     /// Get the current LSP progress info (if any)
     pub fn get_lsp_progress(&self) -> Vec<(String, String, Option<String>)> {
-        self.lsp_progress
+        self.active_window()
+            .lsp_progress
             .iter()
             .map(|(token, info)| (token.clone(), info.title.clone(), info.message.clone()))
             .collect()
@@ -342,7 +338,8 @@ impl Editor {
     /// Check if any LSP server for a given language is running (ready)
     pub fn is_lsp_server_ready(&self, language: &str) -> bool {
         use crate::services::async_bridge::LspServerStatus;
-        self.lsp_server_statuses
+        self.active_window()
+            .lsp_server_statuses
             .iter()
             .any(|((lang, server_name), status)| {
                 if !matches!(status, LspServerStatus::Running) {
@@ -362,7 +359,7 @@ impl Editor {
     /// Get stored LSP diagnostics (for testing and external access)
     /// Returns a reference to the diagnostics map keyed by file URI
     pub fn get_stored_diagnostics(&self) -> &HashMap<String, Vec<lsp_types::Diagnostic>> {
-        &self.stored_diagnostics
+        &self.active_window().stored_diagnostics
     }
 
     /// Check if an update is available
@@ -944,38 +941,55 @@ impl Editor {
     /// Updates the general warning domain for the status bar.
     /// Returns true if new warnings were found.
     pub fn check_warning_log(&mut self) -> bool {
-        let Some((receiver, path)) = &self.warning_log else {
-            return false;
+        let path = match &self.warning_log {
+            Some((receiver, path)) => {
+                let mut new_warning_count = 0usize;
+                while receiver.try_recv().is_ok() {
+                    new_warning_count += 1;
+                }
+                if new_warning_count == 0 {
+                    return false;
+                }
+                (path.clone(), new_warning_count)
+            }
+            None => return false,
         };
+        let (path, new_warning_count) = path;
+        self.active_window_mut()
+            .warning_domains
+            .general
+            .add_warnings(new_warning_count);
+        self.active_window_mut()
+            .warning_domains
+            .general
+            .set_log_path(path);
 
-        // Non-blocking check for any warnings
-        let mut new_warning_count = 0usize;
-        while receiver.try_recv().is_ok() {
-            new_warning_count += 1;
-        }
-
-        if new_warning_count > 0 {
-            // Update general warning domain (don't auto-open file)
-            self.warning_domains.general.add_warnings(new_warning_count);
-            self.warning_domains.general.set_log_path(path.clone());
-        }
-
-        new_warning_count > 0
+        true
     }
 
     /// Get the warning domain registry
     pub fn get_warning_domains(&self) -> &WarningDomainRegistry {
-        &self.warning_domains
+        &self.active_window().warning_domains
     }
 
     /// Get the warning log path (for opening when user clicks indicator)
     pub fn get_warning_log_path(&self) -> Option<&PathBuf> {
-        self.warning_domains.general.log_path.as_ref()
+        self.active_window()
+            .warning_domains
+            .general
+            .log_path
+            .as_ref()
     }
 
     /// Open the warning log file (user-initiated action)
     pub fn open_warning_log(&mut self) {
-        if let Some(path) = self.warning_domains.general.log_path.clone() {
+        if let Some(path) = self
+            .active_window_mut()
+            .warning_domains
+            .general
+            .log_path
+            .clone()
+        {
             // Use open_local_file since log files are always local
             match self.open_local_file(&path) {
                 Ok(buffer_id) => {
@@ -990,42 +1004,51 @@ impl Editor {
 
     /// Clear the general warning indicator (user dismissed)
     pub fn clear_warning_indicator(&mut self) {
-        self.warning_domains.general.clear();
+        self.active_window_mut().warning_domains.general.clear();
     }
 
     /// Clear all warning indicators (user dismissed via command)
     pub fn clear_warnings(&mut self) {
-        self.warning_domains.general.clear();
-        self.warning_domains.lsp.clear();
+        self.active_window_mut().warning_domains.general.clear();
+        self.active_window_mut().warning_domains.lsp.clear();
         self.active_window_mut().status_message = Some("Warnings cleared".to_string());
     }
 
     /// Check if any LSP server is in error state
     pub fn has_lsp_error(&self) -> bool {
-        self.warning_domains.lsp.level() == WarningLevel::Error
+        self.active_window().warning_domains.lsp.level() == WarningLevel::Error
     }
 
     /// Get the effective warning level for the status bar (LSP indicator)
     /// Returns Error if LSP has errors, Warning if there are warnings, None otherwise
     pub fn get_effective_warning_level(&self) -> WarningLevel {
-        self.warning_domains.lsp.level()
+        self.active_window().warning_domains.lsp.level()
     }
 
     /// Get the general warning level (for the general warning badge)
     pub fn get_general_warning_level(&self) -> WarningLevel {
-        self.warning_domains.general.level()
+        self.active_window().warning_domains.general.level()
     }
 
     /// Get the general warning count
     pub fn get_general_warning_count(&self) -> usize {
-        self.warning_domains.general.count
+        self.active_window().warning_domains.general.count
     }
 
     /// Update LSP warning domain from server statuses
     pub fn update_lsp_warning_domain(&mut self) {
-        self.warning_domains
+        let active_id = self.active_window;
+        // Clone statuses to avoid borrowing self while we mutate active_window_mut().
+        let statuses = self
+            .windows
+            .get(&active_id)
+            .expect("active window present")
+            .lsp_server_statuses
+            .clone();
+        self.active_window_mut()
+            .warning_domains
             .lsp
-            .update_from_statuses(&self.lsp_server_statuses);
+            .update_from_statuses(&statuses);
     }
 
     /// Check if mouse hover timer has expired and trigger LSP hover request
@@ -1042,9 +1065,9 @@ impl Editor {
         let hover_delay = std::time::Duration::from_millis(self.config.editor.mouse_hover_delay_ms);
 
         // Get hover state without borrowing self
-        let hover_info = match self.mouse_state.lsp_hover_state {
+        let hover_info = match self.active_window_mut().mouse_state.lsp_hover_state {
             Some((byte_pos, start_time, screen_x, screen_y)) => {
-                if self.mouse_state.lsp_hover_request_sent {
+                if self.active_window_mut().mouse_state.lsp_hover_request_sent {
                     return false; // Already sent request for this position
                 }
                 if start_time.elapsed() < hover_delay {
@@ -1067,7 +1090,7 @@ impl Editor {
         // Request hover at the byte position — only mark as sent if dispatched
         match self.request_hover_at_position(byte_pos) {
             Ok(true) => {
-                self.mouse_state.lsp_hover_request_sent = true;
+                self.active_window_mut().mouse_state.lsp_hover_request_sent = true;
                 true
             }
             Ok(false) => false, // no server ready, timer will retry
@@ -1135,10 +1158,10 @@ impl Editor {
 
         let __active_id = self.active_window;
 
-        let diagnostic_result_ids = &self.diagnostic_result_ids;
         let Some(__win) = self.windows.get_mut(&__active_id) else {
             return false;
         };
+        let diagnostic_result_ids = &__win.diagnostic_result_ids;
         let Some(lsp) = __win.lsp.as_mut() else {
             return false;
         };

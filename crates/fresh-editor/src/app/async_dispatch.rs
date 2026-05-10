@@ -485,7 +485,8 @@ impl Editor {
                         // Exit terminal mode if this is the active buffer
                         if self.active_buffer() == buffer_id && self.active_window().terminal_mode {
                             self.active_window_mut().terminal_mode = false;
-                            self.key_context = crate::input::keybindings::KeyContext::Normal;
+                            self.active_window_mut().key_context =
+                                crate::input::keybindings::KeyContext::Normal;
                         }
 
                         // Sync terminal content to buffer (final screen state)

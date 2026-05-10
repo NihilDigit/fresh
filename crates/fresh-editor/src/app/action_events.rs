@@ -13,12 +13,12 @@ use crate::model::event::{Event, LeafId};
 
 use super::Editor;
 
-impl Editor {
+impl crate::app::window::Window {
     /// Convert an action into a list of events to apply to the active buffer
     /// Returns None for actions that don't generate events (like Quit)
     pub fn action_to_events(&mut self, action: Action) -> Option<Vec<Event>> {
-        let auto_indent = self.config.editor.auto_indent;
-        let estimated_line_length = self.config.editor.estimated_line_length;
+        let auto_indent = self.config().editor.auto_indent;
+        let estimated_line_length = self.config().editor.estimated_line_length;
 
         // Use the *effective* active split: when the user is focused on an
         // inner panel of a grouped buffer (e.g. a magit-style review panel),
@@ -28,9 +28,8 @@ impl Editor {
         // group host's.
         let active_split = self.effective_active_split();
         let viewport_height = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
+            .splits
+            .as_ref()
             .map(|(_, vs)| vs)
             .expect("active window must have a populated split layout")
             .get(&active_split)
@@ -63,15 +62,10 @@ impl Editor {
         }
 
         let buffer_id = self.active_buffer();
-        let active_id = self.active_window;
-        // Single &mut borrow on the active window, split-access into
-        // disjoint sub-fields (buffers + split-view-state cursors).
-        let window = self
-            .windows
-            .get_mut(&active_id)
-            .expect("active window must exist");
-        let state = window.buffers.get_mut(&buffer_id).unwrap();
-        let cursors = &mut window
+        // Split-access disjoint sub-fields (buffers + split-view-state cursors)
+        // directly on self (we ARE the active window).
+        let state = self.buffers.get_mut(&buffer_id).unwrap();
+        let cursors = &mut self
             .splits
             .as_mut()
             .expect("active window must have a populated split layout")
@@ -127,19 +121,17 @@ impl Editor {
         let delta = (viewport_height.saturating_sub(overlap).max(1) as isize) * direction;
 
         let old_top_byte = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
+            .splits
+            .as_ref()
             .map(|(_, vs)| vs)
             .expect("active window must have a populated split layout")
             .get(&split_id)?
             .viewport
             .top_byte;
-        self.active_window_mut().handle_scroll_event(delta);
+        self.handle_scroll_event(delta);
         let new_top_byte = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
+            .splits
+            .as_ref()
             .map(|(_, vs)| vs)
             .expect("active window must have a populated split layout")
             .get(&split_id)?
@@ -159,9 +151,8 @@ impl Editor {
         // viewport) and each press advances by exactly a full page of view
         // rows — the same way it does when line wrap is off.
         let cursors = &self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.splits.as_ref())
+            .splits
+            .as_ref()
             .map(|(_, vs)| vs)
             .expect("active window must have a populated split layout")
             .get(&split_id)?
@@ -228,16 +219,16 @@ impl Editor {
             // When line wrapping is off, Home/End should move to the physical line
             // start/end, not the visual (horizontally-scrolled) row boundary.
             // Fall through to the standard handler which uses line_iterator.
-            Action::MoveLineEnd if self.config.editor.line_wrap => {
+            Action::MoveLineEnd if self.config().editor.line_wrap => {
                 VisualAction::LineEnd { is_select: false }
             }
-            Action::SelectLineEnd if self.config.editor.line_wrap => {
+            Action::SelectLineEnd if self.config().editor.line_wrap => {
                 VisualAction::LineEnd { is_select: true }
             }
-            Action::MoveLineStart if self.config.editor.line_wrap => {
+            Action::MoveLineStart if self.config().editor.line_wrap => {
                 VisualAction::LineStart { is_select: false }
             }
-            Action::SelectLineStart if self.config.editor.line_wrap => {
+            Action::SelectLineStart if self.config().editor.line_wrap => {
                 VisualAction::LineStart { is_select: true }
             }
             _ => return None, // Not a visual line action
@@ -251,21 +242,14 @@ impl Editor {
             let active_split = self.effective_active_split();
             let active_buffer = self.active_buffer();
             let cursors = &self
-                .windows
-                .get(&self.active_window)
-                .and_then(|w| w.splits.as_ref())
+                .splits
+                .as_ref()
                 .map(|(_, vs)| vs)
                 .expect("active window must have a populated split layout")
                 .get(&active_split)
                 .unwrap()
                 .cursors;
-            let state = self
-                .windows
-                .get(&self.active_window)
-                .map(|w| &w.buffers)
-                .expect("active window present")
-                .get(&active_buffer)
-                .unwrap();
+            let state = (&self.buffers).get(&active_buffer).unwrap();
             cursors
                 .iter()
                 .map(|(cursor_id, cursor)| {
@@ -339,7 +323,7 @@ impl Editor {
 
                     // Calculate current visual column from cached layout
                     let current_visual_col = self
-                        .active_layout()
+                        .layout_cache
                         .byte_to_visual_column(split_id, from_pos)?;
 
                     let goal_visual_col = if sticky_column > 0 {
@@ -348,7 +332,7 @@ impl Editor {
                         current_visual_col
                     };
 
-                    match self.active_layout().move_visual_line(
+                    match self.layout_cache.move_visual_line(
                         split_id,
                         from_pos,
                         goal_visual_col,
@@ -384,7 +368,7 @@ impl Editor {
                     // Allow advancing to next visual segment only if not at a physical line ending
                     let allow_advance = !at_line_ending;
                     match self
-                        .active_layout()
+                        .layout_cache
                         .visual_line_end(split_id, position, allow_advance)
                     {
                         Some(end_pos) => (end_pos, 0),
@@ -395,7 +379,7 @@ impl Editor {
                     // Allow advancing to previous visual segment only if not at a physical line start
                     let allow_advance = !at_line_start;
                     match self
-                        .active_layout()
+                        .layout_cache
                         .visual_line_start(split_id, position, allow_advance)
                     {
                         Some(start_pos) => (start_pos, 0),
@@ -470,7 +454,7 @@ impl Editor {
         direction: i8,
         estimated_line_length: usize,
     ) -> Option<(usize, usize)> {
-        if !self.config.editor.line_wrap {
+        if !self.config().editor.line_wrap {
             // Non-wrap mode: the byte-based fallback is correct, let it run.
             return None;
         }
@@ -483,19 +467,12 @@ impl Editor {
             // authoritative "end of current visual row" position that the
             // renderer itself uses.
             let cur_row_line_end = {
-                let mappings = self.active_layout().view_line_mappings.get(&active_split)?;
-                let row_idx = self
-                    .active_layout()
-                    .find_visual_row(active_split, from_pos)?;
+                let mappings = self.layout_cache.view_line_mappings.get(&active_split)?;
+                let row_idx = self.layout_cache.find_visual_row(active_split, from_pos)?;
                 mappings.get(row_idx)?.line_end_byte
             };
 
-            let state = self
-                .windows
-                .get_mut(&self.active_window)
-                .map(|w| &mut w.buffers)
-                .expect("active window present")
-                .get_mut(&active_buffer)?;
+            let state = (&mut self.buffers).get_mut(&active_buffer)?;
             let buffer = &mut state.buffer;
             let buffer_len = buffer.len();
             if cur_row_line_end >= buffer_len {
@@ -546,10 +523,8 @@ impl Editor {
             // stepping back one byte lands on the previous line's
             // trailing newline — again the end of its last visual row.
             let (cur_row_anchor, row_is_empty) = {
-                let mappings = self.active_layout().view_line_mappings.get(&active_split)?;
-                let row_idx = self
-                    .active_layout()
-                    .find_visual_row(active_split, from_pos)?;
+                let mappings = self.layout_cache.view_line_mappings.get(&active_split)?;
+                let row_idx = self.layout_cache.find_visual_row(active_split, from_pos)?;
                 let row = mappings.get(row_idx)?;
                 match row.char_source_bytes.iter().find_map(|b| *b) {
                     Some(start) => (start, false),
@@ -570,12 +545,7 @@ impl Editor {
             // the user wouldn't expect (issue #1574, Windows-CRLF
             // variant).  For LF or a lone CR the byte arithmetic falls
             // through to a one-byte step.
-            let state = self
-                .windows
-                .get_mut(&self.active_window)
-                .map(|w| &mut w.buffers)
-                .expect("active window present")
-                .get_mut(&active_buffer)?;
+            let state = (&mut self.buffers).get_mut(&active_buffer)?;
             let buffer = &mut state.buffer;
             let _ = row_is_empty;
             let target_pos = step_before_line_break(buffer, cur_row_anchor);

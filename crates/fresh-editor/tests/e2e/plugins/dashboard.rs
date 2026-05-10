@@ -135,14 +135,14 @@ fn dashboard_bringup_animation_settles_and_renders() {
     // transient `is_active()` so a slow-polling iteration on a busy
     // CI box can't straddle the entire animation window.
     harness
-        .wait_until(|h| h.editor().animations.total_started() > 0)
+        .wait_until(|h| h.editor().active_window().animations.total_started() > 0)
         .unwrap();
 
     // Now settle the bringup animation: the runner flips is_active to
     // false once every effect returns Done, so this fires exactly
     // when the final resting frame has been painted.
     harness
-        .wait_until(|h| !h.editor().animations.is_active())
+        .wait_until(|h| !h.editor().active_window().animations.is_active())
         .unwrap();
 
     // Post-settle: the banner row is at its natural position and the

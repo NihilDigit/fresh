@@ -416,7 +416,7 @@ impl Editor {
         // Ensure key context is Normal for non-terminal buffers
         // This handles the edge case where split/buffer don't change but we clicked from FileExplorer
         if !self.active_window().is_terminal_buffer(buffer_id) {
-            self.key_context = crate::input::keybindings::KeyContext::Normal;
+            self.active_window_mut().key_context = crate::input::keybindings::KeyContext::Normal;
         }
 
         // Get cached view line mappings for this split (before mutable borrow of buffers)
@@ -594,9 +594,10 @@ impl Editor {
         self.track_cursor_movement(&event);
 
         // Start text selection drag for potential mouse drag
-        self.mouse_state.dragging_text_selection = true;
-        self.mouse_state.drag_selection_split = Some(split_id);
-        self.mouse_state.drag_selection_anchor = Some(new_anchor.unwrap_or(target_position));
+        self.active_window_mut().mouse_state.dragging_text_selection = true;
+        self.active_window_mut().mouse_state.drag_selection_split = Some(split_id);
+        self.active_window_mut().mouse_state.drag_selection_anchor =
+            Some(new_anchor.unwrap_or(target_position));
 
         Ok(())
     }
@@ -620,7 +621,7 @@ impl Editor {
         }
 
         // Focus file explorer
-        self.key_context = crate::input::keybindings::KeyContext::FileExplorer;
+        self.active_window_mut().key_context = crate::input::keybindings::KeyContext::FileExplorer;
 
         // Calculate which item was clicked (accounting for border and title)
         // The file explorer has a 1-line border at top and bottom

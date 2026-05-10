@@ -282,7 +282,10 @@ impl Editor {
             other_buffers,
         };
 
-        let candidates = self.completion_service.request(&ctx, &buffer_window);
+        let candidates = self
+            .active_window_mut()
+            .completion_service
+            .request(&ctx, &buffer_window);
 
         candidates
             .into_iter()

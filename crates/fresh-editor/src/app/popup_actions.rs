@@ -259,12 +259,12 @@ impl Editor {
         }
 
         // No additional_text_edits present — try resolve if server supports it
-        if self.server_supports_completion_resolve() {
+        if self.active_window().server_supports_completion_resolve() {
             tracing::info!(
                 "Completion '{}' has no additional_text_edits, sending completionItem/resolve",
                 label
             );
-            self.send_completion_resolve(item);
+            self.active_window_mut().send_completion_resolve(item);
         }
     }
 

@@ -14,7 +14,7 @@ use super::Editor;
 impl Editor {
     /// Jump to next error/diagnostic
     pub(super) fn jump_to_next_error(&mut self) {
-        let diagnostic_ns = self.lsp_diagnostic_namespace.clone();
+        let diagnostic_ns = self.active_window().lsp_diagnostic_namespace.clone();
         let cursor_pos = self.active_cursors().primary().position;
         let cursor_id = self.active_cursors().primary_id();
         let cursor = *self.active_cursors().primary();
@@ -65,7 +65,8 @@ impl Editor {
             self.apply_event_to_active_buffer(&event);
             // Diagnostics can be on any line; the viewport must scroll so the
             // user actually sees the error after pressing F8 (#1689).
-            self.ensure_active_cursor_visible_for_navigation(true);
+            self.active_window_mut()
+                .ensure_active_cursor_visible_for_navigation(true);
 
             // Show diagnostic message in status bar
             let state = self.active_state();
@@ -84,7 +85,7 @@ impl Editor {
 
     /// Jump to previous error/diagnostic
     pub(super) fn jump_to_previous_error(&mut self) {
-        let diagnostic_ns = self.lsp_diagnostic_namespace.clone();
+        let diagnostic_ns = self.active_window().lsp_diagnostic_namespace.clone();
         let cursor_pos = self.active_cursors().primary().position;
         let cursor_id = self.active_cursors().primary_id();
         let cursor = *self.active_cursors().primary();
@@ -136,7 +137,8 @@ impl Editor {
             self.apply_event_to_active_buffer(&event);
             // Diagnostics can be on any line; the viewport must scroll so the
             // user actually sees the error after pressing F8 (#1689).
-            self.ensure_active_cursor_visible_for_navigation(true);
+            self.active_window_mut()
+                .ensure_active_cursor_visible_for_navigation(true);
 
             // Show diagnostic message in status bar
             let state = self.active_state();

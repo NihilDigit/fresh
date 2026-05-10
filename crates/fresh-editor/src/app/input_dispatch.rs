@@ -44,12 +44,14 @@ impl Editor {
                 .is_terminal_buffer(self.active_buffer())
             {
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
                 return None; // fall through to normal input dispatch
             }
             let mut ctx = InputContext::new();
+            let keyboard_capture = self.active_window().keyboard_capture;
             let keybindings = self.keybindings.read().unwrap();
-            let mut handler = TerminalModeInputHandler::new(self.keyboard_capture, &keybindings);
+            let mut handler = TerminalModeInputHandler::new(keyboard_capture, &keybindings);
             let result = handler.dispatch_input(event, &mut ctx);
             drop(keybindings);
             self.process_deferred_actions(ctx);
@@ -152,7 +154,7 @@ impl Editor {
                     .get_mut(&active_window_id)
                     .expect("active window present");
                 if let (Some(ref mut file_state), Some(ref mut prompt)) =
-                    (&mut self.file_open_state, &mut __win.prompt)
+                    (&mut __win.file_open_state, &mut __win.prompt)
                 {
                     let mut handler = FileBrowserInputHandler::new(file_state, prompt);
                     let result = handler.dispatch_input(event, &mut ctx);
@@ -379,22 +381,22 @@ impl Editor {
 
             // File browser actions
             DeferredAction::FileBrowserSelectPrev => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.select_prev();
                 }
             }
             DeferredAction::FileBrowserSelectNext => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.select_next();
                 }
             }
             DeferredAction::FileBrowserPageUp => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.page_up(10);
                 }
             }
             DeferredAction::FileBrowserPageDown => {
-                if let Some(state) = &mut self.file_open_state {
+                if let Some(state) = &mut self.active_window_mut().file_open_state {
                     state.page_down(10);
                 }
             }
@@ -409,6 +411,7 @@ impl Editor {
             DeferredAction::FileBrowserGoParent => {
                 // Navigate to parent directory
                 let parent = self
+                    .active_window_mut()
                     .file_open_state
                     .as_ref()
                     .and_then(|s| s.current_dir.parent())
@@ -435,8 +438,9 @@ impl Editor {
 
             // Terminal mode actions
             DeferredAction::ToggleKeyboardCapture => {
-                self.keyboard_capture = !self.keyboard_capture;
-                if self.keyboard_capture {
+                self.active_window_mut().keyboard_capture =
+                    !self.active_window_mut().keyboard_capture;
+                if self.active_window_mut().keyboard_capture {
                     self.set_status_message(
                         "Keyboard capture ON - all keys go to terminal (F9 to toggle)".to_string(),
                     );
@@ -459,7 +463,8 @@ impl Editor {
             }
             DeferredAction::ExitTerminalMode { explicit } => {
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
                 if explicit {
                     // User explicitly exited - don't auto-resume when switching back
                     let buf = self.active_buffer();
@@ -472,7 +477,8 @@ impl Editor {
             }
             DeferredAction::EnterScrollbackMode => {
                 self.active_window_mut().terminal_mode = false;
-                self.key_context = crate::input::keybindings::KeyContext::Normal;
+                self.active_window_mut().key_context =
+                    crate::input::keybindings::KeyContext::Normal;
                 self.sync_terminal_to_buffer(self.active_buffer());
                 self.set_status_message(
                     "Scrollback mode - use PageUp/Down to scroll (Ctrl+Space to resume)"
