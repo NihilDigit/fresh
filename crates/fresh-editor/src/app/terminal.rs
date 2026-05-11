@@ -13,7 +13,7 @@
 //!
 //! ## Mode Switching Methods
 //!
-//! - [`Editor::sync_terminal_to_buffer`]: Terminal → Scrollback mode
+//! - [`Window::sync_terminal_to_buffer`]: Terminal → Scrollback mode
 //!   - Appends visible screen (~50 lines) to backing file
 //!   - Loads backing file as read-only buffer
 //!   - Performance: O(screen_size) ≈ 5ms
@@ -526,7 +526,10 @@ impl Editor {
                     self.active_window_mut().terminal_mode = false;
                     self.active_window_mut().key_context =
                         crate::input::keybindings::KeyContext::Normal;
-                    self.sync_terminal_to_buffer(self.active_buffer());
+                    {
+                        let __b = self.active_buffer();
+                        self.active_window_mut().sync_terminal_to_buffer(__b);
+                    };
                     self.set_status_message(
                         "Terminal mode disabled - read only (Ctrl+Space to resume)".to_string(),
                     );
@@ -539,106 +542,6 @@ impl Editor {
         // Send the key to the terminal
         self.send_terminal_key(code, modifiers);
         true
-    }
-
-    /// Sync terminal content to the text buffer for read-only viewing/selection
-    ///
-    /// This uses the incremental streaming architecture:
-    /// 1. Scrollback has already been streamed to the backing file during PTY reads
-    /// 2. We just append the visible screen (~50 lines) to the backing file
-    /// 3. Reload the buffer from the backing file (lazy load for large files)
-    ///
-    /// Performance: O(screen_size) instead of O(total_history)
-    pub fn sync_terminal_to_buffer(&mut self, buffer_id: BufferId) {
-        if let Some(&terminal_id) = self.active_window().terminal_buffers.get(&buffer_id) {
-            // Get the backing file path
-            let backing_file = match self
-                .active_window()
-                .terminal_backing_files
-                .get(&terminal_id)
-            {
-                Some(path) => path.clone(),
-                None => return,
-            };
-
-            // Append visible screen to backing file
-            // The scrollback has already been incrementally streamed by the PTY read loop
-            if let Some(handle) = self.active_window().terminal_manager.get(terminal_id) {
-                if let Ok(mut state) = handle.state.lock() {
-                    // Record the current file size as the history end point
-                    // (before appending visible screen) so we can truncate back to it
-                    if let Ok(metadata) = self.authority.filesystem.metadata(&backing_file) {
-                        state.set_backing_file_history_end(metadata.size);
-                    }
-
-                    // Open backing file in append mode to add visible screen
-                    if let Ok(mut file) = self
-                        .authority
-                        .filesystem
-                        .open_file_for_append(&backing_file)
-                    {
-                        use std::io::BufWriter;
-                        let mut writer = BufWriter::new(&mut *file);
-                        if let Err(e) = state.append_visible_screen(&mut writer) {
-                            tracing::error!(
-                                "Failed to append visible screen to backing file: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Reload buffer from the backing file (reusing existing file loading)
-            let large_file_threshold = self.config.editor.large_file_threshold_bytes as usize;
-            if let Ok(new_state) = EditorState::from_file_with_languages(
-                &backing_file,
-                self.terminal_width,
-                self.terminal_height,
-                large_file_threshold,
-                &self.grammar_registry,
-                &self.config.languages,
-                std::sync::Arc::clone(&self.authority.filesystem),
-            ) {
-                // Replace buffer state
-                if let Some(state) = self
-                    .windows
-                    .get_mut(&self.active_window)
-                    .map(|w| &mut w.buffers)
-                    .expect("active window present")
-                    .get_mut(&buffer_id)
-                {
-                    let total_bytes = new_state.buffer.total_bytes();
-                    *state = new_state;
-                    // Terminal buffers should never be considered "modified"
-                    state.buffer.set_modified(false);
-                    // Move cursor to end of buffer in SplitViewState
-                    let __active_split = self.split_manager().active_split();
-                    if let Some(view_state) = self.split_view_states_mut().get_mut(&__active_split)
-                    {
-                        view_state.cursors.primary_mut().position = total_bytes;
-                    }
-                }
-            }
-
-            // Mark buffer as editing-disabled while in non-terminal mode
-            if let Some(state) = self
-                .windows
-                .get_mut(&self.active_window)
-                .map(|w| &mut w.buffers)
-                .expect("active window present")
-                .get_mut(&buffer_id)
-            {
-                state.editing_disabled = true;
-                state.margins.configure_for_line_numbers(false);
-            }
-
-            // In read-only view, keep line wrapping disabled for terminal buffers
-            // Also scroll viewport to show the end of the buffer where the cursor is.
-            let active_split = self.split_manager().active_split();
-            self.active_window_mut()
-                .enter_terminal_scrollback_view(buffer_id, active_split);
-        }
     }
 
     /// Re-enter terminal mode from read-only buffer view
@@ -779,6 +682,94 @@ impl Window {
                 }
             }
         }
+    }
+
+    /// Sync terminal content to the active terminal buffer's text view
+    /// for read-only viewing / selection.
+    ///
+    /// Incremental streaming architecture:
+    /// 1. Scrollback has already been streamed to the backing file during PTY reads.
+    /// 2. We append the visible screen (~50 lines) to the backing file.
+    /// 3. Reload the buffer from the backing file (lazy load for large files).
+    ///
+    /// Performance: O(screen_size) instead of O(total_history).
+    pub fn sync_terminal_to_buffer(&mut self, buffer_id: BufferId) {
+        let Some(&terminal_id) = self.terminal_buffers.get(&buffer_id) else {
+            return;
+        };
+        // Get the backing file path
+        let backing_file = match self.terminal_backing_files.get(&terminal_id) {
+            Some(path) => path.clone(),
+            None => return,
+        };
+
+        // Append visible screen to backing file
+        // The scrollback has already been incrementally streamed by the PTY read loop
+        if let Some(handle) = self.terminal_manager.get(terminal_id) {
+            if let Ok(mut state) = handle.state.lock() {
+                // Record the current file size as the history end point
+                // (before appending visible screen) so we can truncate back to it
+                if let Ok(metadata) = self.resources.authority.filesystem.metadata(&backing_file) {
+                    state.set_backing_file_history_end(metadata.size);
+                }
+
+                // Open backing file in append mode to add visible screen
+                if let Ok(mut file) = self
+                    .resources
+                    .authority
+                    .filesystem
+                    .open_file_for_append(&backing_file)
+                {
+                    use std::io::BufWriter;
+                    let mut writer = BufWriter::new(&mut *file);
+                    if let Err(e) = state.append_visible_screen(&mut writer) {
+                        tracing::error!("Failed to append visible screen to backing file: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Reload buffer from the backing file (reusing existing file loading)
+        let large_file_threshold = self.resources.config.editor.large_file_threshold_bytes as usize;
+        if let Ok(new_state) = EditorState::from_file_with_languages(
+            &backing_file,
+            self.terminal_width,
+            self.terminal_height,
+            large_file_threshold,
+            &self.resources.grammar_registry,
+            &self.resources.config.languages,
+            std::sync::Arc::clone(&self.resources.authority.filesystem),
+        ) {
+            let total_bytes = new_state.buffer.total_bytes();
+            if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                *state = new_state;
+                // Terminal buffers should never be considered "modified"
+                state.buffer.set_modified(false);
+            }
+            // Move cursor to end of buffer in SplitViewState
+            if let Some((mgr, view_states)) = self.splits.as_mut() {
+                let active_split = mgr.active_split();
+                if let Some(view_state) = view_states.get_mut(&active_split) {
+                    view_state.cursors.primary_mut().position = total_bytes;
+                }
+            }
+        }
+
+        // Mark buffer as editing-disabled while in non-terminal mode
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.editing_disabled = true;
+            state.margins.configure_for_line_numbers(false);
+        }
+
+        // In read-only view, keep line wrapping disabled for terminal buffers
+        // Also scroll viewport to show the end of the buffer where the cursor is.
+        let active_split = self
+            .splits
+            .as_ref()
+            .expect("active window must have a populated split layout")
+            .0
+            .active_split();
+        self.enter_terminal_scrollback_view(buffer_id, active_split);
     }
 }
 

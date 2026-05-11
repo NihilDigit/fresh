@@ -1377,7 +1377,7 @@ impl Editor {
         // None) and did nothing. Run it again now so the tree auto-expands
         // to reveal the current file on first open (issue #1569).
         if self.file_explorer_visible() {
-            self.sync_file_explorer_to_active_file();
+            self.active_window_mut().sync_file_explorer_to_active_file();
         }
     }
 

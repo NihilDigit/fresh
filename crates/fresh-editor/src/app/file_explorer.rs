@@ -81,7 +81,7 @@ impl Editor {
             }
             self.active_window_mut().key_context = KeyContext::FileExplorer;
             self.set_status_message(t!("explorer.opened").to_string());
-            self.sync_file_explorer_to_active_file();
+            self.active_window_mut().sync_file_explorer_to_active_file();
         } else {
             self.active_window_mut().key_context = KeyContext::Normal;
             self.set_status_message(t!("explorer.closed").to_string());
@@ -103,58 +103,6 @@ impl Editor {
         }
     }
 
-    pub fn sync_file_explorer_to_active_file(&mut self) {
-        if !self.file_explorer_visible() {
-            return;
-        }
-
-        // Don't start a new sync if one is already in progress
-        if self.active_window().file_explorer_sync_in_progress {
-            return;
-        }
-
-        if let Some(metadata) = self
-            .active_window()
-            .buffer_metadata
-            .get(&self.active_buffer())
-        {
-            if let Some(file_path) = metadata.file_path() {
-                let target_path = file_path.clone();
-                let working_dir = self.working_dir.clone();
-
-                if target_path.starts_with(&working_dir) {
-                    let active_id = self.active_window;
-                    if let Some(mut view) = self
-                        .windows
-                        .get_mut(&active_id)
-                        .and_then(|w| w.file_explorer.take())
-                    {
-                        tracing::trace!(
-                            "sync_file_explorer_to_active_file: taking file_explorer for async expand to {:?}",
-                            target_path
-                        );
-                        let runtime_handle =
-                            self.tokio_runtime.as_ref().map(|r| r.handle().clone());
-                        let sender = self.async_bridge.as_ref().map(|b| b.sender());
-                        if let (Some(runtime), Some(sender)) = (runtime_handle, sender) {
-                            // Mark sync as in progress so render knows to keep the layout
-                            self.active_window_mut().file_explorer_sync_in_progress = true;
-
-                            runtime.spawn(async move {
-                                let _success = view.expand_and_select_file(&target_path).await;
-                                // Receiver may have been dropped during shutdown.
-                                #[allow(clippy::let_underscore_must_use)]
-                                let _ = sender.send(AsyncMessage::FileExplorerExpandedToPath(view));
-                            });
-                        } else {
-                            self.active_window_mut().file_explorer = Some(view);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     pub fn focus_file_explorer(&mut self) {
         if self.file_explorer_visible() {
             // Dismiss transient popups and clear hover state when focusing file explorer
@@ -165,7 +113,7 @@ impl Editor {
 
             self.active_window_mut().key_context = KeyContext::FileExplorer;
             self.set_status_message(t!("explorer.focused").to_string());
-            self.sync_file_explorer_to_active_file();
+            self.active_window_mut().sync_file_explorer_to_active_file();
         } else {
             self.toggle_file_explorer();
         }
@@ -1765,6 +1713,65 @@ impl Editor {
             t!("clipboard.copied_paths_n", count = rendered.len()).to_string()
         };
         self.set_status_message(msg);
+    }
+}
+
+impl crate::app::window::Window {
+    /// Spawn an async expand-to-path of this window's file-explorer tree,
+    /// targeting the active buffer's file. No-op when the explorer isn't
+    /// visible, a sync is already running, or the target path is outside
+    /// the window's root.
+    pub fn sync_file_explorer_to_active_file(&mut self) {
+        if !self.file_explorer_visible {
+            return;
+        }
+
+        // Don't start a new sync if one is already in progress
+        if self.file_explorer_sync_in_progress {
+            return;
+        }
+
+        let active_buf = self.active_buffer();
+        let Some(metadata) = self.buffer_metadata.get(&active_buf) else {
+            return;
+        };
+        let Some(file_path) = metadata.file_path() else {
+            return;
+        };
+        let target_path = file_path.clone();
+
+        if !target_path.starts_with(&self.root) {
+            return;
+        }
+
+        let Some(mut view) = self.file_explorer.take() else {
+            return;
+        };
+        tracing::trace!(
+            "sync_file_explorer_to_active_file: taking file_explorer for async expand to {:?}",
+            target_path
+        );
+        let runtime_handle = self
+            .resources
+            .tokio_runtime
+            .as_ref()
+            .map(|r| r.handle().clone());
+        let sender = self.resources.async_bridge.as_ref().map(|b| b.sender());
+        if let (Some(runtime), Some(sender)) = (runtime_handle, sender) {
+            // Mark sync as in progress so render knows to keep the layout
+            self.file_explorer_sync_in_progress = true;
+
+            runtime.spawn(async move {
+                let _success = view.expand_and_select_file(&target_path).await;
+                // Receiver may have been dropped during shutdown.
+                #[allow(clippy::let_underscore_must_use)]
+                let _ = sender.send(
+                    crate::services::async_bridge::AsyncMessage::FileExplorerExpandedToPath(view),
+                );
+            });
+        } else {
+            self.file_explorer = Some(view);
+        }
     }
 }
 

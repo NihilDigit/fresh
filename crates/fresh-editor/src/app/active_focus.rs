@@ -79,10 +79,11 @@ impl Editor {
 
     fn apply_active_buffer_change(&mut self, change: ActiveBufferChange) {
         if change.sync_terminal_readonly {
-            self.sync_terminal_to_buffer(change.buffer_id);
+            self.active_window_mut()
+                .sync_terminal_to_buffer(change.buffer_id);
         }
         if change.sync_file_explorer {
-            self.sync_file_explorer_to_active_file();
+            self.active_window_mut().sync_file_explorer_to_active_file();
         }
         // Update plugin state snapshot BEFORE firing the hook so that
         // the handler sees the new active buffer, not the old one.

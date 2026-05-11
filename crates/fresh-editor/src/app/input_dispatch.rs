@@ -469,7 +469,10 @@ impl Editor {
                     // User explicitly exited - don't auto-resume when switching back
                     let buf = self.active_buffer();
                     self.active_window_mut().terminal_mode_resume.remove(&buf);
-                    self.sync_terminal_to_buffer(self.active_buffer());
+                    {
+                        let __b = self.active_buffer();
+                        self.active_window_mut().sync_terminal_to_buffer(__b);
+                    };
                     self.set_status_message(
                         "Terminal mode disabled - read only (Ctrl+Space to resume)".to_string(),
                     );
@@ -479,7 +482,10 @@ impl Editor {
                 self.active_window_mut().terminal_mode = false;
                 self.active_window_mut().key_context =
                     crate::input::keybindings::KeyContext::Normal;
-                self.sync_terminal_to_buffer(self.active_buffer());
+                {
+                    let __b = self.active_buffer();
+                    self.active_window_mut().sync_terminal_to_buffer(__b);
+                };
                 self.set_status_message(
                     "Scrollback mode - use PageUp/Down to scroll (Ctrl+Space to resume)"
                         .to_string(),

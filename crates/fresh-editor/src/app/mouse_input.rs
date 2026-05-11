@@ -359,7 +359,10 @@ impl Editor {
                     .active_window()
                     .is_terminal_buffer(self.active_buffer())
             {
-                self.sync_terminal_to_buffer(self.active_buffer());
+                {
+                    let __b = self.active_buffer();
+                    self.active_window_mut().sync_terminal_to_buffer(__b);
+                };
                 self.active_window_mut().terminal_mode = false;
                 self.active_window_mut().key_context =
                     crate::input::keybindings::KeyContext::Normal;

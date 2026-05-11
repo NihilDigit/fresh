@@ -490,7 +490,7 @@ impl Editor {
                         }
 
                         // Sync terminal content to buffer (final screen state)
-                        self.sync_terminal_to_buffer(buffer_id);
+                        self.active_window_mut().sync_terminal_to_buffer(buffer_id);
 
                         // Append exit message to the backing file and reload
                         let exit_msg = "\n[Terminal process exited]\n";
