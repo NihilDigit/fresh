@@ -1689,6 +1689,18 @@ impl Window {
         buf
     }
 
+    /// Width available for tabs in this window. When the file explorer is
+    /// visible the tabs row only spans the editor area; otherwise it spans
+    /// the full terminal width.
+    pub fn effective_tabs_width(&self) -> u16 {
+        if self.file_explorer_visible && self.file_explorer.is_some() {
+            let explorer = self.file_explorer_width.to_cols(self.terminal_width);
+            self.terminal_width.saturating_sub(explorer)
+        } else {
+            self.terminal_width
+        }
+    }
+
     /// The split id whose `SplitViewState` owns the currently-focused
     /// cursors/viewport for this window.
     #[inline]

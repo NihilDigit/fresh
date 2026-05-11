@@ -18,6 +18,7 @@ use crate::services::plugins::PluginManager;
 use crate::view::prompt::{Prompt, PromptType};
 
 use super::file_open;
+use super::window::Window;
 use super::Editor;
 
 impl Editor {
@@ -91,7 +92,7 @@ impl Editor {
         suggestions: Vec<Suggestion>,
     ) {
         // Dismiss transient popups and clear hover state when opening a prompt
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
 
         // Clear search highlights when starting a new search prompt
         // This ensures old highlights from previous searches don't persist
@@ -125,7 +126,7 @@ impl Editor {
         initial_text: String,
     ) {
         // Dismiss transient popups and clear hover state when opening a prompt
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
 
         self.active_window_mut().prompt = Some(Prompt::with_initial_text(
             message,
@@ -141,7 +142,7 @@ impl Editor {
 
     /// Start Quick Open prompt with specified prefix
     pub fn start_quick_open_with_prefix(&mut self, prefix: &str) {
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
         self.active_window_mut().status_message = None;
         self.active_window_mut().goto_line_preview = None;
 
@@ -385,29 +386,6 @@ impl Editor {
         }
     }
 
-    /// Cancel search/replace prompts if one is active.
-    /// Called when focus leaves the editor (e.g., switching buffers, focusing file explorer).
-    pub(super) fn cancel_search_prompt_if_active(&mut self) {
-        if let Some(ref prompt) = self.active_window_mut().prompt {
-            if matches!(
-                prompt.prompt_type,
-                PromptType::Search
-                    | PromptType::ReplaceSearch
-                    | PromptType::Replace { .. }
-                    | PromptType::QueryReplaceSearch
-                    | PromptType::QueryReplace { .. }
-                    | PromptType::QueryReplaceConfirm
-            ) {
-                self.active_window_mut().prompt = None;
-                // Also cancel interactive replace if active
-                self.active_window_mut().interactive_replace_state = None;
-                // Clear search highlights from current buffer
-                let ns = self.active_window().search_namespace.clone();
-                let state = self.active_state_mut();
-                state.overlays.clear_namespace(&ns, &mut state.marker_list);
-            }
-        }
-    }
 
     /// Pre-fill the Open File prompt input with the current buffer directory
     pub(super) fn prefill_open_file_prompt(&mut self) {
@@ -1219,6 +1197,32 @@ impl Editor {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+impl Window {
+    /// Cancel search/replace prompts if one is active.
+    /// Called when focus leaves the editor (e.g., switching buffers, focusing file explorer).
+    pub(crate) fn cancel_search_prompt_if_active(&mut self) {
+        if let Some(ref prompt) = self.prompt {
+            if matches!(
+                prompt.prompt_type,
+                PromptType::Search
+                    | PromptType::ReplaceSearch
+                    | PromptType::Replace { .. }
+                    | PromptType::QueryReplaceSearch
+                    | PromptType::QueryReplace { .. }
+                    | PromptType::QueryReplaceConfirm
+            ) {
+                self.prompt = None;
+                // Also cancel interactive replace if active
+                self.interactive_replace_state = None;
+                // Clear search highlights from current buffer
+                let ns = self.search_namespace.clone();
+                let state = self.active_state_mut();
+                state.overlays.clear_namespace(&ns, &mut state.marker_list);
+            }
         }
     }
 }

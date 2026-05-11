@@ -42,11 +42,11 @@ impl Editor {
         }
 
         // Dismiss transient popups and clear hover state when switching buffers
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
 
         // Cancel search/replace prompts when switching buffers
         // (they are buffer-specific and don't make sense across buffers)
-        self.cancel_search_prompt_if_active();
+        self.active_window_mut().cancel_search_prompt_if_active();
 
         // Track the previous buffer for "Switch to Previous Tab" command
         let previous = self.active_buffer();
@@ -123,7 +123,7 @@ impl Editor {
         }
 
         // Ensure the newly active tab is visible
-        let tabs_width = self.effective_tabs_width();
+        let tabs_width = self.active_window().effective_tabs_width();
         self.active_window_mut()
             .ensure_active_tab_visible(active_split, buffer_id, tabs_width);
 

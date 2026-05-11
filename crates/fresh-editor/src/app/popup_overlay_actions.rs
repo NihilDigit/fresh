@@ -17,6 +17,7 @@ use rust_i18n::t;
 
 use crate::model::event::Event;
 
+use super::window::Window;
 use super::Editor;
 
 impl Editor {
@@ -175,34 +176,6 @@ impl Editor {
         }
     }
 
-    /// Called when the editor buffer loses focus (e.g., switching buffers,
-    /// opening prompts/menus, focusing file explorer, etc.)
-    ///
-    /// This is the central handler for focus loss that:
-    /// - Dismisses transient popups (Hover, Signature Help)
-    /// - Clears LSP hover state and pending requests
-    /// - Removes hover symbol highlighting
-    pub(super) fn on_editor_focus_lost(&mut self) {
-        // Dismiss transient popups via EditorState
-        self.active_state_mut().on_focus_lost();
-
-        // Clear hover state
-        self.active_window_mut().mouse_state.lsp_hover_state = None;
-        self.active_window_mut().mouse_state.lsp_hover_request_sent = false;
-        self.active_window_mut().hover.clear_pending();
-
-        // Clear hover symbol highlight if present
-        if let Some(handle) = self.active_window_mut().hover.take_symbol_overlay() {
-            let remove_overlay_event = crate::model::event::Event::RemoveOverlay { handle };
-            self.apply_event_to_active_buffer(&remove_overlay_event);
-        }
-        self.active_window_mut().hover.set_symbol_range(None);
-
-        // Any focus change (buffer switch, file explorer, menus, …) ends the
-        // goto-line preview flow. Drop the snapshot so a later Esc cannot
-        // rubber-band the cursor over state the user has moved past.
-        self.active_window_mut().goto_line_preview = None;
-    }
 
     /// Clear all popups
     pub fn clear_popups(&mut self) {
@@ -601,5 +574,36 @@ impl Editor {
         let event = Event::PopupPageUp;
         self.active_event_log_mut().append(event.clone());
         self.apply_event_to_active_buffer(&event);
+    }
+}
+
+impl Window {
+    /// Called when the editor buffer loses focus (e.g., switching buffers,
+    /// opening prompts/menus, focusing file explorer, etc.)
+    ///
+    /// Dismisses transient popups, clears LSP hover state and pending requests,
+    /// and removes hover symbol highlighting.
+    pub(crate) fn on_editor_focus_lost(&mut self) {
+        // Dismiss transient popups via EditorState
+        self.active_state_mut().on_focus_lost();
+
+        // Clear hover state
+        self.mouse_state.lsp_hover_state = None;
+        self.mouse_state.lsp_hover_request_sent = false;
+        self.hover.clear_pending();
+
+        // Clear hover symbol highlight if present. Inlined from
+        // `Event::RemoveOverlay` handling (state.rs) so we don't have to
+        // reach back through `Editor::apply_event_to_active_buffer`.
+        if let Some(handle) = self.hover.take_symbol_overlay() {
+            let state = self.active_state_mut();
+            state.overlays.remove_by_handle(&handle, &mut state.marker_list);
+        }
+        self.hover.set_symbol_range(None);
+
+        // Any focus change (buffer switch, file explorer, menus, …) ends the
+        // goto-line preview flow. Drop the snapshot so a later Esc cannot
+        // rubber-band the cursor over state the user has moved past.
+        self.goto_line_preview = None;
     }
 }

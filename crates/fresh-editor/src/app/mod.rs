@@ -952,21 +952,6 @@ impl Editor {
         Ok(())
     }
 
-    /// Calculate the effective width available for tabs.
-    ///
-    /// When the file explorer is visible, tabs only get a portion of the
-    /// terminal width. Matches the layout calculation in render.rs.
-    fn effective_tabs_width(&self) -> u16 {
-        if self.file_explorer_visible() && self.file_explorer().is_some() {
-            let explorer = self
-                .active_window()
-                .file_explorer_width
-                .to_cols(self.terminal_width);
-            self.terminal_width.saturating_sub(explorer)
-        } else {
-            self.terminal_width
-        }
-    }
 
     /// Total number of open buffers across the workspace. Test
     /// support for `EditorTestApi::buffer_count` (Phase 7 of the

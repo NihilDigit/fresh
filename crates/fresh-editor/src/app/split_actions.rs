@@ -275,7 +275,7 @@ impl Editor {
         self.active_window_mut()
             .promote_preview_if_not_in_split(split_id);
         let buffer = self.active_buffer();
-        let tabs_width = self.effective_tabs_width();
+        let tabs_width = self.active_window().effective_tabs_width();
         self.active_window_mut()
             .ensure_active_tab_visible(split_id, buffer, tabs_width);
 

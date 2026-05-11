@@ -1782,7 +1782,7 @@ impl Editor {
                     if self.menu_state.active_menu == Some(menu_idx) {
                         self.close_menu_with_auto_hide();
                     } else {
-                        self.on_editor_focus_lost();
+                        self.active_window_mut().on_editor_focus_lost();
                         self.menu_state.open_menu(menu_idx);
                     }
                     return Some(Ok(()));

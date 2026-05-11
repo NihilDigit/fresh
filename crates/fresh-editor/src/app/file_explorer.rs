@@ -158,10 +158,10 @@ impl Editor {
     pub fn focus_file_explorer(&mut self) {
         if self.file_explorer_visible() {
             // Dismiss transient popups and clear hover state when focusing file explorer
-            self.on_editor_focus_lost();
+            self.active_window_mut().on_editor_focus_lost();
 
             // Cancel search/replace prompts when switching focus away from editor
-            self.cancel_search_prompt_if_active();
+            self.active_window_mut().cancel_search_prompt_if_active();
 
             self.active_window_mut().key_context = KeyContext::FileExplorer;
             self.set_status_message(t!("explorer.focused").to_string());

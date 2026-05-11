@@ -65,7 +65,7 @@ impl Editor {
             self.active_window_mut().menu_bar_visible = true;
             self.active_window_mut().menu_bar_auto_shown = true;
         }
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
         self.menu_state.open_menu(0);
     }
 
@@ -167,7 +167,7 @@ impl Editor {
             self.active_window_mut().menu_bar_visible = true;
             self.active_window_mut().menu_bar_auto_shown = true;
         }
-        self.on_editor_focus_lost();
+        self.active_window_mut().on_editor_focus_lost();
 
         let all_menus = self.all_menus();
         for (idx, menu) in all_menus.iter().enumerate() {
