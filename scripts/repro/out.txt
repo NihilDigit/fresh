@@ -4,37 +4,37 @@
 │14 │
 │15 │ When the clipboard text is many lines long, the editor must:
 │16 │
-│17 │     1. Insert the text verbatim, preserving leading whitespace.
-│18 │     2. Not apply auto-indent on every embedded newline (otherwise each line
-│19 │        ends up cumulatively shifted to the right).
-│20 │        3. Not stall halfway through the paste because of pty back-pressure.
-│21 │        4. Not require an extra keypress to "wake up" and finish applying the
-│22 │           pending bytes.
+│17 │ 1. Insert the text verbatim, preserving leading whitespace.
+│18 │ 2. Not apply auto-indent on every embedded newline (otherwise each line
+│19 │    ends up cumulatively shifted to the right).
+│20 │ 3. Not stall halfway through the paste because of pty back-pressure.
+│21 │ 4. Not require an extra keypress to "wake up" and finish applying the
+│22 │    pending bytes.
 │23 │
-│24 │           ## Why this matters
+│24 │ ## Why this matters
 │25 │
-│26 │           A user copying a stack trace, a markdown document, or a code snippet from
-│27 │           tmux scrollback expects the paste to look exactly like the source. Any
-│28 │           extra indentation is a correctness bug, and a stalled paste is a UX bug.
+│26 │ A user copying a stack trace, a markdown document, or a code snippet from
+│27 │ tmux scrollback expects the paste to look exactly like the source. Any
+│28 │ extra indentation is a correctness bug, and a stalled paste is a UX bug.
 │29 │
-│30 │           ### Symptoms in the wild
+│30 │ ### Symptoms in the wild
 │31 │
-│32 │           - Each successive line is shifted further to the right than the previous
-│33 │             one (a "staircase" effect).
-│34 │             - After ~one screenful of text the paste appears to hang.
-│35 │             - Pressing any key (Down, Right, Space, ...) causes the remaining text
-│36 │               to suddenly appear.
-│37 │               - The resulting buffer needs to be discarded; users have to undo many
-│38 │                 times or close the file without saving.
+│32 │ - Each successive line is shifted further to the right than the previous
+│33 │   one (a "staircase" effect).
+│34 │ - After ~one screenful of text the paste appears to hang.
+│35 │ - Pressing any key (Down, Right, Space, ...) causes the remaining text
+│36 │   to suddenly appear.
+│37 │ - The resulting buffer needs to be discarded; users have to undo many
+│38 │   times or close the file without saving.
 │39 │
-│40 │                 ## Reproduction recipe
+│40 │ ## Reproduction recipe
 │41 │
-│42 │                 1. Open a fresh tmux session.
-│43 │                 2. Inside tmux, run `fresh` and create a new empty scratch buffer.
-│44 │                 3. Load a long markdown text into tmux's paste buffer via
-│45 │                    `tmux load-buffer`.
-│46 │                    4. Trigger the paste from tmux itself with `tmux paste-buffer` (or by
-│47 │                       pressing the tmux paste binding).
-│48 │                       5. Observe: each line ends up indented further than the last, and the
-│49 │                          paste blocks until a key is presse
- Local  | [No Name] [+] | Ln 49, Col 60                                                LF  UTF-8  Text  Palette: Ctrl+P
+│42 │ 1. Open a fresh tmux session.
+│43 │ 2. Inside tmux, run `fresh` and create a new empty scratch buffer.
+│44 │ 3. Load a long markdown text into tmux's paste buffer via
+│45 │    `tmux load-buffer`.
+│46 │ 4. Trigger the paste from tmux itself with `tmux paste-buffer` (or by
+│47 │    pressing the tmux paste binding).
+│48 │ 5. Observe: each line ends up indented further than the last, and the
+│49 │    paste blocks until a key is presse
+ Local  | [No Name] [+] | Ln 49, Col 38 | Pasted                                       LF  UTF-8  Text  Palette: Ctrl+P

@@ -43,9 +43,19 @@ SAMPLE="$PWD/scripts/repro/sample.md"
 OUT="$PWD/scripts/repro/out.txt"
 SESSION="fresh_paste_repro_$$"
 
-# Make sure we leave no orphan tmux sessions even on error.
+# Isolated config / state dirs so prior runs' hot-exit / recovery state
+# can't bleed into the buffer we're trying to test.
+TMP_HOME="$(mktemp -d)"
+export HOME="$TMP_HOME"
+export XDG_CONFIG_HOME="$TMP_HOME/.config"
+export XDG_DATA_HOME="$TMP_HOME/.local/share"
+export XDG_CACHE_HOME="$TMP_HOME/.cache"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
+# Make sure we leave no orphan tmux sessions or temp state even on error.
 cleanup() {
     tmux kill-session -t "$SESSION" 2>/dev/null || true
+    rm -rf "$TMP_HOME"
 }
 trap cleanup EXIT
 
@@ -66,9 +76,9 @@ echo "loaded $(wc -l <"$SAMPLE") lines / $(wc -c <"$SAMPLE") bytes into tmux buf
 # prompt — this is exactly what the user described.
 tmux paste-buffer -b paste_repro -t "$SESSION"
 
-# Give the paste 2s to do its (mis)handling. The bug typically stalls the
+# Give the paste 5s to do its (mis)handling. The bug typically stalls the
 # paste before this completes, which is itself part of the reproduction.
-sleep 2
+sleep 5
 
 # Capture the pane after the (buggy) paste --------------------------------
 tmux capture-pane -t "$SESSION" -p -S - -E - > "$OUT"

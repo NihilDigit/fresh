@@ -4049,7 +4049,17 @@ where
         while let Some(more) = poll_event(Duration::ZERO)? {
             batch.push(more);
         }
+        let raw_count = batch.len();
         let batch = coalesce_paste_batch(batch);
+        if raw_count > 4 {
+            tracing::info!(
+                "event drain: raw={} coalesced={} first={:?} last={:?}",
+                raw_count,
+                batch.len(),
+                batch.first(),
+                batch.last(),
+            );
+        }
 
         // Event debug dialog receives ALL RAW events (before any translation or processing)
         // This is essential for diagnosing terminal keybinding issues
