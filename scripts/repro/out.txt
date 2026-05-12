@@ -1,40 +1,40 @@
  File   Edit   View   Selection   Go   LSP   Help
  [No Name]* ×
-│13 │ safe even for very large clipboard payloads.
-│14 │
-│15 │ When the clipboard text is many lines long, the editor must:
-│16 │
-│17 │ 1. Insert the text verbatim, preserving leading whitespace.
-│18 │ 2. Not apply auto-indent on every embedded newline (otherwise each line
-│19 │    ends up cumulatively shifted to the right).
-│20 │ 3. Not stall halfway through the paste because of pty back-pressure.
-│21 │ 4. Not require an extra keypress to "wake up" and finish applying the
-│22 │    pending bytes.
-│23 │
-│24 │ ## Why this matters
-│25 │
-│26 │ A user copying a stack trace, a markdown document, or a code snippet from
-│27 │ tmux scrollback expects the paste to look exactly like the source. Any
-│28 │ extra indentation is a correctness bug, and a stalled paste is a UX bug.
-│29 │
-│30 │ ### Symptoms in the wild
-│31 │
-│32 │ - Each successive line is shifted further to the right than the previous
-│33 │   one (a "staircase" effect).
-│34 │ - After ~one screenful of text the paste appears to hang.
-│35 │ - Pressing any key (Down, Right, Space, ...) causes the remaining text
-│36 │   to suddenly appear.
-│37 │ - The resulting buffer needs to be discarded; users have to undo many
-│38 │   times or close the file without saving.
-│39 │
-│40 │ ## Reproduction recipe
-│41 │
-│42 │ 1. Open a fresh tmux session.
-│43 │ 2. Inside tmux, run `fresh` and create a new empty scratch buffer.
-│44 │ 3. Load a long markdown text into tmux's paste buffer via
-│45 │    `tmux load-buffer`.
-│46 │ 4. Trigger the paste from tmux itself with `tmux paste-buffer` (or by
-│47 │    pressing the tmux paste binding).
-│48 │ 5. Observe: each line ends up indented further than the last, and the
-│49 │    paste blocks until a key is presse
- Local  | [No Name] [+] | Ln 49, Col 38 | Pasted                                       LF  UTF-8  Text  Palette: Ctrl+P
+│ 80 │ dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+│ 81 │ proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+│ 82 │
+│ 83 │ ## Code-ish block (still plain markdown)
+│ 84 │
+│ 85 │     fn main() {
+│ 86 │         let greeting = "Hello, paste!";
+│ 87 │         for line in greeting.lines() {
+│ 88 │             println!("{}", line);
+│ 89 │         }
+│ 90 │     }
+│ 91 │
+│ 92 │ ## Block quote
+│ 93 │
+│ 94 │ > "Pasting should be invisible plumbing: the bytes you copied are the
+│ 95 │ > bytes you get back. Anything else — auto-indent, smart formatting,
+│ 96 │ > bracket completion — belongs to typing, not to pasting."
+│ 97 │
+│ 98 │ ## Mixed final section
+│ 99 │
+│100 │ Below is a mix of bullets, paragraphs, and a final numbered list to make
+│101 │ sure we exercise every path through the input parser one more time:
+│102 │
+│103 │ - Alpha.
+│104 │ - Beta with some additional text that continues for a while so that we
+│105 │   cross the typical pty chunk boundary somewhere mid-line.
+│106 │ - Gamma.
+│107 │
+│108 │ Final paragraph: if you can read this paragraph at column 1 (no leading
+│109 │ whitespace) and the previous bullets are also at column 1, the bug is
+│110 │ fixed. If this paragraph starts halfway across the screen, the bug is
+│111 │ still present.
+│112 │
+│113 │ 1. End of document.
+│114 │ 2. Thanks for reading!
+│115 │ 3. End.
+ 116 │
+ Local  | [No Name] [+] | Ln 116, Col 1 | Pasted                                       LF  UTF-8  Text  Palette: Ctrl+P
