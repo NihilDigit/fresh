@@ -3938,10 +3938,6 @@ where
     const FRAME_DURATION: Duration = Duration::from_millis(16); // 60fps
     let mut last_render = Instant::now();
     let mut needs_render = true;
-    // Parser for the stdin-sweep fallback on Linux. Persists across loop
-    // iterations because a chunk may end mid-escape-sequence.
-    #[cfg(target_os = "linux")]
-    let mut stdin_parser = fresh::server::input_parser::InputParser::new();
 
     loop {
         // Run shared per-tick housekeeping (async messages, timers, auto-save, etc.)
@@ -4053,27 +4049,7 @@ where
         while let Some(more) = poll_event(Duration::ZERO)? {
             batch.push(more);
         }
-        // On Linux, crossterm reads stdin through mio, which registers the
-        // fd in edge-triggered mode (EPOLLET). crossterm's read loop exits
-        // as soon as it has *one* event to return, without draining the fd
-        // to EAGAIN. The next epoll_wait then never fires for the leftover
-        // bytes — they're stuck until *new* data arrives (a real keypress)
-        // re-arms the edge. This is exactly the "paste blocks until a key
-        // is pressed" symptom. As a workaround, sweep stdin directly with
-        // a non-blocking read whenever crossterm's drain comes up empty,
-        // and parse the bytes with Fresh's own InputParser so they show up
-        // as ordinary events in this iteration's batch.
-        #[cfg(target_os = "linux")]
-        sweep_stdin_fallback(&mut stdin_parser, &mut batch);
-        let raw_count = batch.len();
         let batch = coalesce_paste_batch(batch);
-        if raw_count > 4 {
-            tracing::debug!(
-                "event drain: raw={} coalesced={}",
-                raw_count,
-                batch.len(),
-            );
-        }
 
         // Event debug dialog receives ALL RAW events (before any translation or processing)
         // This is essential for diagnosing terminal keybinding issues
@@ -4333,52 +4309,6 @@ fn coalesce_paste_batch(batch: Vec<CrosstermEvent>) -> Vec<CrosstermEvent> {
     }
     flush(&mut out, &mut run);
     out
-}
-
-/// Non-blocking read of any bytes the kernel still has buffered on stdin,
-/// parsed via Fresh's own `InputParser` and appended to `batch` as crossterm
-/// events. See the call site in `run_event_loop_common` for the motivation
-/// (working around mio's edge-triggered `EPOLLET`).
-///
-/// On `EAGAIN` we simply stop. Any other read error is silently ignored —
-/// stdin is supposed to be the same fd crossterm reads from, so something
-/// going wrong there will be surfaced on the next regular `poll_event` call.
-#[cfg(target_os = "linux")]
-fn sweep_stdin_fallback(
-    parser: &mut fresh::server::input_parser::InputParser,
-    batch: &mut Vec<CrosstermEvent>,
-) {
-    use std::os::unix::io::{AsRawFd, BorrowedFd};
-
-    let stdin_fd = io::stdin().as_raw_fd();
-    // We rely on crossterm/mio having already put stdin in non-blocking mode
-    // when the event source was registered. Double-check via a level-
-    // triggered poll: if the fd isn't even readable right now, there's no
-    // work to do and we avoid an unnecessary syscall on the common path.
-    let borrowed = unsafe { BorrowedFd::borrow_raw(stdin_fd) };
-    let mut fds = [nix::poll::PollFd::new(borrowed, nix::poll::PollFlags::POLLIN)];
-    match nix::poll::poll(&mut fds, nix::poll::PollTimeout::ZERO) {
-        Ok(n) if n > 0 => {}
-        _ => return,
-    }
-
-    let mut buf = [0u8; 4096];
-    loop {
-        // SAFETY: stdin fd is valid; buf is a writable buffer we own.
-        let n = unsafe {
-            libc::read(stdin_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-        };
-        if n <= 0 {
-            break;
-        }
-        let parsed = parser.parse(&buf[..n as usize]);
-        for ev in parsed {
-            batch.push(ev);
-        }
-        if (n as usize) < buf.len() {
-            break;
-        }
-    }
 }
 
 /// Skip stale mouse move events, return the latest one.

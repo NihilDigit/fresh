@@ -69,6 +69,16 @@ lsp-types = "0.97"
 ts-rs = { version = "12.0", features = ["serde_json"] }
 # Add more as needed during refactor
 
+# Vendored crossterm with a one-file fix that drains the tty fd to
+# `WouldBlock` inside the mio-backed event source instead of returning early
+# on the first parsed event. Without this, mio's edge-triggered epoll
+# registration leaves leftover paste bytes stuck in the kernel pty until a
+# real keypress re-arms the edge — the well-known "large paste blocks until
+# I press a key" symptom. Drop this `[patch.crates-io]` once the upstream
+# PR lands; the rest of the vendored tree is identical to crossterm 0.29.0.
+[patch.crates-io]
+crossterm = { path = "vendor/crossterm" }
+
 [profile.release]
 debug = 0
 lto = "fat"

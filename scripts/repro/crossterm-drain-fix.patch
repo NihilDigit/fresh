@@ -1,0 +1,89 @@
+From 67b77c4a7e80d87df402b28bdc62b15e713946b2 Mon Sep 17 00:00:00 2001
+From: Claude <claude@example.com>
+Date: Tue, 12 May 2026 08:46:13 +0000
+Subject: [PATCH] fix(event): drain tty fd to EAGAIN before returning from
+ try_read
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+mio registers the tty fd with Interest::READABLE, which on Linux maps
+to EPOLLIN | EPOLLET — edge-triggered. The previous read loop returned
+as soon as the parser produced its first event, leaving any remaining
+bytes in the kernel buffer. Because the edge has already been
+consumed, epoll_wait will not re-fire for those leftover bytes until
+new data arrives.
+
+In practice this surfaces as the well-known "a large paste blocks
+partway through and only resumes when I press a key" symptom — for
+example, pasting a few KB of text from tmux's paste-buffer (which does
+not use bracketed paste, so the bytes arrive as a flood of raw
+keystrokes). The first ~1 KiB is parsed, the parser returns the first
+event, the loop exits with bytes still in the kernel pty, and the next
+epoll_wait never fires. A real keypress later creates a new edge, the
+leftover bytes finally drain, and the paste appears to "continue".
+
+Fix: keep reading until the fd returns WouldBlock or a short read
+(which also indicates no more bytes are immediately available on a
+tty). All resulting events are queued in the parser. Only then do we
+return the first event to the caller; subsequent try_read calls drain
+the queue without any extra syscalls.
+
+No behavior change when each try_read call corresponds to a single
+small input (the typical interactive case): the read loop sees a short
+read and exits immediately, identical to the old fast path.
+---
+ src/event/source/unix/mio.rs | 22 +++++++++++++++++++---
+ 1 file changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/src/event/source/unix/mio.rs b/src/event/source/unix/mio.rs
+index e5f8e2e..34be65c 100644
+--- a/src/event/source/unix/mio.rs
++++ b/src/event/source/unix/mio.rs
+@@ -93,6 +93,15 @@ impl EventSource for UnixInternalEventSource {
+             for token in self.events.iter().map(|x| x.token()) {
+                 match token {
+                     TTY_TOKEN => {
++                        // Drain the fd all the way to `WouldBlock` before
++                        // returning, even after the parser has produced its
++                        // first event. mio registers the fd with `EPOLLET`
++                        // (edge-triggered), so if we return early while the
++                        // kernel still has buffered bytes, the next
++                        // `epoll_wait` will not re-fire for them — they'll
++                        // sit unread until *new* data arrives and re-arms
++                        // the edge. That is the root cause of the classic
++                        // "large paste blocks until I press a key" bug.
+                         loop {
+                             match self.tty_fd.read(&mut self.tty_buffer) {
+                                 Ok(read_count) => {
+@@ -102,6 +111,13 @@ impl EventSource for UnixInternalEventSource {
+                                             read_count == TTY_BUFFER_SIZE,
+                                         );
+                                     }
++                                    if read_count < TTY_BUFFER_SIZE {
++                                        // Short read also signals "no more
++                                        // data right now" on a tty; avoid
++                                        // an extra syscall that would just
++                                        // return WouldBlock.
++                                        break;
++                                    }
+                                 }
+                                 Err(e) => {
+                                     // No more data to read at the moment. We will receive another event
+@@ -114,10 +130,10 @@ impl EventSource for UnixInternalEventSource {
+                                     }
+                                 }
+                             };
++                        }
+ 
+-                            if let Some(event) = self.parser.next() {
+-                                return Ok(Some(event));
+-                            }
++                        if let Some(event) = self.parser.next() {
++                            return Ok(Some(event));
+                         }
+                     }
+                     SIGNAL_TOKEN => {
+-- 
+2.43.0
+
