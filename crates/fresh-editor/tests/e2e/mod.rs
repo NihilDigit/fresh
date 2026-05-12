@@ -59,6 +59,7 @@ pub mod issue_1568_session_fold_restore;
 pub mod issue_1569_explorer_auto_expand;
 pub mod issue_1571_fold_indicator_lag;
 pub mod issue_1572_inlay_hint_drift;
+pub mod clang_format_args_repro;
 pub mod issue_1573_format_buffer;
 pub mod issue_1574_compose_scroll;
 pub mod issue_1574_wrapped_down_scroll;
