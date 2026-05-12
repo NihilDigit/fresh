@@ -255,7 +255,7 @@ editor.on("prompt_confirmed", async (e) => {
     if (!name) return;
     pendingBranchName = name;
     editor.startPrompt(
-      "Agent command (optional — Enter for plain shell)",
+      "Agent command (optional — Enter for plain shell)  │  ",
       "conductor-new-cmd",
       true,
     );
@@ -361,7 +361,7 @@ function startNewSession(): void {
   pendingBranchName = null;
   pendingNewSession = null;
   editor.startPrompt(
-    "New session — branch / worktree name",
+    "New session — branch / worktree name  │  ",
     "conductor-new-branch",
     true,
   );
