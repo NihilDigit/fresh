@@ -257,11 +257,53 @@ editor.on("prompt_confirmed", async (e) => {
     // default shell with nothing pre-typed, so the session
     // is a plain worktree they can use manually.
     const cwd = editor.getCwd();
-    const root = editor.pathJoin(cwd, ".fresh", "conductor", branch);
+    // Anchor the worktree at the repo top-level so nested
+    // Conductor sessions still create siblings at the project
+    // root, not under each other.
+    let repoRoot: string;
     try {
-      await editor.spawnProcess("mkdir", ["-p", root], cwd);
-    } catch {
-      // best-effort; createTerminal will surface failures
+      const r = await editor.spawnProcess(
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        cwd,
+      );
+      if (r.exit_code !== 0) {
+        editor.setStatus(
+          "Conductor: not a git repo — cannot create worktree",
+        );
+        return;
+      }
+      repoRoot = r.stdout.trim();
+    } catch (err) {
+      editor.setStatus(`Conductor: cannot run git: ${err}`);
+      return;
+    }
+    const root = editor.pathJoin(repoRoot, ".fresh", "conductor", branch);
+    // Try a new branch by that name first; fall back to checking
+    // out an existing branch of the same name into the worktree.
+    let result;
+    try {
+      result = await editor.spawnProcess(
+        "git",
+        ["worktree", "add", root, "-b", branch],
+        repoRoot,
+      );
+      if (result.exit_code !== 0) {
+        result = await editor.spawnProcess(
+          "git",
+          ["worktree", "add", root, branch],
+          repoRoot,
+        );
+      }
+    } catch (err) {
+      editor.setStatus(`Conductor: git worktree failed: ${err}`);
+      return;
+    }
+    if (result.exit_code !== 0) {
+      const last = result.stderr.trim().split("\n").slice(-1)[0] ||
+        "unknown error";
+      editor.setStatus(`Conductor: worktree add failed: ${last}`);
+      return;
     }
     pendingNewSession = { branch, cmd, root };
     editor.createWindow(root, branch);
