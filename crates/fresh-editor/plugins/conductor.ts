@@ -278,7 +278,23 @@ editor.on("prompt_confirmed", async (e) => {
       editor.setStatus(`Conductor: cannot run git: ${err}`);
       return;
     }
-    const root = editor.pathJoin(repoRoot, ".fresh", "conductor", branch);
+    // Worktrees live under the XDG data dir keyed by a path-slug
+    // of the repo root, not inside the project tree.
+    const repoSlug = repoRoot.replace(/^[/\\]+/, "").replace(/[/\\]+/g, "_");
+    const root = editor.pathJoin(
+      editor.getDataDir(),
+      "conductor",
+      repoSlug,
+      branch,
+    );
+    // git worktree add does not create missing parent dirs.
+    const parent = editor.pathDirname(root);
+    try {
+      await editor.spawnProcess("mkdir", ["-p", parent], repoRoot);
+    } catch (err) {
+      editor.setStatus(`Conductor: mkdir failed: ${err}`);
+      return;
+    }
     // Try a new branch by that name first; fall back to checking
     // out an existing branch of the same name into the worktree.
     let result;
