@@ -39,6 +39,9 @@
 //! is a pointer write (plus first-dive seed allocation for
 //! windows that have never been activated).
 
+pub mod buffers;
+pub use buffers::WindowBuffers;
+
 use crate::app::types::{ChromeLayout, WindowLayoutCache};
 use crate::app::window_resources::WindowResources;
 use crate::model::event::{Event, LeafId};
@@ -116,7 +119,13 @@ pub struct Window {
     /// `EditorState` for its buffers outright; closing the window
     /// drops them. Opening the same file in two windows produces
     /// two independent buffers.
-    pub buffers: HashMap<BufferId, crate::state::EditorState>,
+    ///
+    /// `WindowBuffers` (in the [`buffers`] submodule) keeps the
+    /// underlying map private — every add / remove goes through one
+    /// auditable surface. The hashmap-shaped methods (`get`,
+    /// `get_mut`, `insert`, `remove`, `iter`, …) are preserved so
+    /// call sites read the same as before.
+    pub buffers: WindowBuffers,
 
     /// Per-buffer metadata (display name, file path / LSP URI,
     /// virtual-buffer mode, read-only flag, LSP-opened set, preview
@@ -1519,7 +1528,7 @@ impl Window {
             lsp: None,
             panel_ids: HashMap::new(),
             splits: None,
-            buffers: HashMap::new(),
+            buffers: WindowBuffers::new(),
             buffer_metadata: HashMap::new(),
             terminal_manager: crate::services::terminal::TerminalManager::new(),
             terminal_buffers: HashMap::new(),

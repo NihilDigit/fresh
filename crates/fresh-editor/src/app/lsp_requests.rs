@@ -3314,7 +3314,7 @@ impl Editor {
         let Some(lsp) = __win.lsp.as_mut() else {
             return;
         };
-        let __buffers_ref: &HashMap<BufferId, EditorState> = &__win.buffers;
+        let __buffers_ref: &crate::app::window::WindowBuffers = &__win.buffers;
 
         // Ensure there is a running server
         use crate::services::lsp::manager::LspSpawnResult;

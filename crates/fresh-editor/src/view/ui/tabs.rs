@@ -223,7 +223,7 @@ pub fn scroll_to_show_tab(
 /// `group_names` provides the display name for each group tab (`TabTarget::Group`).
 fn resolve_tab_names(
     tab_targets: &[TabTarget],
-    buffers: &HashMap<BufferId, EditorState>,
+    buffers: &crate::app::window::WindowBuffers,
     buffer_metadata: &HashMap<BufferId, BufferMetadata>,
     composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
     group_names: &HashMap<LeafId, String>,
@@ -301,7 +301,7 @@ fn resolve_tab_names(
 /// This uses the same logic as render_for_split to ensure consistency.
 pub fn calculate_tab_widths(
     tab_targets: &[TabTarget],
-    buffers: &HashMap<BufferId, EditorState>,
+    buffers: &crate::app::window::WindowBuffers,
     buffer_metadata: &HashMap<BufferId, BufferMetadata>,
     composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
     group_names: &HashMap<LeafId, String>,
@@ -391,7 +391,7 @@ impl TabsRenderer {
         frame: &mut Frame,
         area: Rect,
         tab_targets: &[TabTarget],
-        buffers: &HashMap<BufferId, EditorState>,
+        buffers: &crate::app::window::WindowBuffers,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         active_target: TabTarget,
@@ -754,7 +754,7 @@ impl TabsRenderer {
     pub fn render(
         frame: &mut Frame,
         area: Rect,
-        buffers: &HashMap<BufferId, EditorState>,
+        buffers: &crate::app::window::WindowBuffers,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         active_buffer: BufferId,

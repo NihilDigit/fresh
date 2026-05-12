@@ -2183,7 +2183,7 @@ fn serialize_split_node_pruned(
 
 fn serialize_split_view_state(
     view_state: &crate::view::split::SplitViewState,
-    buffers: &HashMap<BufferId, EditorState>,
+    buffers: &crate::app::window::WindowBuffers,
     buffer_metadata: &HashMap<BufferId, super::types::BufferMetadata>,
     working_dir: &Path,
     active_buffer: Option<BufferId>,

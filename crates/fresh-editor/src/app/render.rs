@@ -302,7 +302,7 @@ impl Editor {
                 .windows
                 .get_mut(&active_id)
                 .expect("active window must exist");
-            let __buffers_ref: &HashMap<BufferId, EditorState> = &__win.buffers;
+            let __buffers_ref: &crate::app::window::WindowBuffers = &__win.buffers;
             if let Some(explorer) = __win.file_explorer.as_mut() {
                 // Build set of files with unsaved changes
                 let mut files_with_unsaved_changes = std::collections::HashSet::new();

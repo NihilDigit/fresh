@@ -32,7 +32,7 @@ impl crate::app::window::Window {
         let __window_metadata = &self.buffer_metadata;
         let __window_grouped = &self.grouped_subtrees;
         let __window_composites = &self.composite_buffers;
-        let __window_buffers: &HashMap<BufferId, EditorState> = &self.buffers;
+        let __window_buffers: &crate::app::window::WindowBuffers = &self.buffers;
         let Some(view_state) = self
             .splits
             .as_mut()

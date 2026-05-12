@@ -508,7 +508,7 @@ impl Editor {
         t.phase("keybindings");
 
         // Create an empty initial buffer
-        let mut buffers = HashMap::new();
+        let mut buffers = crate::app::window::WindowBuffers::new();
         let mut event_logs = HashMap::new();
 
         // Buffer IDs start at 1 (not 0) because the plugin API returns 0 to

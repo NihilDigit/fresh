@@ -688,7 +688,7 @@ impl Editor {
     /// `EditorState` map outright; closing the window drops them.
     /// Cross-window iteration goes through `self.windows.values()`
     /// directly.
-    pub(crate) fn buffers(&self) -> &HashMap<BufferId, EditorState> {
+    pub(crate) fn buffers(&self) -> &crate::app::window::WindowBuffers {
         &self.active_window().buffers
     }
 
@@ -698,7 +698,7 @@ impl Editor {
     /// (`splits`, `event_logs`, etc.) take a single
     /// `let window = self.windows.get_mut(&self.active_window).unwrap()`
     /// and split-access the disjoint sub-fields directly.
-    pub(crate) fn buffers_mut(&mut self) -> &mut HashMap<BufferId, EditorState> {
+    pub(crate) fn buffers_mut(&mut self) -> &mut crate::app::window::WindowBuffers {
         &mut self.active_window_mut().buffers
     }
 

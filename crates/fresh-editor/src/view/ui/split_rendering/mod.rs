@@ -57,7 +57,7 @@ impl SplitRenderer {
         frame: &mut Frame,
         area: Rect,
         split_manager: &SplitManager,
-        buffers: &mut HashMap<BufferId, EditorState>,
+        buffers: &mut crate::app::window::WindowBuffers,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         event_logs: &mut HashMap<BufferId, EventLog>,
         composite_buffers: &mut HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
@@ -152,7 +152,7 @@ impl SplitRenderer {
     pub fn compute_content_layout(
         area: Rect,
         split_manager: &SplitManager,
-        buffers: &mut HashMap<BufferId, EditorState>,
+        buffers: &mut crate::app::window::WindowBuffers,
         split_view_states: &mut HashMap<LeafId, crate::view::split::SplitViewState>,
         theme: &crate::view::theme::Theme,
         lsp_waiting: bool,
