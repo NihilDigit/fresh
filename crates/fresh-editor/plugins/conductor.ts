@@ -233,7 +233,7 @@ editor.on("prompt_confirmed", async (e) => {
     if (!name) return;
     pendingBranchName = name;
     editor.startPrompt(
-      "Agent command (e.g. 'aider', 'claude -p \"...\"')",
+      "Agent command (optional — Enter for plain shell)",
       "conductor-new-cmd",
       true,
     );
@@ -244,7 +244,10 @@ editor.on("prompt_confirmed", async (e) => {
     const cmd = (e.input || "").trim();
     const branch = pendingBranchName;
     pendingBranchName = null;
-    if (!branch || !cmd) return;
+    if (!branch) return;
+    // Empty cmd is valid — the terminal then runs the user's
+    // default shell with nothing pre-typed, so the session
+    // is a plain worktree they can use manually.
     const cwd = editor.getCwd();
     const root = editor.pathJoin(cwd, ".fresh", "conductor", branch);
     try {
@@ -342,7 +345,9 @@ editor.on("window_created", async (payload) => {
       createdAt: Date.now(),
     };
     conductorSessions.set(id, tracked);
-    editor.sendTerminalInput(term.terminalId, intent.cmd + "\n");
+    if (intent.cmd) {
+      editor.sendTerminalInput(term.terminalId, intent.cmd + "\n");
+    }
   }
   refreshPromptIfOpen();
 });
