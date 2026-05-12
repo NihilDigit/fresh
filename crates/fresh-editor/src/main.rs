@@ -6,8 +6,8 @@
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{CommandFactory, FromArgMatches, Parser};
 use crossterm::event::{
-    poll as event_poll, read as event_read, Event as CrosstermEvent, KeyEvent, KeyEventKind,
-    MouseEvent,
+    poll as event_poll, read as event_read, Event as CrosstermEvent, KeyCode, KeyEvent,
+    KeyEventKind, KeyModifiers, MouseEvent,
 };
 use fresh::input::key_translator::KeyTranslator;
 #[cfg(target_os = "linux")]
@@ -3938,7 +3938,6 @@ where
     const FRAME_DURATION: Duration = Duration::from_millis(16); // 60fps
     let mut last_render = Instant::now();
     let mut needs_render = true;
-    let mut pending_event: Option<CrosstermEvent> = None;
 
     loop {
         // Run shared per-tick housekeeping (async messages, timers, auto-save, etc.)
@@ -4011,9 +4010,7 @@ where
             needs_render = false;
         }
 
-        let event = if let Some(e) = pending_event.take() {
-            Some(e)
-        } else {
+        let event = {
             let mut timeout = if needs_render {
                 FRAME_DURATION.saturating_sub(last_render.elapsed())
             } else {
@@ -4036,59 +4033,80 @@ where
 
         let Some(event) = event else { continue };
 
-        let (event, next) = coalesce_mouse_moves(event)?;
-        pending_event = next;
+        let (event, next_after_mouse) = coalesce_mouse_moves(event)?;
+
+        // Drain everything else that arrived in this poll round into a single
+        // batch. tmux's `paste-buffer` (`:paste`) delivers buffer contents as
+        // raw keystrokes — no bracketed-paste wrapper — so a large paste shows
+        // up as a flood of Char + Enter events queued behind the first one.
+        // Folding the run back into a synthetic Paste removes the staircase
+        // auto-indent and lets us render once instead of per keystroke.
+        let mut batch: Vec<CrosstermEvent> = Vec::with_capacity(16);
+        batch.push(event);
+        if let Some(saved) = next_after_mouse {
+            batch.push(saved);
+        }
+        while let Some(more) = poll_event(Duration::ZERO)? {
+            batch.push(more);
+        }
+        let batch = coalesce_paste_batch(batch);
 
         // Event debug dialog receives ALL RAW events (before any translation or processing)
         // This is essential for diagnosing terminal keybinding issues
         if editor.active_window().is_event_debug_active() {
-            if let CrosstermEvent::Key(key_event) = event {
-                if key_event.kind == KeyEventKind::Press {
-                    editor
-                        .active_window_mut()
-                        .handle_event_debug_input(&key_event);
-                    needs_render = true;
+            for ev in &batch {
+                if let CrosstermEvent::Key(key_event) = ev {
+                    if key_event.kind == KeyEventKind::Press {
+                        editor.active_window_mut().handle_event_debug_input(key_event);
+                        needs_render = true;
+                    }
                 }
             }
             // Consume all events while event debug is active
             continue;
         }
 
-        match event {
-            CrosstermEvent::Key(key_event) => {
-                if key_event.kind == KeyEventKind::Press {
-                    let _span = tracing::trace_span!(
-                        "handle_key",
-                        code = ?key_event.code,
-                        modifiers = ?key_event.modifiers,
-                    )
-                    .entered();
-                    // Apply key translation (for input calibration)
-                    // Use editor's translator so calibration changes take effect immediately
-                    let translated_event = editor.key_translator().translate(key_event);
-                    handle_key_event(editor, translated_event)?;
+        for event in batch {
+            if editor.should_quit() {
+                break;
+            }
+            match event {
+                CrosstermEvent::Key(key_event) => {
+                    if key_event.kind == KeyEventKind::Press {
+                        let _span = tracing::trace_span!(
+                            "handle_key",
+                            code = ?key_event.code,
+                            modifiers = ?key_event.modifiers,
+                        )
+                        .entered();
+                        // Apply key translation (for input calibration)
+                        // Use editor's translator so calibration changes take effect immediately
+                        let translated_event = editor.key_translator().translate(key_event);
+                        handle_key_event(editor, translated_event)?;
+                        needs_render = true;
+                    }
+                }
+                CrosstermEvent::Mouse(mouse_event) => {
+                    if handle_mouse_event(editor, mouse_event)? {
+                        needs_render = true;
+                    }
+                }
+                CrosstermEvent::Resize(w, h) => {
+                    editor.resize(w, h);
                     needs_render = true;
                 }
-            }
-            CrosstermEvent::Mouse(mouse_event) => {
-                if handle_mouse_event(editor, mouse_event)? {
+                CrosstermEvent::Paste(text) => {
+                    // External paste from terminal (bracketed paste mode, or a
+                    // synthetic paste from coalesce_paste_batch above).
+                    editor.paste_text(text);
                     needs_render = true;
                 }
+                CrosstermEvent::FocusGained => {
+                    editor.focus_gained();
+                    needs_render = true;
+                }
+                _ => {}
             }
-            CrosstermEvent::Resize(w, h) => {
-                editor.resize(w, h);
-                needs_render = true;
-            }
-            CrosstermEvent::Paste(text) => {
-                // External paste from terminal (bracketed paste mode)
-                editor.paste_text(text);
-                needs_render = true;
-            }
-            CrosstermEvent::FocusGained => {
-                editor.focus_gained();
-                needs_render = true;
-            }
-            _ => {}
         }
     }
 
@@ -4223,6 +4241,74 @@ fn handle_mouse_event(editor: &mut Editor, mouse_event: MouseEvent) -> AnyhowRes
     editor
         .handle_mouse(mouse_event)
         .context("Failed to handle mouse event")
+}
+
+/// If `event` looks like a "pasteable" keystroke — a plain `Char`, `Enter`,
+/// or `Tab` press with no non-shift modifiers — return the character it would
+/// insert. Used by [`coalesce_paste_batch`] to spot runs that came from a
+/// terminal multiplexer pasting raw bytes instead of bracketed paste.
+fn pasteable_char(event: &CrosstermEvent) -> Option<char> {
+    let CrosstermEvent::Key(k) = event else {
+        return None;
+    };
+    if k.kind != KeyEventKind::Press {
+        return None;
+    }
+    // Shift is fine (uppercase letters carry it); any other modifier means the
+    // user actually pressed Ctrl/Alt and we must not swallow that into a paste.
+    if !(k.modifiers - KeyModifiers::SHIFT).is_empty() {
+        return None;
+    }
+    match k.code {
+        KeyCode::Char(c) => Some(c),
+        KeyCode::Enter => Some('\n'),
+        KeyCode::Tab => Some('\t'),
+        _ => None,
+    }
+}
+
+/// Fold runs of consecutive pasteable key events into synthetic `Paste`
+/// events, so that a multi-line burst that arrived in one poll round (i.e.
+/// `tmux paste-buffer` without bracketed paste) is treated as a paste rather
+/// than a flood of `Enter` presses that each trigger auto-indent.
+///
+/// A run is folded only when it contains a `\n` and is longer than one char.
+/// That keeps normal typing — including a single bare `Enter` — completely
+/// untouched.
+fn coalesce_paste_batch(batch: Vec<CrosstermEvent>) -> Vec<CrosstermEvent> {
+    fn flush(out: &mut Vec<CrosstermEvent>, run: &mut String) {
+        if run.is_empty() {
+            return;
+        }
+        if run.contains('\n') && run.chars().count() > 1 {
+            out.push(CrosstermEvent::Paste(std::mem::take(run)));
+        } else {
+            for c in run.drain(..) {
+                let (code, mods) = match c {
+                    '\n' => (KeyCode::Enter, KeyModifiers::NONE),
+                    '\t' => (KeyCode::Tab, KeyModifiers::NONE),
+                    other if other.is_uppercase() => {
+                        (KeyCode::Char(other), KeyModifiers::SHIFT)
+                    }
+                    other => (KeyCode::Char(other), KeyModifiers::NONE),
+                };
+                out.push(CrosstermEvent::Key(KeyEvent::new(code, mods)));
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(batch.len());
+    let mut run = String::new();
+    for ev in batch {
+        if let Some(c) = pasteable_char(&ev) {
+            run.push(c);
+        } else {
+            flush(&mut out, &mut run);
+            out.push(ev);
+        }
+    }
+    flush(&mut out, &mut run);
+    out
 }
 
 /// Skip stale mouse move events, return the latest one.
@@ -4841,5 +4927,100 @@ mod proptests {
             prop_assert_eq!(loc.line, Some(line));
             prop_assert_eq!(loc.column, Some(col));
         }
+    }
+
+    // ---- coalesce_paste_batch ----
+
+    fn key(c: char) -> CrosstermEvent {
+        let (code, mods) = if c == '\n' {
+            (KeyCode::Enter, KeyModifiers::NONE)
+        } else if c == '\t' {
+            (KeyCode::Tab, KeyModifiers::NONE)
+        } else if c.is_uppercase() {
+            (KeyCode::Char(c), KeyModifiers::SHIFT)
+        } else {
+            (KeyCode::Char(c), KeyModifiers::NONE)
+        };
+        CrosstermEvent::Key(KeyEvent::new(code, mods))
+    }
+
+    fn ctrl_key(c: char) -> CrosstermEvent {
+        CrosstermEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+
+    #[test]
+    fn coalesce_passes_through_single_keys() {
+        let out = coalesce_paste_batch(vec![key('a')]);
+        assert_eq!(out, vec![key('a')]);
+    }
+
+    #[test]
+    fn coalesce_leaves_a_lone_enter_alone() {
+        // Pressing Enter by itself must NOT become a paste — it should still
+        // trigger auto-indent like normal.
+        let out = coalesce_paste_batch(vec![key('\n')]);
+        assert_eq!(out, vec![key('\n')]);
+    }
+
+    #[test]
+    fn coalesce_leaves_fast_typing_alone() {
+        // No newline => no paste, even if many keys arrived together.
+        let typed: Vec<_> = "hello".chars().map(key).collect();
+        let out = coalesce_paste_batch(typed.clone());
+        assert_eq!(out, typed);
+    }
+
+    #[test]
+    fn coalesce_folds_multiline_burst_into_paste() {
+        let batch: Vec<_> = "ab\ncd\nef".chars().map(key).collect();
+        let out = coalesce_paste_batch(batch);
+        assert_eq!(out, vec![CrosstermEvent::Paste("ab\ncd\nef".to_string())]);
+    }
+
+    #[test]
+    fn coalesce_does_not_swallow_modifier_keys() {
+        // Ctrl+S in the middle of a paste-looking burst must remain a Ctrl+S
+        // event — otherwise we'd lose user keystrokes interleaved with paste.
+        let batch = vec![key('a'), key('\n'), key('b'), ctrl_key('s'), key('c')];
+        let out = coalesce_paste_batch(batch);
+        assert_eq!(
+            out,
+            vec![
+                CrosstermEvent::Paste("a\nb".to_string()),
+                ctrl_key('s'),
+                key('c'),
+            ],
+        );
+    }
+
+    #[test]
+    fn coalesce_splits_around_non_key_events() {
+        // A Resize landing in the middle of a paste burst breaks the run into
+        // two distinct pastes, with the Resize preserved in order.
+        let batch = vec![
+            key('a'),
+            key('\n'),
+            key('b'),
+            CrosstermEvent::Resize(80, 24),
+            key('c'),
+            key('\n'),
+            key('d'),
+        ];
+        let out = coalesce_paste_batch(batch);
+        assert_eq!(
+            out,
+            vec![
+                CrosstermEvent::Paste("a\nb".to_string()),
+                CrosstermEvent::Resize(80, 24),
+                CrosstermEvent::Paste("c\nd".to_string()),
+            ],
+        );
+    }
+
+    #[test]
+    fn coalesce_preserves_tabs_inside_paste() {
+        let batch: Vec<_> = "x\n\tindented".chars().map(key).collect();
+        let out = coalesce_paste_batch(batch);
+        assert_eq!(out, vec![CrosstermEvent::Paste("x\n\tindented".to_string())]);
     }
 }
