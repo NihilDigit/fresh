@@ -579,6 +579,23 @@ pub enum OverlayColorSpec {
     ThemeKey(String),
 }
 
+/// Modifier-only overlay applied to a byte range within a virtual line's
+/// text. Used by plugins (live-diff) to bold + underline removed words on
+/// a deletion virtual line without varying the line's overall fg/bg.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct VirtualLineTextOverlay {
+    /// Inclusive byte offset within the virtual line's `text`.
+    pub start: u32,
+    /// Exclusive byte offset within the virtual line's `text`.
+    pub end: u32,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub underline: bool,
+}
+
 impl OverlayColorSpec {
     /// Create an RGB color spec
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
@@ -861,6 +878,9 @@ pub struct ViewTokenStyle {
     /// Whether to render in italic
     #[serde(default)]
     pub italic: bool,
+    /// Whether to render with underline
+    #[serde(default)]
+    pub underline: bool,
 }
 
 /// Wire-format view token with optional source mapping and styling
@@ -2106,6 +2126,12 @@ pub enum PluginCommand {
         /// Color for `gutter_glyph` (RGB or theme key). Falls back to
         /// `theme.line_number_fg` when `None`.
         gutter_color: Option<OverlayColorSpec>,
+        /// Per-range modifier overlays applied on top of the base fg/bg.
+        /// Offsets are byte offsets within `text`, not buffer bytes.
+        /// Used e.g. by live-diff to bold + underline removed words on
+        /// a deletion virtual line.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        text_overlays: Vec<VirtualLineTextOverlay>,
     },
 
     /// Clear all virtual texts in a namespace

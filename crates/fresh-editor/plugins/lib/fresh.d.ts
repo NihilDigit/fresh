@@ -319,15 +319,18 @@ type ViewTokenWireKind = {
 } | "Newline" | "Space" | "Break" | {
 	"BinaryByte": number;
 };
+type TokenColor = [number, number, number] | string;
 type ViewTokenStyle = {
 	/**
-	* Foreground color as RGB tuple
+	* Foreground color. Either `[r, g, b]` or a named/theme string —
+	* see [`TokenColor`].
 	*/
-	fg: [number, number, number] | null;
+	fg: TokenColor | null;
 	/**
-	* Background color as RGB tuple
+	* Background color. Either `[r, g, b]` or a named/theme string —
+	* see [`TokenColor`].
 	*/
-	bg: [number, number, number] | null;
+	bg: TokenColor | null;
 	/**
 	* Whether to render in bold
 	*/
@@ -336,6 +339,10 @@ type ViewTokenStyle = {
 	* Whether to render in italic
 	*/
 	italic: boolean;
+	/**
+	* Whether to render with underline
+	*/
+	underline: boolean;
 };
 type PromptSuggestion = {
 	/**
@@ -2046,6 +2053,13 @@ interface EditorAPI {
 	* theme-key string (e.g. `"editor.line_number_fg"`).  Theme keys
 	* are resolved at render time so the line follows theme changes.
 	* Both default to `null` (no foreground / transparent background).
+	* * `gutterGlyph` — optional single character (any short string)
+	* rendered in the line-number column on this virtual line's
+	* first visual row. Use to mark e.g. a deletion line with "-"
+	* so the indicator sits next to the deleted content instead
+	* of on the following source line.
+	* * `gutterColor` — color for `gutterGlyph`, same shape as
+	* `fg`/`bg`. Falls back to the theme's line-number fg.
 	*/
 	addVirtualLine(bufferId: number, position: number, text: string, options: Record<string, unknown>, above: boolean, namespace: string, priority: number): boolean;
 	/**

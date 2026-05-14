@@ -372,6 +372,7 @@ impl Editor {
         priority: i32,
         gutter_glyph: Option<String>,
         gutter_color_spec: Option<fresh_core::api::OverlayColorSpec>,
+        text_overlays: Vec<fresh_core::api::VirtualLineTextOverlay>,
     ) {
         use crate::view::theme::named_color_from_str;
         use crate::view::virtual_text::{VirtualTextNamespace, VirtualTextPosition};
@@ -440,6 +441,7 @@ impl Editor {
                 priority,
                 gutter_glyph,
                 gutter_color_fallback,
+                text_overlays,
             );
         }
     }

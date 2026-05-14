@@ -130,6 +130,12 @@ interface Hunk {
    * underline the actually-changed words on the new line. `undefined`
    * for unrefined hunks and for `added`/`removed` hunks. */
   wordRanges?: WordRange[][];
+  /** Old-side word ranges, one entry per `oldLines` line. Set on
+   * `removed` hunks emitted by `refineHunks` for high-similarity
+   * pairs where words were dropped/changed; passed to addVirtualLine
+   * as `textOverlays` so the deletion virtual line bolds + underlines
+   * the actually-removed words. */
+  oldWordRanges?: WordRange[][];
 }
 
 interface BufferDiffState {
@@ -562,29 +568,58 @@ function tokenize(s: string): Token[] {
   return tokens;
 }
 
+/** Word-level diff result: byte ranges on each side that aren't part
+ * of the longest common token subsequence. `newRanges` drives the
+ * bold + underline overlay on the new (modified) line; `oldRanges`
+ * drives the same overlay on the deletion virtual line so removed
+ * words are visually called out, not just present in the gutter. */
+interface WordDiff {
+  newRanges: WordRange[];
+  oldRanges: WordRange[];
+}
+
 /**
- * Compute the byte ranges of words on the new-side line that are not
- * part of the longest common token subsequence with the old-side
- * line. Whitespace-only tokens are never highlighted (whitespace
- * changes mid-word look like noise; whole-line whitespace edits are
- * handled by the line-level diff). Adjacent unmatched non-whitespace
- * tokens are coalesced into a single range so a renamed
- * `foo.bar.baz` becomes one underline, not three.
+ * Token-level LCS over the two lines. Returns the byte ranges of
+ * non-whitespace tokens on each side that aren't part of the LCS.
+ * Whitespace-only tokens are never highlighted (whitespace changes
+ * mid-word look like noise; whole-line whitespace edits are handled
+ * by the line-level diff). Adjacent unmatched non-whitespace tokens
+ * are coalesced into a single range so a renamed `foo.bar.baz`
+ * becomes one underline, not three.
  */
-function computeWordDiff(oldS: string, newS: string): WordRange[] {
+function computeWordDiff(oldS: string, newS: string): WordDiff {
   const oldTokens = tokenize(oldS);
   const newTokens = tokenize(newS);
   const m = oldTokens.length;
   const n = newTokens.length;
-  if (n === 0) return [];
-  if (m === 0 || m > MAX_WORD_TOKENS || n > MAX_WORD_TOKENS) {
-    // Either nothing to compare against or the line is so long that
-    // the token DP would dwarf the line-level pass. Mark every non-
-    // whitespace token as changed so the user still sees *something*.
-    return collapseRanges(
-      newTokens
-        .filter((t) => !WHITESPACE_CHAR.test(t.text[0] ?? "")),
-    );
+  if (m === 0 && n === 0) return { newRanges: [], oldRanges: [] };
+  if (m > MAX_WORD_TOKENS || n > MAX_WORD_TOKENS) {
+    // Token DP would dwarf the line-level pass; degrade to "every
+    // non-whitespace token changed" on whichever side has tokens.
+    return {
+      newRanges: collapseRanges(
+        newTokens.filter((t) => !WHITESPACE_CHAR.test(t.text[0] ?? "")),
+      ),
+      oldRanges: collapseRanges(
+        oldTokens.filter((t) => !WHITESPACE_CHAR.test(t.text[0] ?? "")),
+      ),
+    };
+  }
+  if (m === 0) {
+    return {
+      newRanges: collapseRanges(
+        newTokens.filter((t) => !WHITESPACE_CHAR.test(t.text[0] ?? "")),
+      ),
+      oldRanges: [],
+    };
+  }
+  if (n === 0) {
+    return {
+      newRanges: [],
+      oldRanges: collapseRanges(
+        oldTokens.filter((t) => !WHITESPACE_CHAR.test(t.text[0] ?? "")),
+      ),
+    };
   }
   const stride = n + 1;
   const dp: number[] = new Array((m + 1) * stride).fill(0);
@@ -600,13 +635,15 @@ function computeWordDiff(oldS: string, newS: string): WordRange[] {
       }
     }
   }
-  // Backtrack to find which newTokens are in the LCS pairing.
-  const matched: boolean[] = new Array(n).fill(false);
+  // Backtrack to find which old/new tokens participate in the LCS.
+  const matchedOld: boolean[] = new Array(m).fill(false);
+  const matchedNew: boolean[] = new Array(n).fill(false);
   let i = m;
   let j = n;
   while (i > 0 && j > 0) {
     if (oldTokens[i - 1].text === newTokens[j - 1].text) {
-      matched[j - 1] = true;
+      matchedOld[i - 1] = true;
+      matchedNew[j - 1] = true;
       i--;
       j--;
     } else if (dp[(i - 1) * stride + j] >= dp[i * stride + (j - 1)]) {
@@ -615,14 +652,23 @@ function computeWordDiff(oldS: string, newS: string): WordRange[] {
       j--;
     }
   }
-  const unmatched: Token[] = [];
-  for (let k = 0; k < n; k++) {
-    if (matched[k]) continue;
-    const t = newTokens[k];
-    if (WHITESPACE_CHAR.test(t.text[0] ?? "")) continue;
-    unmatched.push(t);
-  }
-  return collapseRanges(unmatched);
+  const unmatchedOf = (
+    tokens: Token[],
+    matched: boolean[],
+  ): WordRange[] => {
+    const out: Token[] = [];
+    for (let k = 0; k < tokens.length; k++) {
+      if (matched[k]) continue;
+      const t = tokens[k];
+      if (WHITESPACE_CHAR.test(t.text[0] ?? "")) continue;
+      out.push(t);
+    }
+    return collapseRanges(out);
+  };
+  return {
+    newRanges: unmatchedOf(newTokens, matchedNew),
+    oldRanges: unmatchedOf(oldTokens, matchedOld),
+  };
 }
 
 /** Merge adjacent or touching token ranges into a single range so
@@ -644,9 +690,12 @@ function collapseRanges(tokens: Token[]): WordRange[] {
  * Post-process `opsToHunks` output: split low-similarity 1:1
  * `modified` hunks into separate `removed` (virtual deletion line) +
  * `added` (bg-highlighted) hunks. High-similarity pairs stay as
- * `modified` but drop their old lines (so no virtual line renders)
- * and gain a `wordRanges` entry that drives the bold + underline
- * word-level overlay.
+ * `modified` and gain a `wordRanges` entry that drives the bold +
+ * underline word-level overlay on the new line. When a high-similarity
+ * pair also has *removed* (or otherwise unmatched) old-side words,
+ * we additionally emit a `removed` hunk carrying the old line plus
+ * `oldWordRanges` so the deletion virtual line shows the user which
+ * words went away — not just that *something* did.
  *
  * Hunks that don't have a 1:1 mapping (e.g. 3 old lines becoming 2
  * new lines) keep their original shape — the pairing is ambiguous,
@@ -665,13 +714,27 @@ function refineHunks(hunks: Hunk[], newLines: string[]): Hunk[] {
       const newLine = newLines[h.newStart + i] ?? "";
       const sim = lineSimilarity(oldLine, newLine);
       if (sim >= similarityThreshold) {
-        const ranges = computeWordDiff(oldLine, newLine);
+        const wd = computeWordDiff(oldLine, newLine);
+        // Always emit the in-place modified hunk (drives the new-line
+        // bg highlight + new-side word-diff). When old-side has
+        // unmatched non-WS tokens, also emit a deletion line above
+        // it carrying old-side word ranges so the user can see which
+        // words were removed/replaced.
+        if (wd.oldRanges.length > 0) {
+          out.push({
+            kind: "removed",
+            newStart: h.newStart + i,
+            newCount: 0,
+            oldLines: [oldLine],
+            oldWordRanges: [wd.oldRanges],
+          });
+        }
         out.push({
           kind: "modified",
           newStart: h.newStart + i,
           newCount: 1,
           oldLines: [],
-          wordRanges: [ranges],
+          wordRanges: [wd.newRanges],
         });
       } else {
         out.push({
@@ -863,6 +926,18 @@ function renderHunks(state: BufferDiffState, newLines: string[]): void {
       // No "- " prefix in the line text — the indicator goes in the
       // gutter via `gutterGlyph` so it sits next to the deletion
       // line itself, not on the source line that follows it.
+      // When `oldWordRanges` is set (from a high-similarity refined
+      // pair), bold + underline the actually-removed words so the
+      // user can see *what* changed, not just that something did.
+      const wordRanges = h.oldWordRanges?.[i];
+      const textOverlays = wordRanges
+        ? wordRanges.map((r) => ({
+            start: r.start,
+            end: r.end,
+            bold: true,
+            underline: true,
+          }))
+        : [];
       editor.addVirtualLine(
         bid,
         anchor,
@@ -872,6 +947,7 @@ function renderHunks(state: BufferDiffState, newLines: string[]): void {
           bg: THEME.removedBg,
           gutterGlyph: SYMBOLS.removed,
           gutterColor: GUTTER_COLORS.removed,
+          textOverlays,
         },
         above,
         NS_VLINE,

@@ -811,6 +811,7 @@ pub(super) fn inject_virtual_lines(
                         vtext.resolved_style(theme),
                         wrap_width,
                         glyph,
+                        &vtext.text_overlays,
                     ));
                 }
             }
@@ -835,6 +836,7 @@ pub(super) fn inject_virtual_lines(
                         vtext.resolved_style(theme),
                         wrap_width,
                         glyph,
+                        &vtext.text_overlays,
                     ));
                 }
             }

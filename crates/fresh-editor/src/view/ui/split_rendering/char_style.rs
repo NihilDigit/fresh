@@ -82,6 +82,9 @@ pub(super) fn compute_char_style(ctx: &CharStyleContext) -> CharStyleOutput {
         if ts.italic {
             s = s.add_modifier(Modifier::ITALIC);
         }
+        if ts.underline {
+            s = s.add_modifier(Modifier::UNDERLINED);
+        }
         region = "Plugin Token";
         s
     } else if ctx.ansi_style.fg.is_some()

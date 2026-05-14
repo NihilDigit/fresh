@@ -326,6 +326,7 @@ impl Editor {
                 priority,
                 gutter_glyph,
                 gutter_color,
+                text_overlays,
             } => {
                 self.handle_add_virtual_line(
                     buffer_id,
@@ -338,6 +339,7 @@ impl Editor {
                     priority,
                     gutter_glyph,
                     gutter_color,
+                    text_overlays,
                 );
             }
             PluginCommand::ClearVirtualTextNamespace {

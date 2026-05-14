@@ -3091,6 +3091,21 @@ impl JsEditorApi {
             .filter(|s| !s.is_empty());
         let gutter_color = parse_color_spec("gutterColor", &options);
 
+        // Deserialize the array via the same serde-over-rquickjs path the
+        // rest of the runtime uses (cf. `set_setting`), so the plugin-facing
+        // shape is whatever `VirtualLineTextOverlay`'s `Deserialize` derive
+        // accepts (camelCase keys, default-initialised modifier flags).
+        // Drops empty/inverted ranges defensively.
+        let text_overlays: Vec<fresh_core::api::VirtualLineTextOverlay> = options
+            .get::<_, rquickjs::Value<'js>>("textOverlays")
+            .ok()
+            .filter(|v| !v.is_undefined() && !v.is_null())
+            .and_then(|v| rquickjs_serde::from_value(v).ok())
+            .map(|v: Vec<fresh_core::api::VirtualLineTextOverlay>| {
+                v.into_iter().filter(|o| o.end > o.start).collect()
+            })
+            .unwrap_or_default();
+
         // Track namespace for cleanup on unload
         self.plugin_tracked_state
             .borrow_mut()
@@ -3112,6 +3127,7 @@ impl JsEditorApi {
                 priority,
                 gutter_glyph,
                 gutter_color,
+                text_overlays,
             })
             .is_ok())
     }
@@ -5318,6 +5334,7 @@ fn parse_view_token_style(
         bg: parse_color(&s, "bg", idx)?,
         bold: s.get("bold").unwrap_or(false),
         italic: s.get("italic").unwrap_or(false),
+        underline: s.get("underline").unwrap_or(false),
     }))
 }
 

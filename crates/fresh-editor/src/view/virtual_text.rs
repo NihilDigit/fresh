@@ -109,6 +109,10 @@ pub struct VirtualText {
     /// Foreground color for `gutter_glyph`. Falls back to
     /// `theme.line_number_fg` when `None`.
     pub gutter_color: Option<Color>,
+    /// Per-range modifier overlays applied on top of the base fg/bg.
+    /// Offsets are byte offsets within `text`. Used e.g. by live-diff
+    /// to bold + underline removed words on deletion virtual lines.
+    pub text_overlays: Vec<fresh_core::api::VirtualLineTextOverlay>,
 }
 
 impl VirtualText {
@@ -220,6 +224,7 @@ impl VirtualTextManager {
                 namespace: None,
                 gutter_glyph: None,
                 gutter_color: None,
+                text_overlays: Vec::new(),
             },
         );
         self.bump_version();
@@ -270,6 +275,7 @@ impl VirtualTextManager {
                 namespace: None,
                 gutter_glyph: None,
                 gutter_color: None,
+                text_overlays: Vec::new(),
             },
         );
         self.bump_version();
@@ -310,6 +316,7 @@ impl VirtualTextManager {
                 namespace: None,
                 gutter_glyph: None,
                 gutter_color: None,
+                text_overlays: Vec::new(),
             },
         );
         self.bump_version();
@@ -356,6 +363,7 @@ impl VirtualTextManager {
                 namespace: None,
                 gutter_glyph: None,
                 gutter_color: None,
+                text_overlays: Vec::new(),
             },
         );
 
@@ -397,6 +405,7 @@ impl VirtualTextManager {
             priority,
             None,
             None,
+            Vec::new(),
         )
     }
 
@@ -421,6 +430,7 @@ impl VirtualTextManager {
         priority: i32,
         gutter_glyph: Option<String>,
         gutter_color: Option<Color>,
+        text_overlays: Vec<fresh_core::api::VirtualLineTextOverlay>,
     ) -> VirtualTextId {
         debug_assert!(
             placement.is_line(),
@@ -446,6 +456,7 @@ impl VirtualTextManager {
                 namespace: Some(namespace),
                 gutter_glyph,
                 gutter_color,
+                text_overlays,
             },
         );
         self.bump_version();

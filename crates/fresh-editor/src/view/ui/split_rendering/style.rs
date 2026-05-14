@@ -31,6 +31,7 @@ pub(super) fn fold_placeholder_style(theme: &Theme) -> ViewTokenStyle {
         bg: None,
         bold: false,
         italic: true,
+        underline: false,
     }
 }
 
@@ -142,6 +143,7 @@ pub(super) fn create_wrapped_virtual_lines(
     style: Style,
     wrap_width: Option<usize>,
     gutter_glyph: Option<(String, Color)>,
+    text_overlays: &[fresh_core::api::VirtualLineTextOverlay],
 ) -> Vec<ViewLine> {
     // `TokenColor` faithfully captures every `ratatui::Color` variant
     // (RGB, named ANSI, indexed, `Reset`) so themes like `terminal` —
@@ -154,6 +156,7 @@ pub(super) fn create_wrapped_virtual_lines(
         bg: style.bg.and_then(TokenColor::from_ratatui),
         bold: style.add_modifier.contains(Modifier::BOLD),
         italic: style.add_modifier.contains(Modifier::ITALIC),
+        underline: style.add_modifier.contains(Modifier::UNDERLINED),
     };
 
     let chunk_ranges = match wrap_width {
@@ -170,7 +173,13 @@ pub(super) fn create_wrapped_virtual_lines(
     if chunk_ranges.is_empty() {
         // Empty input still produces one empty virtual line so it
         // contributes a row to the screen, matching prior behaviour.
-        return vec![build_virtual_view_line("", &token_style, gutter_glyph)];
+        return vec![build_virtual_view_line(
+            "",
+            &token_style,
+            gutter_glyph,
+            0,
+            text_overlays,
+        )];
     }
 
     // The gutter glyph belongs to the *virtual line as a whole*, not
@@ -179,10 +188,13 @@ pub(super) fn create_wrapped_virtual_lines(
     let mut rows: Vec<ViewLine> = Vec::with_capacity(chunk_ranges.len());
     let mut glyph = gutter_glyph;
     for r in chunk_ranges {
+        let chunk_byte_offset = r.start;
         rows.push(build_virtual_view_line(
             &text[r],
             &token_style,
             glyph.take(),
+            chunk_byte_offset,
+            text_overlays,
         ));
     }
     rows
@@ -192,13 +204,45 @@ fn build_virtual_view_line(
     text: &str,
     token_style: &ViewTokenStyle,
     gutter_glyph: Option<(String, Color)>,
+    // Byte offset of `text` within the original (pre-wrap) virtual line
+    // text. Used to resolve `text_overlays`, whose `start`/`end` are in
+    // the original text's byte coordinates.
+    chunk_byte_offset: usize,
+    text_overlays: &[fresh_core::api::VirtualLineTextOverlay],
 ) -> ViewLine {
     let len = text.chars().count();
+    let char_styles = if text_overlays.is_empty() {
+        vec![Some(token_style.clone()); len]
+    } else {
+        // Walk char-by-char, OR-ing in modifier flags from any overlay
+        // that covers this char's byte. Linear scan over `text_overlays`
+        // is fine — typical use case (live-diff word ranges) yields a
+        // handful of overlays per line.
+        text.char_indices()
+            .map(|(b, ch)| {
+                let abs_start = chunk_byte_offset + b;
+                let abs_end = abs_start + ch.len_utf8();
+                let mut s = token_style.clone();
+                for o in text_overlays {
+                    if (o.end as usize) <= abs_start || (o.start as usize) >= abs_end {
+                        continue;
+                    }
+                    if o.bold {
+                        s.bold = true;
+                    }
+                    if o.underline {
+                        s.underline = true;
+                    }
+                }
+                Some(s)
+            })
+            .collect()
+    };
     ViewLine {
         text: text.to_string(),
         source_start_byte: None,
         char_source_bytes: vec![None; len],
-        char_styles: vec![Some(token_style.clone()); len],
+        char_styles,
         char_visual_cols: (0..len).collect(),
         visual_to_char: (0..len).collect(),
         tab_starts: HashSet::new(),
@@ -215,7 +259,7 @@ mod tests {
 
     #[test]
     fn create_wrapped_virtual_lines_no_wrap_returns_one_line() {
-        let lines = create_wrapped_virtual_lines("hello world", Style::default(), None, None);
+        let lines = create_wrapped_virtual_lines("hello world", Style::default(), None, None, &[]);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "hello world");
         assert_eq!(lines[0].line_start, LineStart::AfterInjectedNewline);
@@ -223,7 +267,7 @@ mod tests {
 
     #[test]
     fn create_wrapped_virtual_lines_empty_input_yields_single_empty_row() {
-        let lines = create_wrapped_virtual_lines("", Style::default(), Some(20), None);
+        let lines = create_wrapped_virtual_lines("", Style::default(), Some(20), None, &[]);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].text.is_empty());
         assert_eq!(lines[0].line_start, LineStart::AfterInjectedNewline);
@@ -233,7 +277,7 @@ mod tests {
     fn create_wrapped_virtual_lines_splits_no_boundary_at_hard_cap() {
         // No word boundary anywhere — must hard-cap at width.
         let text: String = std::iter::repeat('X').take(50).collect();
-        let lines = create_wrapped_virtual_lines(&text, Style::default(), Some(20), None);
+        let lines = create_wrapped_virtual_lines(&text, Style::default(), Some(20), None, &[]);
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].text.chars().count(), 20);
         assert_eq!(lines[1].text.chars().count(), 20);
@@ -255,6 +299,7 @@ mod tests {
             Style::default(),
             Some(18),
             None,
+            &[],
         );
         assert!(lines.len() >= 2);
         // Concatenating the segment texts must round-trip the input.
