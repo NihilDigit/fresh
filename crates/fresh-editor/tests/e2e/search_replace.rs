@@ -388,6 +388,71 @@ fn test_search_replace_scope_current_file_only() {
     );
 }
 
+/// §1 follow-up: closing the panel must restore focus to the source
+/// split. Otherwise reopening via "Search and Replace in Current File"
+/// sees a stale (utility-dock) active buffer and the scope row
+/// degrades to "Only in: (unsaved buffer)" — the user's filename is
+/// gone, and post-filter rejects every match.
+#[test]
+fn test_search_replace_scope_after_close_reopen() {
+    init_tracing_from_env();
+    let (_temp_dir, project_root) = setup_search_replace_project();
+    create_test_files(&project_root);
+
+    let start_file = project_root.join("alpha.txt");
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(160, 30, Default::default(), project_root)
+            .unwrap();
+    harness.open_file(&start_file).unwrap();
+    harness.render().unwrap();
+
+    // First trip: open project-wide, then close with Escape.
+    open_search_replace_via_palette(&mut harness);
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Search:"))
+        .unwrap();
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness
+        .wait_until(|h| !h.screen_to_string().contains("*Search/Replace*"))
+        .unwrap();
+
+    // Second trip: open via the current-file command and verify scope
+    // still names alpha.txt (not "(unsaved buffer)").
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_prompt().unwrap();
+    harness
+        .type_text("Search and Replace in Current File")
+        .unwrap();
+    harness
+        .wait_until(|h| {
+            h.screen_to_string()
+                .contains("Search and Replace in Current File")
+        })
+        .unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Only in:"))
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("Only in: alpha.txt"),
+        "After Escape-close of the prior panel, the current-file path \
+         must still read 'Only in: alpha.txt' (not 'unsaved buffer'). \
+         Got:\n{}",
+        screen
+    );
+    assert!(
+        !screen.contains("(unsaved buffer)"),
+        "Source-split focus must have been restored on close. Got:\n{}",
+        screen
+    );
+}
+
 /// Searching for a pattern with no matches shows the "No matches" message.
 #[test]
 fn test_search_replace_no_matches() {

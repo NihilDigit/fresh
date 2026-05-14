@@ -1491,12 +1491,18 @@ async function doReplaceScoped(): Promise<void> {
 
 function search_replace_close(): void {
   if (!panel) return;
+  const sourceSplitId = panel.sourceSplitId;
   panel.widgetPanel?.unmount();
   editor.closeBuffer(panel.resultsBufferId);
   if (panel.resultsSplitId !== panel.sourceSplitId) {
     editor.closeSplit(panel.resultsSplitId);
   }
   panel = null;
+  // Restore focus to the split the user came from. Without this,
+  // `getActiveBufferId()` on the next invocation can return the
+  // utility dock's leftover buffer, and the §1 current-file scope
+  // shows "(unsaved buffer)" instead of the real filename.
+  editor.focusSplit(sourceSplitId);
   editor.setStatus(editor.t("status.closed"));
 }
 registerHandler("search_replace_close", search_replace_close);
