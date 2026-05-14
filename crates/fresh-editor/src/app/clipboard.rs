@@ -557,6 +557,17 @@ impl Editor {
             return;
         }
 
+        // If the active buffer hosts a widget panel with a focused
+        // text input (e.g. the project Search & Replace panel — issue
+        // #1960), paste into that widget instead of the underlying
+        // virtual buffer's text.
+        let active_buf = self.active_buffer();
+        if let Some(panel_id) = self.panel_with_focused_text_for_buffer(active_buf) {
+            self.paste_into_focused_widget(panel_id, &normalized);
+            self.active_window_mut().status_message = Some(t!("clipboard.pasted").to_string());
+            return;
+        }
+
         // Collect cursor info sorted in reverse order by position
         let mut cursor_data: Vec<_> = self
             .active_cursors()

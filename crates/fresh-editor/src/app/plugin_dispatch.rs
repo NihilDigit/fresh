@@ -4932,6 +4932,48 @@ impl Editor {
         self.write_focused_text(panel_id, &focus_key, &prev, new_value, new_cursor);
     }
 
+    /// Return the id of the first widget panel mounted on `buffer_id`
+    /// whose currently-focused widget is a text widget (TextInput /
+    /// TextArea). Used by paste routing so clipboard insertion goes
+    /// into the focused input rather than the underlying virtual
+    /// buffer's text. Returns `None` when no panel on this buffer has
+    /// a focused text widget — callers should fall back to the normal
+    /// buffer paste path.
+    pub(super) fn panel_with_focused_text_for_buffer(
+        &self,
+        buffer_id: fresh_core::BufferId,
+    ) -> Option<u64> {
+        self.widget_registry
+            .panels_for_buffer(buffer_id)
+            .into_iter()
+            .find(|&pid| self.read_focused_text(pid).is_some())
+    }
+
+    /// Insert clipboard text at the focused widget's cursor. Newlines
+    /// in `text` are flattened to spaces for single-line widgets so a
+    /// stray trailing newline in the clipboard doesn't push a blank
+    /// line into a search field; multi-line widgets receive the text
+    /// verbatim.
+    pub(super) fn paste_into_focused_widget(&mut self, panel_id: u64, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let (focus_key, prev) = match self.read_focused_text(panel_id) {
+            Some(t) => t,
+            None => return,
+        };
+        let owned;
+        let to_insert: &str = if prev.multiline {
+            text
+        } else {
+            owned = text.replace('\n', " ");
+            &owned
+        };
+        let (new_value, new_cursor) =
+            crate::widgets::apply_text_char(prev.value(), prev.cursor(), to_insert);
+        self.write_focused_text(panel_id, &focus_key, &prev, new_value, new_cursor);
+    }
+
     fn handle_unmount_widget_panel(&mut self, panel_id: u64) {
         match self.widget_registry.unmount(panel_id) {
             Some(buffer_id) => {

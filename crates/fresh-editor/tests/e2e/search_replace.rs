@@ -1497,3 +1497,83 @@ fn test_search_replace_second_alt_enter_does_not_corrupt_files() {
         after_first, after_second
     );
 }
+
+/// Issue #1960: Ctrl+V must paste the clipboard into the search field.
+///
+/// The Search & Replace panel uses a buffer-local `search-replace-list` mode
+/// that captures printable keys for inline editing. Before the fix, the
+/// text-input-mode handler in `app/input.rs` swallowed every Ctrl/Alt-modified
+/// key, so Ctrl+V never reached the Paste action and pasting was impossible
+/// in the search/replace fields (the user had to rely on terminal-level paste,
+/// which only works on some terminals/setups).
+#[test]
+fn test_search_replace_paste_into_search_field() {
+    let (_temp_dir, project_root) = setup_search_replace_project();
+    create_test_files(&project_root);
+
+    let start_file = project_root.join("alpha.txt");
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, Default::default(), project_root)
+            .unwrap();
+    // Internal-only clipboard so the test doesn't depend on the host clipboard.
+    harness
+        .editor_mut()
+        .set_clipboard_for_test("jovial".to_string());
+    harness.open_file(&start_file).unwrap();
+    harness.render().unwrap();
+
+    open_search_replace_via_palette(&mut harness);
+
+    // Panel opens with focus on the search field.
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Search:"))
+        .unwrap();
+
+    // Paste via Ctrl+V into the search field.
+    harness
+        .send_key(KeyCode::Char('v'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    // The clipboard contents should appear in the Search: field.
+    harness
+        .wait_until(|h| h.screen_to_string().contains("jovial"))
+        .unwrap();
+}
+
+/// Issue #1960 variant: Ctrl+V into the replace field after Tab.
+#[test]
+fn test_search_replace_paste_into_replace_field() {
+    let (_temp_dir, project_root) = setup_search_replace_project();
+    create_test_files(&project_root);
+
+    let start_file = project_root.join("alpha.txt");
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, Default::default(), project_root)
+            .unwrap();
+    harness
+        .editor_mut()
+        .set_clipboard_for_test("REPLACEMENT".to_string());
+    harness.open_file(&start_file).unwrap();
+    harness.render().unwrap();
+
+    open_search_replace_via_palette(&mut harness);
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Search:"))
+        .unwrap();
+
+    // Type a search term first.
+    harness.type_text("hello").unwrap();
+    // Tab to the replace field.
+    harness.send_key(KeyCode::Tab, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Paste via Ctrl+V into the replace field.
+    harness
+        .send_key(KeyCode::Char('v'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("REPLACEMENT"))
+        .unwrap();
+}

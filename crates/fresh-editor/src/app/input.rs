@@ -693,6 +693,24 @@ impl Editor {
                             let action_name = format!("mode_text_input:{}", ch);
                             return self.handle_action(Action::PluginAction(action_name));
                         }
+                        // Ctrl/Alt + char isn't a printable input, but
+                        // users still expect Ctrl+V to paste into the
+                        // focused widget input (e.g. the search field
+                        // of the project Search & Replace panel —
+                        // issue #1960). Resolve against the Normal
+                        // context and let only Paste through; other
+                        // normal bindings (Ctrl+O open-file, Ctrl+S
+                        // save, …) stay blocked so a search field
+                        // doesn't double as a global command bar.
+                        let key_event = crossterm::event::KeyEvent::new(code, modifiers);
+                        let normal_action = {
+                            let keybindings = self.keybindings.read().unwrap();
+                            keybindings
+                                .resolve(&key_event, crate::input::keybindings::KeyContext::Normal)
+                        };
+                        if matches!(normal_action, crate::input::keybindings::Action::Paste) {
+                            return self.handle_action(normal_action);
+                        }
                     }
                     tracing::debug!("Blocking unbound key in text-input mode '{}'", mode_name);
                     return Ok(());
@@ -1003,6 +1021,20 @@ impl Editor {
                     == crate::input::keybindings::KeyContext::FileExplorer
                 {
                     self.file_explorer_paste();
+                    return Ok(());
+                }
+                // A widget panel's text input is editable even when
+                // the underlying virtual buffer is read-only (e.g.
+                // the Search & Replace results buffer — issue #1960).
+                // Route paste through the widget if one is focused
+                // before falling through to the editing-disabled
+                // guard.
+                let active_buf = self.active_buffer();
+                if self
+                    .panel_with_focused_text_for_buffer(active_buf)
+                    .is_some()
+                {
+                    self.paste();
                     return Ok(());
                 }
                 if self.active_window().is_editing_disabled() {
