@@ -11,6 +11,7 @@
 //! is a thin façade that re-exports them via the `SplitRenderer` struct.
 
 pub(super) mod contexts;
+pub(super) mod overlay_sweep;
 pub(super) mod overlays;
 pub(super) mod render_buffer;
 pub(super) mod render_composite;
