@@ -1285,12 +1285,18 @@ impl JsEditorApi {
             .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
     }
 
-    /// Get the line number (0-indexed) of the primary cursor
+    /// Get the line number (0-indexed) of the primary cursor in the
+    /// active buffer. Read from the editor's cached
+    /// `primary_cursor_line_number` via the snapshot, so callers don't pay
+    /// a buffer scan. Returns 0 if no active view state has been observed
+    /// yet (matches the pre-implementation stub for callers that don't
+    /// check for "no buffer open").
     pub fn get_cursor_line(&self) -> u32 {
-        // This would require line counting from the buffer
-        // For now, return 0 - proper implementation needs buffer access
-        // TODO: Add line number tracking to EditorStateSnapshot
-        0
+        self.state_snapshot
+            .read()
+            .ok()
+            .and_then(|s| s.primary_cursor_line)
+            .unwrap_or(0)
     }
 
     /// Get the byte offset of the start of a line (0-indexed line number)
@@ -4194,6 +4200,7 @@ impl JsEditorApi {
                 show_cursors: opts.show_cursors.unwrap_or(true),
                 editing_disabled: opts.editing_disabled.unwrap_or(false),
                 hidden_from_tabs: opts.hidden_from_tabs.unwrap_or(false),
+                initial_cursor_byte: opts.initial_cursor_byte.map(|b| b as usize),
                 request_id: Some(id),
             });
         Ok(id)

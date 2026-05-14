@@ -28,6 +28,7 @@ fn reproduce_cursor_panic() {
         show_cursors: false, // <--- The trigger: hiding cursors
         editing_disabled: false,
         hidden_from_tabs: false,
+        initial_cursor_byte: None,
         request_id: None,
     };
 
