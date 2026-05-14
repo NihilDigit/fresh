@@ -273,6 +273,41 @@ fn test_search_replace_escape_closes_panel() {
     );
 }
 
+/// Typing a pattern but not yet running a search must NOT show
+/// "No matches found" — the placeholder is a lie if the search
+/// hasn't actually completed. See §17 of
+/// `docs/internal/search-replace-scope-replan-on-widgets.md`.
+#[test]
+fn test_search_replace_no_premature_no_matches_label() {
+    let (_temp_dir, project_root) = setup_search_replace_project();
+    create_test_files(&project_root);
+
+    let start_file = project_root.join("alpha.txt");
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, Default::default(), project_root)
+            .unwrap();
+    harness.open_file(&start_file).unwrap();
+    harness.render().unwrap();
+
+    open_search_replace_via_palette(&mut harness);
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Search:"))
+        .unwrap();
+
+    // Type a pattern but do NOT confirm — no search has been
+    // kicked off yet.
+    harness.type_text("ZZZNOTFOUND").unwrap();
+    harness.render().unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        !screen.contains("No matches"),
+        "Should not show 'No matches' before a search has actually run. \
+         Got:\n{}",
+        screen
+    );
+}
+
 /// Searching for a pattern with no matches shows the "No matches" message.
 #[test]
 fn test_search_replace_no_matches() {

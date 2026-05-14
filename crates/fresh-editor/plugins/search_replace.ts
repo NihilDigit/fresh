@@ -72,6 +72,14 @@ interface PanelState {
   viewportWidth: number;
   // State
   busy: boolean;
+  /** True once the current `searchPattern` has been used to run a real
+   * search to completion. Reset whenever the pattern is mutated (or a
+   * search-affecting toggle changes). Distinguishes "user is typing,
+   * no search has happened" from "search ran and found nothing", so we
+   * don't show a misleading "No matches" placeholder before any work
+   * has been done. See §17 of
+   * `docs/internal/search-replace-scope-replan-on-widgets.md`. */
+  searchPerformed: boolean;
   truncated: boolean;
   // Inline editing cursor position
   cursorPos: number;
@@ -197,6 +205,10 @@ function getActiveFieldText(): string {
 function setActiveFieldText(text: string): void {
   if (!panel) return;
   if (panel.queryField === "search") {
+    if (panel.searchPattern !== text) {
+      // Pattern changed → any cached result no longer applies. See §17.
+      panel.searchPerformed = false;
+    }
     panel.searchPattern = text;
   } else {
     panel.replaceText = text;
@@ -386,9 +398,22 @@ function buildLine1Spec(): WidgetSpec {
   const replLabel = editor.t("panel.replace_label");
 
   const truncatedSuffix = truncated ? " " + editor.t("panel.limited") : "";
-  const matchStats = totalMatches > 0
-    ? "  " + editor.t("panel.match_stats", { count: String(totalMatches), files: String(fileCount) }) + truncatedSuffix
-    : (searchPattern ? "  " + editor.t("panel.no_matches") : "");
+  // Stats label next to the input fields. Only emit one when there's
+  // something concrete to report:
+  // - totalMatches > 0: show the count
+  // - busy: show "Searching…"
+  // - searchPattern + searchPerformed + !busy + totalMatches === 0: show "No matches"
+  // - otherwise (typing, no search yet, …): empty so the user doesn't
+  //   see "No matches" the moment they type a single character.
+  // See §17 of search-replace-scope-replan-on-widgets.md.
+  let matchStats = "";
+  if (totalMatches > 0) {
+    matchStats = "  " + editor.t("panel.match_stats", { count: String(totalMatches), files: String(fileCount) }) + truncatedSuffix;
+  } else if (panel.busy && searchPattern) {
+    matchStats = "  " + editor.t("panel.searching");
+  } else if (searchPattern && panel.searchPerformed && !panel.busy) {
+    matchStats = "  " + editor.t("panel.no_matches");
+  }
 
   // Build the matchStats inline-overlay-styled Raw cell for the row.
   // Truncated case keeps the warning-color tail; otherwise the whole
@@ -538,19 +563,34 @@ function buildMatchListSpec(): WidgetSpec {
   const W = Math.max(MIN_WIDTH, panel.viewportWidth - 2);
   const totalMatches = panel.searchResults.length;
 
-  if (panel.searchPattern && totalMatches === 0) {
-    return raw([{
-      text: padStr("  " + editor.t("panel.no_matches"), W),
+  // Empty-state branches: pristine / searching / no-results /
+  // pattern-set-but-no-search-yet. See §17 of
+  // docs/internal/search-replace-scope-replan-on-widgets.md.
+  //
+  // When the pattern is mutated while a previous search's results are
+  // still in panel.searchResults, render the stale results (fall
+  // through to the Tree branch below) until the next search
+  // completes — dropping back to "Type a search pattern above"
+  // mid-edit feels jumpy.
+  const emptyState = (key: string) =>
+    raw([{
+      text: padStr("  " + editor.t(key), W),
       properties: { type: "empty" },
       style: { fg: C.dim },
     }]);
-  }
   if (!panel.searchPattern) {
-    return raw([{
-      text: padStr("  " + editor.t("panel.type_pattern"), W),
-      properties: { type: "empty" },
-      style: { fg: C.dim },
-    }]);
+    return emptyState("panel.type_pattern");
+  }
+  if (panel.busy && totalMatches === 0) {
+    return emptyState("panel.searching");
+  }
+  if (totalMatches === 0 && panel.searchPerformed && !panel.busy) {
+    return emptyState("panel.no_matches");
+  }
+  if (totalMatches === 0) {
+    // Pattern in flight but no search has run yet (and no cached
+    // results). Same friendly hint as pristine.
+    return emptyState("panel.type_pattern");
   }
 
   const flatItems = buildFlatItems();
@@ -985,6 +1025,7 @@ async function openPanel(): Promise<void> {
     wholeWords: false,
     viewportWidth: DEFAULT_WIDTH,
     busy: false,
+    searchPerformed: false,
     truncated: false,
     cursorPos: prefill.length,
     scrollOffset: 0,
@@ -1076,6 +1117,10 @@ async function executeReplacements(results?: SearchResult[]): Promise<string> {
 async function rerunSearch(): Promise<void> {
   if (!panel || !panel.searchPattern) return;
   if (panel.busy) return; // guard against re-entrant search
+  // Invalidate any pending debounced timer so it doesn't fire after this
+  // search completes and flip busy=true behind the user's back (would
+  // race with the next Alt+Ret). See §3 / §17.
+  searchDebounceGeneration++;
   panel.truncated = false;
   panel.busy = true;
   panel.matchIndex = 0;
@@ -1087,6 +1132,7 @@ async function rerunSearch(): Promise<void> {
     panel.searchResults = results;
     panel.fileGroups = buildFileGroups(results);
     panel.busy = false;
+    panel.searchPerformed = true;
     updatePanelContent();
   }
 }
@@ -1104,6 +1150,7 @@ function rerunSearchDebounced(): void {
 async function rerunSearchQuiet(): Promise<void> {
   if (!panel || !panel.searchPattern) return;
   if (panel.busy) return;
+  searchDebounceGeneration++;
   panel.busy = true;
   const results = await performSearch(panel.searchPattern, true);
   if (panel) {
@@ -1112,6 +1159,7 @@ async function rerunSearchQuiet(): Promise<void> {
     panel.matchIndex = 0;
     panel.scrollOffset = 0;
     panel.busy = false;
+    panel.searchPerformed = true;
     updatePanelContent();
   }
 }
@@ -1384,6 +1432,22 @@ editor.on("widget_event", (args) => {
       ? payload.cursorByte
       : payload.value.length;
     if (args.widget_key === "searchField") {
+      if (panel.searchPattern !== payload.value) {
+        // Pattern mutated by the user; cached "no matches" / result
+        // set no longer reflects this query. See §17.
+        panel.searchPerformed = false;
+        // We're rendering more than just the typing-fast-path because
+        // the matches-list empty-state branch now depends on the
+        // (searchPattern, searchPerformed, busy, totalMatches) tuple.
+        // The buildSpec path below in updatePanelContent re-emits the
+        // matches Raw; without this rebuild the user would still see
+        // a stale "No matches" placeholder until the next render.
+        panel.searchPattern = payload.value;
+        panel.cursorPos = byteToCharOffset(payload.value, cursorByte);
+        updatePanelContent();
+        rerunSearchDebounced();
+        return;
+      }
       panel.searchPattern = payload.value;
       panel.cursorPos = byteToCharOffset(payload.value, cursorByte);
       rerunSearchDebounced();
