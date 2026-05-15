@@ -657,9 +657,6 @@ async function show_git_log(): Promise<void> {
   // the selected row stays visible).
   await refreshDetail();
 
-  if (state.groupId !== null) {
-    editor.focusBufferGroupPanel(state.groupId, "log");
-  }
   editor.on("resize", on_git_log_resize);
   editor.on("buffer_closed", on_git_log_buffer_closed);
 
