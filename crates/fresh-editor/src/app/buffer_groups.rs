@@ -538,6 +538,123 @@ impl super::Editor {
         }
     }
 
+    /// Re-point a buffer group's panel at a different buffer id.
+    ///
+    /// Updates two places: `group.panel_buffers[panel_name]` (the
+    /// authoritative name → buffer mapping for the group) and the
+    /// panel split's `SplitViewState.active_buffer` (which buffer the
+    /// panel actually renders). Marks the split's layout dirty so the
+    /// next render sees the swap.
+    ///
+    /// Designed for streaming plugins that allocate one file-backed
+    /// buffer per item and re-target the panel on navigation, instead
+    /// of mutating a single shared buffer's contents.
+    ///
+    /// Returns `true` on success, `false` if the group, panel, or
+    /// buffer was missing.
+    pub(super) fn set_buffer_group_panel_buffer(
+        &mut self,
+        group_id: usize,
+        panel_name: String,
+        new_buffer_id: BufferId,
+    ) -> bool {
+        let bg_id = BufferGroupId(group_id);
+
+        // Validate the buffer exists before touching anything.
+        let buffer_exists = self
+            .windows
+            .get(&self.active_window)
+            .map(|w| &w.buffers)
+            .map(|b| b.get(&new_buffer_id).is_some())
+            .unwrap_or(false);
+        if !buffer_exists {
+            tracing::warn!(
+                "setBufferGroupPanelBuffer: buffer {:?} not found",
+                new_buffer_id
+            );
+            return false;
+        }
+
+        // Look up the panel's inner leaf id, and the prior buffer id
+        // we're replacing.
+        let (panel_leaf, prior_buffer_id) = match self
+            .active_window_mut()
+            .buffer_groups
+            .get_mut(&bg_id)
+        {
+            Some(group) => {
+                let Some(&leaf) = group.panel_splits.get(&panel_name) else {
+                    tracing::warn!(
+                        "setBufferGroupPanelBuffer: panel '{}' missing in group {}",
+                        panel_name,
+                        group_id
+                    );
+                    return false;
+                };
+                let prior = group
+                    .panel_buffers
+                    .insert(panel_name.clone(), new_buffer_id);
+                (leaf, prior)
+            }
+            None => {
+                tracing::warn!("setBufferGroupPanelBuffer: group {} not found", group_id);
+                return false;
+            }
+        };
+
+        // Update the panel split's view state: switch its active
+        // buffer and ensure a per-buffer state entry exists for the
+        // new id so cursors/scroll/wrap defaults are initialised.
+        let line_wrap = self.active_window().resolve_line_wrap_for_buffer(new_buffer_id);
+        let wrap_column = self
+            .active_window()
+            .resolve_wrap_column_for_buffer(new_buffer_id);
+        let cfg = self.config.editor.clone();
+        if let Some(vs) = self
+            .windows
+            .get_mut(&self.active_window)
+            .and_then(|w| w.split_view_states_mut())
+            .expect("active window must have a populated split layout")
+            .get_mut(&panel_leaf)
+        {
+            vs.active_buffer = new_buffer_id;
+            let buf_state = vs.ensure_buffer_state(new_buffer_id);
+            buf_state.apply_config_defaults(
+                cfg.line_numbers,
+                cfg.highlight_current_line,
+                line_wrap,
+                cfg.wrap_indent,
+                wrap_column,
+                cfg.rulers,
+            );
+            // Match the panel-buffer presentation set in
+            // `build_group_layout` (no line numbers, no current-line
+            // highlight inside grouped panels).
+            buf_state.show_line_numbers = false;
+            buf_state.highlight_current_line = false;
+            vs.layout_dirty = true;
+        }
+
+        // Mark the new buffer as hidden from tabs (panel buffers
+        // shouldn't show in quick-switch) — matches create-time logic.
+        if let Some(meta) = self
+            .active_window_mut()
+            .buffer_metadata
+            .get_mut(&new_buffer_id)
+        {
+            meta.hidden_from_tabs = true;
+        }
+
+        tracing::info!(
+            "setBufferGroupPanelBuffer: group {} panel '{}' {:?} -> {:?}",
+            group_id,
+            panel_name,
+            prior_buffer_id,
+            new_buffer_id
+        );
+        true
+    }
+
     /// Activate a group tab by its Grouped-node LeafId in the given split.
     /// Records the group as the split's active tab so the group's layout
     /// becomes visible in that split's content area, and moves keyboard

@@ -2824,6 +2824,23 @@ pub enum PluginCommand {
         request_id: u64,
     },
 
+    /// Re-point a buffer-group's panel at a different buffer id.
+    /// Used by streaming plugins (e.g. git-log) to swap one
+    /// file-backed buffer for another when the user navigates to a
+    /// new commit, without rebuilding the group layout. Both
+    /// `group.panel_buffers[panel_name]` and the corresponding
+    /// `SplitViewState.active_buffer` are updated; layout is marked
+    /// dirty for the next render.
+    ///
+    /// Resolves with `true` on success, `false` if the group or panel
+    /// is missing.
+    SetBufferGroupPanelBuffer {
+        group_id: usize,
+        panel_name: String,
+        buffer_id: BufferId,
+        request_id: u64,
+    },
+
     /// Scroll a split to center a specific line in the viewport
     /// Line is 0-indexed (0 = first line)
     ScrollToLineCenter {
