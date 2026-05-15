@@ -5830,28 +5830,32 @@ impl QuickJsBackend {
                 };
 
                 // Apply wrappers to async functions on editor
-                // spawnProcess takes an optional 4th `options` object:
+                // spawnProcess accepts either form for the 4th arg:
+                //   editor.spawnProcess(cmd, args, cwd?, stdoutTo?: string)
                 //   editor.spawnProcess(cmd, args, cwd?, { stdoutTo?: string })
-                // The Rust binding takes `cwd` and `stdoutTo` as flat
-                // `Opt<String>` args; this wrapper unpacks the options
-                // object so plugin authors get the structured shape.
-                editor.spawnProcess = function(command, argsArr, cwdOrOpts, maybeOpts) {
+                // The first matches the auto-generated TS signature
+                // (flat positional from the Rust binding's `Opt<String>`
+                // args); the second is the structured options form
+                // plugin authors often prefer.
+                editor.spawnProcess = function(command, argsArr, cwdOrOpts, fourth) {
                     if (typeof editor._spawnProcessStart !== 'function') {
                         throw new Error('editor.spawnProcess is not implemented (missing _spawnProcessStart)');
                     }
-                    // Backward-compat: callers passed `(cmd, args, cwd)` or
-                    // `(cmd, args)` historically. New shape adds a 4th
-                    // `options` object. We also accept an options object
-                    // in the 3rd slot when cwd is omitted.
+                    // The 3rd arg is either cwd (string) or an options
+                    // object when cwd is omitted; the 4th is either a
+                    // stdoutTo string or an options object.
                     let cwd = "";
-                    let opts = null;
+                    let stdoutTo = "";
                     if (typeof cwdOrOpts === "string") {
                         cwd = cwdOrOpts;
-                        opts = maybeOpts || null;
                     } else if (cwdOrOpts && typeof cwdOrOpts === "object") {
-                        opts = cwdOrOpts;
+                        if (typeof cwdOrOpts.stdoutTo === "string") stdoutTo = cwdOrOpts.stdoutTo;
                     }
-                    const stdoutTo = (opts && typeof opts.stdoutTo === "string") ? opts.stdoutTo : "";
+                    if (typeof fourth === "string") {
+                        stdoutTo = fourth;
+                    } else if (fourth && typeof fourth === "object") {
+                        if (typeof fourth.stdoutTo === "string") stdoutTo = fourth.stdoutTo;
+                    }
                     const callbackId = editor._spawnProcessStart(
                         command,
                         argsArr || [],
@@ -5946,6 +5950,9 @@ impl QuickJsBackend {
                 editor.reloadGrammars = _wrapAsync("_reloadGrammarsStart", "reloadGrammars");
                 editor.grepProject = _wrapAsync("_grepProjectStart", "grepProject");
                 editor.replaceInFile = _wrapAsync("_replaceInFileStart", "replaceInFile");
+                editor.openFileStreaming = _wrapAsync("_openFileStreamingStart", "openFileStreaming");
+                editor.refreshBufferFromDisk = _wrapAsync("_refreshBufferFromDiskStart", "refreshBufferFromDisk");
+                editor.setBufferGroupPanelBuffer = _wrapAsync("_setBufferGroupPanelBufferStart", "setBufferGroupPanelBuffer");
 
                 // Pull-based streaming search. Producers (host searcher tasks)
                 // write into shared state at full speed; the consumer drains

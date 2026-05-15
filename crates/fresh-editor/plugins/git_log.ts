@@ -2,10 +2,7 @@
 
 import {
   type GitCommit,
-  buildCommitDetailEntries,
   buildCommitLogEntries,
-  buildDetailPlaceholderEntries,
-  fetchCommitShow,
   fetchGitLog,
 } from "./lib/git_history.ts";
 import { button, flexSpacer, key, list, row, WidgetPanel } from "./lib/index.ts";
@@ -36,32 +33,42 @@ interface GitLogState {
   isOpen: boolean;
   groupId: number | null;
   logBufferId: number | null;
+  /**
+   * The buffer-group's initial detail panel buffer (a virtual buffer
+   * created by `createBufferGroup`). After the first commit is shown,
+   * the panel is retargeted at a file-backed streaming buffer via
+   * `setBufferGroupPanelBuffer`; this id is kept so we can close the
+   * orphaned virtual buffer on group teardown.
+   */
+  initialDetailBufferId: number | null;
+  /**
+   * The buffer id currently displayed in the detail panel (one
+   * file-backed buffer per visited commit). Tracked for focus checks
+   * and cursor placement.
+   */
   detailBufferId: number | null;
   toolbarBufferId: number | null;
-  /** Widget panel rendering the toolbar (Row of Buttons). Created in
-   * `show_git_log` once the buffer group exists; cleaned up in
-   * `git_log_close`. */
+  /** Widget panel rendering the toolbar (Row of Buttons). */
   toolbarPanel: WidgetPanel | null;
-  /** Widget panel rendering the log (List of commit rows). Owns
-   * `selected_index` + `scroll_offset` as instance state — the
-   * plugin's `state.selectedIndex` mirrors what the host reports
-   * via `widget_event "select"`. */
+  /** Widget panel rendering the log (List of commit rows). */
   logPanel: WidgetPanel | null;
   commits: GitCommit[];
   selectedIndex: number;
-  /** Cached `git show` output for the currently-displayed detail commit. */
-  detailCache: { hash: string; output: string } | null;
   /**
-   * In-flight detail request id. Used to ignore stale responses when the
-   * user scrolls through the log faster than `git show` can return.
+   * Per-commit cache: sha → file-backed buffer id. Each visited
+   * commit gets its own buffer pointing at `<dataDir>/git-show/<sha>.diff`,
+   * which a background `git show --patch` writes into. Returning to a
+   * cached commit is just a `setBufferGroupPanelBuffer` call — no
+   * git invocation, scroll position preserved.
    */
-  pendingDetailId: number;
+  commitBuffers: Map<string, number>;
+  /** sha → in-flight spawnProcess handle, for kill-on-supersession. */
+  inFlightSpawns: Map<string, ProcessHandle<SpawnResult>>;
   /**
    * Debounce token for List `select` events. Rapid selection moves
-   * (PageDown, held j/k) would otherwise trigger a full `git show`
-   * spawn per intermediate row; we bump this id on every event
-   * and only do the work after a short delay if no newer event
-   * has arrived.
+   * (PageDown, held j/k) shouldn't churn through buffer swaps + spawns;
+   * we bump this id on every event and only do the work after a short
+   * delay if no newer event has arrived.
    */
   pendingSelectId: number;
 }
@@ -70,14 +77,15 @@ const state: GitLogState = {
   isOpen: false,
   groupId: null,
   logBufferId: null,
+  initialDetailBufferId: null,
   detailBufferId: null,
   toolbarBufferId: null,
   toolbarPanel: null,
   logPanel: null,
   commits: [],
   selectedIndex: 0,
-  detailCache: null,
-  pendingDetailId: 0,
+  commitBuffers: new Map(),
+  inFlightSpawns: new Map(),
   pendingSelectId: 0,
 };
 
@@ -318,82 +326,170 @@ function renderLog(): void {
   );
 }
 
-function renderDetailPlaceholder(message: string): void {
-  if (state.groupId === null) return;
-  editor.setPanelContent(
-    state.groupId,
-    "detail",
-    buildDetailPlaceholderEntries(message)
+// =============================================================================
+// Streaming detail panel
+//
+// Per-commit cached file-backed buffers. On commit switch we either reuse
+// the existing cached buffer (instant) or spawn `git show --patch` into a
+// per-SHA file and open it via `openFileStreaming`, polling for growth
+// while git runs in the background. The buffer-group panel is re-pointed
+// at the chosen buffer via `setBufferGroupPanelBuffer` — the same single
+// tab keeps the side-by-side log/detail UX.
+// =============================================================================
+
+/**
+ * Path of the per-SHA cache file. Commits are immutable; once we've
+ * written one, repeat visits are zero-git.
+ */
+function cachePathForHash(hash: string): string {
+  // `<dataDir>/git-show/<sha>.diff` — the .diff extension lets the
+  // syntax-highlight grammar kick in for free.
+  return `${editor.getDataDir()}/git-show/${hash}.diff`;
+}
+
+/** Polling interval while git is still writing. ~5 fps is plenty. */
+const STREAM_POLL_MS = 200;
+
+/**
+ * Start a `git show --patch` for `hash`, piping stdout straight into the
+ * cache file. Returns the handle so a later commit switch can `.kill()`
+ * the still-running spawn.
+ *
+ * Caller has already verified the cache file doesn't yet exist (or wants
+ * to overwrite it).
+ */
+function spawnGitShow(hash: string, cwd: string): ProcessHandle<SpawnResult> {
+  // The generated d.ts shows `spawnProcess(cmd, args, cwd?, stdoutTo?)`
+  // as flat positional args. The runtime JS wrapper also accepts an
+  // `{stdoutTo}` options object in the 4th slot, but using the flat
+  // form keeps the call type-checked without a cast.
+  return editor.spawnProcess(
+    "git",
+    ["show", "--patch", hash],
+    cwd,
+    cachePathForHash(hash),
   );
 }
 
-function renderDetailForCommit(commit: GitCommit, showOutput: string): void {
-  if (state.groupId === null) return;
-  const entries = buildCommitDetailEntries(commit, showOutput);
-  editor.setPanelContent(state.groupId, "detail", entries);
-  // Always scroll the detail panel back to the top when the selection changes.
-  if (state.detailBufferId !== null) {
-    editor.setBufferCursor(state.detailBufferId, 0);
+/**
+ * Poll `editor.refreshBufferFromDisk` until the spawn handle resolves,
+ * then do one final catch-up refresh. Returns immediately if the
+ * commit is no longer in flight (e.g. user moved on, kill() fired).
+ */
+async function pollUntilSpawnDone(
+  hash: string,
+  bufferId: number,
+  handle: ProcessHandle<SpawnResult>,
+): Promise<void> {
+  // Wrap the handle's settlement in a non-rejecting marker promise so
+  // a fast subscription loop can `await` it (or race it against a
+  // delay) without worrying about whether the spawn errored. The
+  // ProcessHandle is a thenable, not a real Promise, so adapt via
+  // Promise.resolve().
+  let done = false;
+  void Promise.resolve(handle).then(
+    () => {
+      done = true;
+    },
+    () => {
+      done = true;
+    },
+  );
+
+  while (!done) {
+    await editor.delay(STREAM_POLL_MS);
+    if (!state.isOpen) return; // group closed mid-stream
+    if (state.inFlightSpawns.get(hash) !== handle) return; // superseded
+    await editor.refreshBufferFromDisk(bufferId);
+  }
+  // Final catch-up so any bytes written between the last poll and
+  // process exit are visible immediately.
+  await editor.refreshBufferFromDisk(bufferId);
+  // Done — clear the in-flight handle if it's still ours.
+  if (state.inFlightSpawns.get(hash) === handle) {
+    state.inFlightSpawns.delete(hash);
   }
 }
 
 /**
- * Synchronous detail refresh: render from cache if we have it, otherwise
- * a "loading…" placeholder. Never spawns git. Called immediately on every
- * selection change so the user sees instant feedback even while the real
- * `git show` is debounced.
- *
- * Returns the commit that needs fetching (cache miss) or null (cache hit
- * or no commit selected) so the caller can decide whether to spawn.
+ * Get (or create) the file-backed buffer that displays `commit`.
+ * On first call for a hash: ensure cache file exists, kick off
+ * `git show` if it doesn't, openFileStreaming, start the poll loop.
+ * Returns the buffer id on success or null on failure.
  */
-function refreshDetailImmediate(): GitCommit | null {
-  if (state.groupId === null) return null;
-  if (state.commits.length === 0) {
-    renderDetailPlaceholder(editor.t("status.no_commits"));
-    return null;
+async function ensureCommitBuffer(commit: GitCommit, cwd: string): Promise<number | null> {
+  const hash = commit.hash;
+  const existing = state.commitBuffers.get(hash);
+  if (existing !== undefined) return existing;
+
+  const path = cachePathForHash(hash);
+  const cacheHit = editor.fileExists(path);
+
+  if (!cacheHit) {
+    // Cache miss: spawn git, polling the file as it grows. The handle
+    // is stashed so a fast-scrolling user can supersede us via kill().
+    const handle = spawnGitShow(hash, cwd);
+    state.inFlightSpawns.set(hash, handle);
+    const bufferId = await editor.openFileStreaming(path);
+    if (bufferId === null) {
+      handle.kill?.();
+      state.inFlightSpawns.delete(hash);
+      return null;
+    }
+    state.commitBuffers.set(hash, bufferId);
+    // Fire-and-forget polling task.
+    void pollUntilSpawnDone(hash, bufferId, handle);
+    return bufferId;
   }
+
+  // Cache hit: just open the existing file. No git spawned.
+  const bufferId = await editor.openFileStreaming(path);
+  if (bufferId === null) return null;
+  state.commitBuffers.set(hash, bufferId);
+  return bufferId;
+}
+
+/**
+ * Show `commit` in the detail panel. Cancels any superseded in-flight
+ * spawn for *other* commits (the user has navigated past them) and
+ * retargets the panel at the chosen commit's buffer.
+ */
+async function showCommitInDetail(commit: GitCommit, cwd: string): Promise<void> {
+  // Cancel anything still streaming for a commit that isn't this one —
+  // the user has moved on; no point keeping git running.
+  for (const [hash, handle] of state.inFlightSpawns) {
+    if (hash !== commit.hash) {
+      handle.kill?.();
+      state.inFlightSpawns.delete(hash);
+    }
+  }
+
+  const bufferId = await ensureCommitBuffer(commit, cwd);
+  if (bufferId === null) {
+    editor.setStatus(
+      editor.t("status.failed_open_file", { file: commit.shortHash }),
+    );
+    return;
+  }
+  if (state.groupId === null) return;
+  await editor.setBufferGroupPanelBuffer(state.groupId, "detail", bufferId);
+  state.detailBufferId = bufferId;
+  // Each commit buffer needs the same per-buffer presentation as the
+  // initial virtual one: visible cursor for diff-line navigation,
+  // wrap on (long minified lines unreadable in the 40% panel).
+  editor.setBufferShowCursors(bufferId, true);
+  editor.setLineWrap(bufferId, null, true);
+  // Land at the top of the diff every time we (re-)visit a commit.
+  editor.setBufferCursor(bufferId, 0);
+}
+
+async function refreshDetail(): Promise<void> {
+  if (state.groupId === null) return;
+  if (state.commits.length === 0) return;
   const idx = Math.max(0, Math.min(state.selectedIndex, state.commits.length - 1));
   const commit = state.commits[idx];
-  if (!commit) return null;
-
-  if (state.detailCache && state.detailCache.hash === commit.hash) {
-    renderDetailForCommit(commit, state.detailCache.output);
-    return null;
-  }
-
-  renderDetailPlaceholder(
-    editor.t("status.loading_commit", { hash: commit.shortHash })
-  );
-  return commit;
-}
-
-/**
- * Spawn `git show` for `commit` and render the result. Tagged with
- * `pendingDetailId` so a newer selection supersedes in-flight fetches.
- */
-async function fetchAndRenderDetail(commit: GitCommit): Promise<void> {
-  const myId = ++state.pendingDetailId;
-  const output = await fetchCommitShow(editor, commit.hash);
-  if (myId !== state.pendingDetailId) return;
-  if (state.groupId === null) return;
-  state.detailCache = { hash: commit.hash, output };
-  // Only render if the current selection is still this commit — a rapid
-  // Up/Down burst might have moved on before we got here.
-  const currentIdx = Math.max(
-    0,
-    Math.min(state.selectedIndex, state.commits.length - 1)
-  );
-  if (state.commits[currentIdx]?.hash !== commit.hash) return;
-  renderDetailForCommit(commit, output);
-}
-
-/**
- * Combined synchronous + asynchronous refresh used by open/refresh paths
- * where there's no burst of events to collapse.
- */
-async function refreshDetail(): Promise<void> {
-  const pending = refreshDetailImmediate();
-  if (pending) await fetchAndRenderDetail(pending);
+  if (!commit) return;
+  await showCommitInDetail(commit, editor.getCwd());
 }
 
 // =============================================================================
@@ -438,7 +534,11 @@ async function show_git_log(): Promise<void> {
   );
   state.groupId = group.groupId as number;
   state.logBufferId = (group.panels["log"] as number | undefined) ?? null;
-  state.detailBufferId = (group.panels["detail"] as number | undefined) ?? null;
+  state.initialDetailBufferId =
+    (group.panels["detail"] as number | undefined) ?? null;
+  // detailBufferId starts as the initial virtual buffer; it gets
+  // retargeted to a file-backed buffer on first commit selection.
+  state.detailBufferId = state.initialDetailBufferId;
   state.toolbarBufferId = (group.panels["toolbar"] as number | undefined) ?? null;
   if (state.toolbarBufferId !== null) {
     state.toolbarPanel = new WidgetPanel(state.toolbarBufferId);
@@ -447,21 +547,18 @@ async function show_git_log(): Promise<void> {
     state.logPanel = new WidgetPanel(state.logBufferId);
   }
   state.selectedIndex = 0;
-  state.detailCache = null;
+  state.commitBuffers = new Map();
+  state.inFlightSpawns = new Map();
   state.isOpen = true;
 
-  // The detail panel still owns a native cursor so diff lines can be
-  // clicked / traversed before pressing Enter to open a file. The log
-  // panel's selection is owned by the List widget — no buffer cursor
-  // needed (the focused-row highlight indicates position).
-  if (state.detailBufferId !== null) {
-    editor.setBufferShowCursors(state.detailBufferId, true);
-    // Wrap long lines in the detail panel — git diffs often exceed the
-    // 40% split width, and horizontal scrolling a commit is awkward.
-    editor.setLineWrap(state.detailBufferId, null, true);
-    // Per-panel mode: the group was created with "git-log" which applies
-    // to the initially-focused panel (log). The detail panel's mode is
-    // set when we focus into it.
+  // The detail panel owns a native cursor so diff lines can be
+  // clicked / traversed before pressing Enter to open a file. We set
+  // the cursor on each retargeted buffer as it gets swapped in, but
+  // wrap-default needs setting too — long minified lines in lock-file
+  // diffs are unreadable without wrap in the 40% panel.
+  if (state.initialDetailBufferId !== null) {
+    editor.setBufferShowCursors(state.initialDetailBufferId, true);
+    editor.setLineWrap(state.initialDetailBufferId, null, true);
   }
 
   renderToolbar();
@@ -490,20 +587,36 @@ function git_log_cleanup(): void {
   if (!state.isOpen) return;
   editor.off("resize", on_git_log_resize);
   editor.off("buffer_closed", on_git_log_buffer_closed);
-  // The buffer-group's `close` will tear down the panel buffers too,
-  // which implicitly drops the widget panels rendering into them. We
-  // still null out the handles so any stray `renderToolbar()` /
-  // `renderLog()` call post-cleanup is a no-op.
+  // Kill any still-running `git show` spawns — we no longer care.
+  for (const [, handle] of state.inFlightSpawns) {
+    handle.kill?.();
+  }
+  state.inFlightSpawns.clear();
+  // Close each per-commit buffer we created. The buffer-group's own
+  // `close` (called below in `git_log_close`) tears down the panel
+  // buffers (toolbar/log/initialDetail) — but retargeted file-backed
+  // buffers we allocated via openFileStreaming are *outside* the
+  // group's panel_buffers map by the time we got here, so we must
+  // close them explicitly to avoid leaks.
+  for (const [, bufferId] of state.commitBuffers) {
+    editor.closeBuffer(bufferId);
+  }
+  state.commitBuffers.clear();
+  // The buffer-group's `close` will tear down its own panel buffers
+  // (toolbar/log/initialDetail) too, which implicitly drops the widget
+  // panels rendering into them. We still null out the handles so any
+  // stray `renderToolbar()` / `renderLog()` call post-cleanup is a
+  // no-op.
   state.toolbarPanel = null;
   state.logPanel = null;
   state.isOpen = false;
   state.groupId = null;
   state.logBufferId = null;
+  state.initialDetailBufferId = null;
   state.detailBufferId = null;
   state.toolbarBufferId = null;
   state.commits = [];
   state.selectedIndex = 0;
-  state.detailCache = null;
 }
 
 function git_log_close(): void {
@@ -519,12 +632,26 @@ registerHandler("git_log_close", git_log_close);
 
 function on_git_log_buffer_closed(data: { buffer_id: number }): void {
   if (!state.isOpen) return;
+  // Tear down the whole group only when the *group's* buffers close
+  // (toolbar / log / the initial virtual detail). A retargeted
+  // file-backed commit buffer closing is normal — drop it from our
+  // cache but keep the group alive.
   if (
     data.buffer_id === state.logBufferId ||
-    data.buffer_id === state.detailBufferId ||
+    data.buffer_id === state.initialDetailBufferId ||
     data.buffer_id === state.toolbarBufferId
   ) {
     git_log_cleanup();
+    return;
+  }
+  // Removed from cache so a revisit re-spawns / re-opens.
+  for (const [hash, bufId] of state.commitBuffers) {
+    if (bufId === data.buffer_id) {
+      state.commitBuffers.delete(hash);
+      state.inFlightSpawns.get(hash)?.kill?.();
+      state.inFlightSpawns.delete(hash);
+      break;
+    }
   }
 }
 registerHandler("on_git_log_buffer_closed", on_git_log_buffer_closed);
@@ -533,7 +660,13 @@ async function git_log_refresh(): Promise<void> {
   if (!state.isOpen) return;
   editor.setStatus(editor.t("status.refreshing"));
   state.commits = await fetchGitLog(editor);
-  state.detailCache = null;
+  // The on-disk cache files are keyed by SHA and commits are
+  // immutable, so they remain valid — but our in-memory buffer ids
+  // for commits no longer in the visible list are stale; clear them.
+  for (const [, handle] of state.inFlightSpawns) handle.kill?.();
+  state.inFlightSpawns.clear();
+  for (const [, bufferId] of state.commitBuffers) editor.closeBuffer(bufferId);
+  state.commitBuffers.clear();
   if (state.selectedIndex >= state.commits.length) {
     state.selectedIndex = Math.max(0, state.commits.length - 1);
   }
@@ -608,22 +741,105 @@ registerHandler("git_log_q", git_log_q);
 // Detail panel — open file at commit
 // =============================================================================
 
+/**
+ * Walk backwards from the cursor through the streaming diff buffer to
+ * find the file + line context. Diff format:
+ *
+ *     diff --git a/path b/path
+ *     ...
+ *     +++ b/path
+ *     @@ -old,n +new_start,m @@
+ *     <context|+|- lines>
+ *
+ * Strategy:
+ *  - Find the most recent `+++ b/<path>` line above the cursor — that
+ *    names the file. (We use `+++` over `diff --git` because `+++` is
+ *    the line immediately above the hunks, so paths with spaces stay
+ *    unambiguous and we don't trip over rename headers.)
+ *  - Find the most recent `@@ -... +<new_start>,<count> @@` header
+ *    between that `+++` line and the cursor, then count `+` and
+ *    context lines from the hunk start to the cursor to derive a
+ *    "new file" line number.
+ */
+async function deriveFileAndLineFromDiffCursor(
+  bufferId: number,
+): Promise<{ file: string; line: number } | null> {
+  const cursor = editor.getCursorPosition();
+  if (cursor < 0) return null;
+
+  // Read everything before the cursor. For very large diffs this is
+  // still bounded by the cursor position; users navigate to interesting
+  // sections, not into the tail.
+  const text = await editor.getBufferText(bufferId, 0, cursor);
+  if (!text) return null;
+  const lines = text.split("\n");
+
+  // Find +++ b/<path> by walking backwards.
+  let file: string | null = null;
+  let plusPlusPlusIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l.startsWith("+++ b/")) {
+      file = l.slice(6).trim();
+      plusPlusPlusIdx = i;
+      break;
+    }
+    // `+++ /dev/null` is a deletion — no file to open.
+    if (l.startsWith("+++ /dev/null")) {
+      return null;
+    }
+  }
+  if (file === null || plusPlusPlusIdx < 0) return null;
+
+  // Find the most recent `@@ ... +start,count @@` between +++ and cursor.
+  // Default: line 1 (if cursor is between +++ and the first hunk).
+  let line = 1;
+  for (let i = lines.length - 1; i > plusPlusPlusIdx; i--) {
+    const l = lines[i];
+    // Match: `@@ -A,B +C,D @@ ...`  (D optional; C is what we want).
+    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+    if (!m) continue;
+    const newStart = parseInt(m[1], 10);
+    if (!Number.isFinite(newStart)) return null;
+    // Walk forward from the hunk header to the cursor line, advancing
+    // the new-file line counter for context (' ') and addition ('+')
+    // rows; skip deletion ('-') rows since they don't exist in the new
+    // file. The hunk header itself is line `newStart - 1` once we
+    // increment past the next line.
+    let cur = newStart;
+    for (let j = i + 1; j < lines.length; j++) {
+      const row = lines[j];
+      if (j === lines.length - 1) {
+        // Last partial line — the user's cursor sits here.
+        line = cur;
+        break;
+      }
+      const ch = row.charAt(0);
+      if (ch === "+" || ch === " " || ch === "") cur += 1;
+      // '-' lines: do not advance new-file counter.
+      // '\\' (e.g. `\ No newline at end of file`): also skip.
+    }
+    break;
+  }
+  return { file, line };
+}
+
 async function git_log_detail_open_file(): Promise<void> {
   if (state.detailBufferId === null) return;
   const commit = selectedCommit();
   if (!commit) return;
 
-  const props = editor.getTextPropertiesAtCursor(state.detailBufferId);
-  if (props.length === 0) {
-    editor.setStatus(editor.t("status.move_to_diff"));
-    return;
-  }
-  const file = props[0].file as string | undefined;
-  const line = (props[0].line as number | undefined) ?? 1;
-  if (!file) {
+  // The detail buffer is a plain file-backed view of `git show --patch`,
+  // so we don't have plugin-attached `file`/`line` properties anymore.
+  // Parse the diff backwards from the cursor to find the nearest
+  // `+++ b/<path>` header (a per-file diff section opener) and the
+  // most recent hunk header to derive a line number.
+  const ctx = await deriveFileAndLineFromDiffCursor(state.detailBufferId);
+  if (!ctx) {
     editor.setStatus(editor.t("status.move_to_diff_with_context"));
     return;
   }
+  const { file, line } = ctx;
 
   editor.setStatus(
     editor.t("status.file_loading", { file, hash: commit.shortHash })
@@ -708,11 +924,6 @@ async function on_log_select(idx: number): Promise<void> {
   if (idx === state.selectedIndex) return;
   state.selectedIndex = idx;
 
-  // Immediate feedback: cached detail or "loading" placeholder.
-  // The host already re-rendered the List with the new selection
-  // highlight, so we only need to update the right-hand pane.
-  const pending = refreshDetailImmediate();
-
   const commit = state.commits[state.selectedIndex];
   if (commit) {
     editor.setStatus(
@@ -723,16 +934,17 @@ async function on_log_select(idx: number): Promise<void> {
     );
   }
 
-  if (!pending) return;
-
   // Debounce: bump the token, wait a beat, bail if a newer event has
-  // arrived. `git show` is expensive; a burst of select events (held
-  // j/k, PageDown) must collapse to one spawn.
+  // arrived. Even though re-pointing the panel at a cached buffer is
+  // ~free, kicking off a new `git show --patch` for every intermediate
+  // row in a held-j burst is wasteful. Collapse rapid selection moves.
   const myId = ++state.pendingSelectId;
   await editor.delay(SELECT_DEBOUNCE_MS);
   if (myId !== state.pendingSelectId) return;
   if (!state.isOpen) return;
-  await fetchAndRenderDetail(pending);
+  const current = state.commits[state.selectedIndex];
+  if (!current) return;
+  await showCommitInDetail(current, editor.getCwd());
 }
 
 // =============================================================================

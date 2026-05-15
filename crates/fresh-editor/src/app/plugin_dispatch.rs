@@ -1740,36 +1740,26 @@ impl Editor {
             .event_logs
             .insert(buffer_id, crate::model::event::EventLog::new());
 
-        let metadata = super::types::BufferMetadata::with_file(
+        // Hidden from tab bars: this buffer is for plugin-driven
+        // display (typically a buffer-group panel target). Plugin
+        // authors don't want every per-item streaming buffer
+        // cluttering quick-switch or the tab strip.
+        let mut metadata = super::types::BufferMetadata::with_file(
             path.clone(),
             &path,
             &self.working_dir,
             self.authority.path_translation.as_ref(),
         );
+        metadata.hidden_from_tabs = true;
         self.active_window_mut()
             .buffer_metadata
             .insert(buffer_id, metadata);
 
-        // Register in the active split so the buffer is discoverable
-        // (similar to open_stdin_buffer). The plugin owns when to
-        // actually display it — typically by swapping it into a
-        // buffer-group panel.
-        let active_split = self
-            .windows
-            .get(&self.active_window)
-            .and_then(|w| w.buffers.splits())
-            .map(|(mgr, _)| mgr)
-            .expect("active window must have a populated split layout")
-            .active_split();
-        if let Some(view_state) = self
-            .windows
-            .get_mut(&self.active_window)
-            .and_then(|w| w.split_view_states_mut())
-            .expect("active window must have a populated split layout")
-            .get_mut(&active_split)
-        {
-            view_state.add_buffer(buffer_id);
-        }
+        // Do NOT add the buffer to the active split's tab list. The
+        // plugin will route it somewhere visible — typically via
+        // `setBufferGroupPanelBuffer` — and adding it here would
+        // briefly flash a stray tab + steal focus from the user's
+        // current split.
 
         self.resolve_json_callback(request_id, Some(buffer_id.0));
     }

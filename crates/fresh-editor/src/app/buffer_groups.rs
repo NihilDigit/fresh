@@ -602,9 +602,47 @@ impl super::Editor {
             }
         };
 
-        // Update the panel split's view state: switch its active
-        // buffer and ensure a per-buffer state entry exists for the
-        // new id so cursors/scroll/wrap defaults are initialised.
+        // The buffer needs the same per-buffer presentation flags
+        // that `build_group_layout` applies to virtual panel buffers
+        // (scrollable, no line-number margins, editing disabled).
+        // Without these, a freshly-attached file-backed buffer
+        // renders with the wrong margins/wrap and overflows the
+        // panel's allotted width.
+        if let Some(state) = self
+            .windows
+            .get_mut(&self.active_window)
+            .map(|w| &mut w.buffers)
+            .expect("active window present")
+            .get_mut(&new_buffer_id)
+        {
+            state.scrollable = true;
+            state.editing_disabled = true;
+            state.margins.configure_for_line_numbers(false);
+        }
+
+        // Walk the grouped subtree and update the SplitNode::Leaf's
+        // `buffer_id`. The renderer reads this — not the
+        // SplitViewState — when collecting which buffer to draw in
+        // each panel rect (see `get_leaves_with_rects`). Without
+        // this, retargeting only updates focus state and the panel
+        // keeps drawing the prior (now-empty) buffer.
+        for node in self
+            .active_window_mut()
+            .grouped_subtrees
+            .values_mut()
+        {
+            if let Some(found) = node.find_mut(panel_leaf.into()) {
+                if let crate::view::split::SplitNode::Leaf { buffer_id, .. } = found {
+                    *buffer_id = new_buffer_id;
+                    break;
+                }
+            }
+        }
+
+        // Update the panel split's view state: ensure a per-buffer
+        // state entry for the new id BEFORE swapping active_buffer
+        // (otherwise the next `active_state()` panics because the
+        // freshly-set active_buffer has no keyed_states entry yet).
         let line_wrap = self.active_window().resolve_line_wrap_for_buffer(new_buffer_id);
         let wrap_column = self
             .active_window()
@@ -617,21 +655,28 @@ impl super::Editor {
             .expect("active window must have a populated split layout")
             .get_mut(&panel_leaf)
         {
+            // 1) Allocate the keyed state for the new buffer first.
+            //    This call internally reads `active_state()` to copy
+            //    viewport dims; calling it while active_buffer is
+            //    still the prior id is safe.
+            {
+                let buf_state = vs.ensure_buffer_state(new_buffer_id);
+                buf_state.apply_config_defaults(
+                    cfg.line_numbers,
+                    cfg.highlight_current_line,
+                    line_wrap,
+                    cfg.wrap_indent,
+                    wrap_column,
+                    cfg.rulers,
+                );
+                // Match the panel-buffer presentation set in
+                // `build_group_layout` (no line numbers, no current-
+                // line highlight inside grouped panels).
+                buf_state.show_line_numbers = false;
+                buf_state.highlight_current_line = false;
+            }
+            // 2) Now flip the active pointer.
             vs.active_buffer = new_buffer_id;
-            let buf_state = vs.ensure_buffer_state(new_buffer_id);
-            buf_state.apply_config_defaults(
-                cfg.line_numbers,
-                cfg.highlight_current_line,
-                line_wrap,
-                cfg.wrap_indent,
-                wrap_column,
-                cfg.rulers,
-            );
-            // Match the panel-buffer presentation set in
-            // `build_group_layout` (no line numbers, no current-line
-            // highlight inside grouped panels).
-            buf_state.show_line_numbers = false;
-            buf_state.highlight_current_line = false;
             vs.layout_dirty = true;
         }
 
