@@ -1079,6 +1079,15 @@ impl Editor {
             } => {
                 self.handle_get_buffer_line_count(buffer_id, request_id);
             }
+            PluginCommand::OpenFileStreaming { path, request_id } => {
+                self.handle_open_file_streaming(path, request_id);
+            }
+            PluginCommand::RefreshBufferFromDisk {
+                buffer_id,
+                request_id,
+            } => {
+                self.handle_refresh_buffer_from_disk(buffer_id, request_id);
+            }
             PluginCommand::ScrollToLineCenter {
                 split_id,
                 buffer_id,
@@ -1669,6 +1678,150 @@ impl Editor {
         };
 
         self.resolve_json_callback(request_id, result);
+    }
+
+    /// Open `path` as a regular buffer in forced large-file (file-backed)
+    /// mode. The file is created (empty) if missing — designed for buffers
+    /// that will be filled by a concurrent `spawnProcess` with `stdoutTo`.
+    /// Resolves the request with the new buffer's id.
+    fn handle_open_file_streaming(&mut self, path: std::path::PathBuf, request_id: u64) {
+        // Ensure the file exists at 0 bytes if missing, so the loader has
+        // something to point at.
+        if !self.authority.filesystem.exists(&path) {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+            if let Err(e) = std::fs::write(&path, b"") {
+                tracing::warn!(
+                    "openFileStreaming: failed to create empty file at {:?}: {}",
+                    path,
+                    e
+                );
+                self.resolve_json_callback::<Option<u64>>(request_id, None);
+                return;
+            }
+        }
+
+        // Build the EditorState using the streaming loader (forces
+        // large-file / file-backed mode regardless of size).
+        let state = match crate::state::EditorState::from_file_streaming(
+            &path,
+            &self.grammar_registry,
+            &self.config.languages,
+            std::sync::Arc::clone(&self.authority.filesystem),
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("openFileStreaming: load failed for {:?}: {}", path, e);
+                self.resolve_json_callback::<Option<u64>>(request_id, None);
+                return;
+            }
+        };
+
+        let buffer_id = self.alloc_buffer_id();
+
+        self.windows
+            .get_mut(&self.active_window)
+            .map(|w| &mut w.buffers)
+            .expect("active window present")
+            .insert(buffer_id, state);
+        self.active_window_mut()
+            .event_logs
+            .insert(buffer_id, crate::model::event::EventLog::new());
+
+        let metadata = super::types::BufferMetadata::with_file(
+            path.clone(),
+            &path,
+            &self.working_dir,
+            self.authority.path_translation.as_ref(),
+        );
+        self.active_window_mut()
+            .buffer_metadata
+            .insert(buffer_id, metadata);
+
+        // Register in the active split so the buffer is discoverable
+        // (similar to open_stdin_buffer). The plugin owns when to
+        // actually display it — typically by swapping it into a
+        // buffer-group panel.
+        let active_split = self
+            .windows
+            .get(&self.active_window)
+            .and_then(|w| w.buffers.splits())
+            .map(|(mgr, _)| mgr)
+            .expect("active window must have a populated split layout")
+            .active_split();
+        if let Some(view_state) = self
+            .windows
+            .get_mut(&self.active_window)
+            .and_then(|w| w.split_view_states_mut())
+            .expect("active window must have a populated split layout")
+            .get_mut(&active_split)
+        {
+            view_state.add_buffer(buffer_id);
+        }
+
+        self.resolve_json_callback(request_id, Some(buffer_id.0));
+    }
+
+    /// Re-stat the file backing `buffer_id` and extend the buffer if
+    /// the file has grown. No-op if the buffer has no file path or the
+    /// file didn't grow. Resolves with the new total byte length.
+    fn handle_refresh_buffer_from_disk(
+        &mut self,
+        buffer_id: BufferId,
+        request_id: u64,
+    ) {
+        let actual_buffer_id = self.resolve_buffer_id(buffer_id);
+
+        let path = self
+            .windows
+            .get(&self.active_window)
+            .and_then(|w| w.buffers.splits())
+            .map(|(_, _)| ())
+            .and_then(|_| {
+                self.windows
+                    .get(&self.active_window)?
+                    .buffers
+                    .get(&actual_buffer_id)?
+                    .buffer
+                    .file_path()
+                    .map(|p| p.to_path_buf())
+            });
+
+        let Some(path) = path else {
+            // No file path — nothing to refresh.
+            self.resolve_json_callback::<Option<usize>>(request_id, None);
+            return;
+        };
+
+        let new_size = match self.authority.filesystem.metadata(&path) {
+            Ok(m) => m.size as usize,
+            Err(_) => {
+                self.resolve_json_callback::<Option<usize>>(request_id, None);
+                return;
+            }
+        };
+
+        let new_total = if let Some(state) = self
+            .windows
+            .get_mut(&self.active_window)
+            .map(|w| &mut w.buffers)
+            .expect("active window present")
+            .get_mut(&actual_buffer_id)
+        {
+            let old = state.buffer.total_bytes();
+            if new_size > old {
+                state.buffer.extend_streaming(&path, new_size);
+            }
+            state.buffer.total_bytes()
+        } else {
+            self.resolve_json_callback::<Option<usize>>(request_id, None);
+            return;
+        };
+
+        self.resolve_json_callback(request_id, Some(new_total));
     }
 
     /// Scroll a split to center a specific line in the viewport

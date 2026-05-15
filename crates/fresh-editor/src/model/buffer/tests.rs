@@ -6,6 +6,35 @@ fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
 }
 use super::*;
 
+/// load_from_file_streaming forces large-file mode even for a 0-byte
+/// file, and extend_streaming grows the buffer to track on-disk writes.
+/// This is the path the new openFileStreaming + refreshBufferFromDisk
+/// plugin APIs are built on.
+#[test]
+fn test_streaming_load_and_extend() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), b"").unwrap();
+
+    // Open an empty file in streaming mode.
+    let mut buf = TextBuffer::load_from_file_streaming(tmp.path(), test_fs()).unwrap();
+    assert_eq!(buf.total_bytes(), 0);
+
+    // Simulate the producer writing some bytes.
+    std::fs::write(tmp.path(), b"hello").unwrap();
+    buf.extend_streaming(tmp.path(), 5);
+    assert_eq!(buf.total_bytes(), 5);
+
+    // And more bytes — incrementally.
+    std::fs::write(tmp.path(), b"hello, world").unwrap();
+    buf.extend_streaming(tmp.path(), 12);
+    assert_eq!(buf.total_bytes(), 12);
+
+    // Reading the full range should see the latest on-disk bytes via
+    // lazy chunk loading.
+    let text = buf.get_text_range_mut(0, 12).unwrap();
+    assert_eq!(text, b"hello, world");
+}
+
 #[test]
 fn test_empty_buffer() {
     let buffer = TextBuffer::empty(test_fs());

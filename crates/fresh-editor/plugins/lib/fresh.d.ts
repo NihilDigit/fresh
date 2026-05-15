@@ -1612,6 +1612,27 @@ interface EditorAPI {
 	*/
 	openFileInSplit(splitId: number, path: string, line: number, column: number): boolean;
 	/**
+	* Open `path` as a regular buffer in forced large-file (file-backed)
+	* mode. The file is created (empty) if missing — designed for
+	* buffers that will be filled by a concurrent `spawnProcess` with
+	* `stdoutTo`. Resolves with the new buffer's id, or `null` on
+	* failure.
+	* 
+	* Pair with `refreshBufferFromDisk` to grow the buffer as the
+	* streaming write advances.
+	*/
+	openFileStreaming(path: string): Promise<number | null>;
+	/**
+	* Re-stat the file backing `bufferId` and extend the buffer if the
+	* file has grown. Resolves with the new total byte length, or
+	* `null` if the buffer has no file path or doesn't exist.
+	* 
+	* Used to drive a streaming display: while a `spawnProcess` writes
+	* to a temp file, the plugin polls this on a timer so the buffer
+	* length tracks the file length.
+	*/
+	refreshBufferFromDisk(bufferId: number): Promise<number | null>;
+	/**
 	* Show a buffer in the current split
 	*/
 	showBuffer(bufferId: number): boolean;

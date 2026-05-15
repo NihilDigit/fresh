@@ -410,6 +410,23 @@ impl TextBuffer {
         }
     }
 
+    /// Load a file in forced large-file (file-backed) mode regardless
+    /// of file size. The buffer references `path` via `BufferData::Unloaded`
+    /// and lazy-loads 1 MB chunks on demand. Designed for buffers whose
+    /// backing file will grow under them — pair with `extend_streaming`.
+    ///
+    /// Works for 0-byte files: `load_large_file_internal` already handles
+    /// `file_size == 0` and produces an empty piece tree.
+    pub fn load_from_file_streaming<P: AsRef<Path>>(
+        path: P,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+        let metadata = fs.metadata(path)?;
+        let file_size = metadata.size as usize;
+        Self::load_large_file(path, file_size, fs)
+    }
+
     /// Load a text buffer from a file with a specific encoding (no auto-detection).
     pub fn load_from_file_with_encoding<P: AsRef<Path>>(
         path: P,

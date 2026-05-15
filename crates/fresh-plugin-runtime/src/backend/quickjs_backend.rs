@@ -1534,6 +1534,57 @@ impl JsEditorApi {
             .is_ok()
     }
 
+    /// Open `path` as a regular buffer in forced large-file (file-backed)
+    /// mode. The file is created (empty) if missing — designed for
+    /// buffers that will be filled by a concurrent `spawnProcess` with
+    /// `stdoutTo`. Resolves with the new buffer's id, or `null` on
+    /// failure.
+    ///
+    /// Pair with `refreshBufferFromDisk` to grow the buffer as the
+    /// streaming write advances.
+    #[plugin_api(
+        async_promise,
+        js_name = "openFileStreaming",
+        ts_return = "number | null"
+    )]
+    #[qjs(rename = "_openFileStreamingStart")]
+    pub fn open_file_streaming_start(&self, _ctx: rquickjs::Ctx<'_>, path: String) -> u64 {
+        let id = self.alloc_request_id();
+        let _ = self.command_sender.send(PluginCommand::OpenFileStreaming {
+            path: PathBuf::from(path),
+            request_id: id,
+        });
+        id
+    }
+
+    /// Re-stat the file backing `bufferId` and extend the buffer if the
+    /// file has grown. Resolves with the new total byte length, or
+    /// `null` if the buffer has no file path or doesn't exist.
+    ///
+    /// Used to drive a streaming display: while a `spawnProcess` writes
+    /// to a temp file, the plugin polls this on a timer so the buffer
+    /// length tracks the file length.
+    #[plugin_api(
+        async_promise,
+        js_name = "refreshBufferFromDisk",
+        ts_return = "number | null"
+    )]
+    #[qjs(rename = "_refreshBufferFromDiskStart")]
+    pub fn refresh_buffer_from_disk_start(
+        &self,
+        _ctx: rquickjs::Ctx<'_>,
+        buffer_id: u32,
+    ) -> u64 {
+        let id = self.alloc_request_id();
+        let _ = self
+            .command_sender
+            .send(PluginCommand::RefreshBufferFromDisk {
+                buffer_id: BufferId(buffer_id as usize),
+                request_id: id,
+            });
+        id
+    }
+
     /// Show a buffer in the current split
     pub fn show_buffer(&self, buffer_id: u32) -> bool {
         self.command_sender

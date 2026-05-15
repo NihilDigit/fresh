@@ -2850,6 +2850,29 @@ pub enum PluginCommand {
         request_id: u64,
     },
 
+    /// Open `path` as a regular buffer in forced large-file (file-backed)
+    /// mode regardless of file size. Designed for buffers whose backing
+    /// file will grow under them (e.g. a temp file fed by `spawnProcess`
+    /// with `stdoutTo`). Resolves with the new buffer's id.
+    ///
+    /// Pair with `RefreshBufferFromDisk` to grow the buffer as the file
+    /// is written.
+    OpenFileStreaming {
+        /// Path to open. May not yet exist or may be empty.
+        path: PathBuf,
+        /// Request ID for async response (the buffer_id).
+        request_id: u64,
+    },
+
+    /// Re-stat the file backing `buffer_id` and extend the buffer if
+    /// the file has grown. No-op if the buffer has no file path or the
+    /// file didn't grow. Resolves with the new total byte length.
+    RefreshBufferFromDisk {
+        buffer_id: BufferId,
+        /// Request ID for async response.
+        request_id: u64,
+    },
+
     /// Scroll a split to center a specific line in the viewport
     /// Line is 0-indexed (0 = first line)
     ScrollToLineCenter {
