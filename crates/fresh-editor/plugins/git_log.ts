@@ -414,6 +414,90 @@ async function pollUntilSpawnDone(
   if (state.inFlightSpawns.get(hash) === handle) {
     state.inFlightSpawns.delete(hash);
   }
+  // Apply diff coloring once the buffer is complete. Doing this
+  // pre-completion would either churn (re-walk on every refresh) or
+  // double-overlay newly-extended lines; on completion we walk once.
+  await applyDiffHighlights(bufferId);
+}
+
+// =============================================================================
+// Diff syntax highlighting via per-line bg overlays
+//
+// Sublime-syntax's bundled `Diff` definition only scopes the `diff`
+// keyword, so themes only colour that. Plugins are responsible for the
+// rest — same approach `live_diff` uses for inline diff coloring in
+// regular buffers.
+//
+// One overlay per line of added/removed content is fine for the
+// "normal commit" workload but explodes on giant commits (the
+// rewrite-bun commit is 1M lines = 1M overlays = back to the old
+// 500k-overlay problem this rewire eliminated). Gate on buffer size;
+// gracefully degrade to no highlighting for outliers.
+// =============================================================================
+
+const HIGHLIGHT_BG_ADDED = "editor.diff_add_bg";
+const HIGHLIGHT_BG_REMOVED = "editor.diff_remove_bg";
+const HIGHLIGHT_BG_HUNK = "editor.diff_modify_bg";
+const HIGHLIGHT_NAMESPACE = "git-log-diff";
+/** Skip overlay highlighting above this size. ~256 KB covers
+ *  basically every hand-written commit comfortably; very large
+ *  generated-file diffs (lockfiles, minified code) just stay
+ *  uncoloured — the cost would be a few thousand-to-a-million
+ *  overlays for content the user mostly skims. */
+const HIGHLIGHT_MAX_BYTES = 256 * 1024;
+
+async function applyDiffHighlights(bufferId: number): Promise<void> {
+  const total = editor.getBufferLength(bufferId);
+  if (total === 0 || total > HIGHLIGHT_MAX_BYTES) return;
+  const text = await editor.getBufferText(bufferId, 0, total);
+  if (!text) return;
+
+  // Walk lines tracking byte offsets; coalesce consecutive same-kind
+  // rows into single ranges so a 30-line added block costs one
+  // overlay, not 30.
+  let byte = 0;
+  let runKind: "+" | "-" | "@" | null = null;
+  let runStart = 0;
+  let runEnd = 0;
+
+  const flushRun = () => {
+    if (runKind === null) return;
+    const bg =
+      runKind === "+"
+        ? HIGHLIGHT_BG_ADDED
+        : runKind === "-"
+        ? HIGHLIGHT_BG_REMOVED
+        : HIGHLIGHT_BG_HUNK;
+    editor.addOverlay(bufferId, HIGHLIGHT_NAMESPACE, runStart, runEnd, {
+      bg,
+      extendToLineEnd: true,
+    });
+    runKind = null;
+  };
+
+  for (const line of text.split("\n")) {
+    const lineLen = line.length;
+    const ch = line.charAt(0);
+    let kind: "+" | "-" | "@" | null = null;
+    if (ch === "+" && !line.startsWith("+++")) kind = "+";
+    else if (ch === "-" && !line.startsWith("---")) kind = "-";
+    else if (line.startsWith("@@")) kind = "@";
+
+    if (kind !== runKind) {
+      flushRun();
+      if (kind !== null) {
+        runStart = byte;
+        runKind = kind;
+      }
+    }
+    if (kind !== null) {
+      // Include the trailing newline in the range so the bg colour
+      // fills the row even on empty lines that wrap-extend.
+      runEnd = byte + lineLen + 1;
+    }
+    byte += lineLen + 1;
+  }
+  flushRun();
 }
 
 /**
@@ -743,6 +827,124 @@ function git_log_q(): void {
 registerHandler("git_log_q", git_log_q);
 
 // =============================================================================
+// Folding by file and hunk
+//
+// The host's fold API is "addFold(start, end)" — it immediately
+// collapses the range. There's no "register an unfolded range that's
+// toggleable" primitive, so we expose explicit commands the user
+// invokes from the command palette (or via mode keybinding) to fold
+// or unfold per-file / per-hunk. clearFolds undoes everything.
+//
+// Pairs nicely with diff highlighting: scan the buffer once, find
+// each `diff --git` and each `@@` header, compute the byte range
+// from end-of-header to start-of-next-header (or EOF), apply.
+// =============================================================================
+
+interface FoldRange {
+  /** End-of-header byte: the line bearing the header stays visible. */
+  start: number;
+  /** First byte past the folded range — exclusive. */
+  end: number;
+}
+
+/**
+ * Walk the buffer and return the byte ranges that should be folded
+ * for "fold everything below each per-file header". Each range
+ * starts immediately after the `\n` of the `diff --git a/X b/Y` line
+ * and ends at the byte before the next `diff --git`'s position (or
+ * at total bytes for the last file).
+ */
+async function computeFileFoldRanges(bufferId: number): Promise<FoldRange[]> {
+  const total = editor.getBufferLength(bufferId);
+  if (total === 0) return [];
+  const text = await editor.getBufferText(bufferId, 0, total);
+  if (!text) return [];
+
+  const ranges: FoldRange[] = [];
+  let byte = 0;
+  let pendingStart: number | null = null;
+  for (const line of text.split("\n")) {
+    const lineLen = line.length;
+    if (line.startsWith("diff --git ")) {
+      if (pendingStart !== null) {
+        ranges.push({ start: pendingStart, end: byte });
+      }
+      pendingStart = byte + lineLen + 1; // past the header's \n
+    }
+    byte += lineLen + 1;
+  }
+  if (pendingStart !== null && pendingStart < total) {
+    ranges.push({ start: pendingStart, end: total });
+  }
+  return ranges;
+}
+
+/**
+ * Same shape, one entry per `@@ ... @@` hunk header. A "hunk" ends
+ * at the next hunk header within the same file, or at the next file's
+ * `diff --git` header, or at EOF.
+ */
+async function computeHunkFoldRanges(bufferId: number): Promise<FoldRange[]> {
+  const total = editor.getBufferLength(bufferId);
+  if (total === 0) return [];
+  const text = await editor.getBufferText(bufferId, 0, total);
+  if (!text) return [];
+
+  const ranges: FoldRange[] = [];
+  let byte = 0;
+  let pendingStart: number | null = null;
+  for (const line of text.split("\n")) {
+    const lineLen = line.length;
+    const isHunk = line.startsWith("@@ ");
+    const isFile = line.startsWith("diff --git ");
+    if (isHunk || isFile) {
+      if (pendingStart !== null) {
+        ranges.push({ start: pendingStart, end: byte });
+        pendingStart = null;
+      }
+      if (isHunk) {
+        pendingStart = byte + lineLen + 1; // past the @@ header's \n
+      }
+    }
+    byte += lineLen + 1;
+  }
+  if (pendingStart !== null && pendingStart < total) {
+    ranges.push({ start: pendingStart, end: total });
+  }
+  return ranges;
+}
+
+async function git_log_fold_all_files(): Promise<void> {
+  if (state.detailBufferId === null) return;
+  const bid = state.detailBufferId;
+  const ranges = await computeFileFoldRanges(bid);
+  if (ranges.length === 0) {
+    editor.setStatus(editor.t("status.no_commits")); // reuse a benign message
+    return;
+  }
+  for (const r of ranges) {
+    editor.addFold(bid, r.start, r.end, "…");
+  }
+}
+registerHandler("git_log_fold_all_files", git_log_fold_all_files);
+
+async function git_log_fold_all_hunks(): Promise<void> {
+  if (state.detailBufferId === null) return;
+  const bid = state.detailBufferId;
+  const ranges = await computeHunkFoldRanges(bid);
+  for (const r of ranges) {
+    editor.addFold(bid, r.start, r.end, "…");
+  }
+}
+registerHandler("git_log_fold_all_hunks", git_log_fold_all_hunks);
+
+function git_log_unfold_all(): void {
+  if (state.detailBufferId === null) return;
+  editor.clearFolds(state.detailBufferId);
+}
+registerHandler("git_log_unfold_all", git_log_unfold_all);
+
+// =============================================================================
 // Detail panel — open file at commit
 // =============================================================================
 
@@ -999,6 +1201,24 @@ editor.registerCommand(
   "%cmd.git_log_refresh_desc",
   "git_log_refresh",
   null
+);
+editor.registerCommand(
+  "%cmd.git_log_fold_all_files",
+  "%cmd.git_log_fold_all_files_desc",
+  "git_log_fold_all_files",
+  null,
+);
+editor.registerCommand(
+  "%cmd.git_log_fold_all_hunks",
+  "%cmd.git_log_fold_all_hunks_desc",
+  "git_log_fold_all_hunks",
+  null,
+);
+editor.registerCommand(
+  "%cmd.git_log_unfold_all",
+  "%cmd.git_log_unfold_all_desc",
+  "git_log_unfold_all",
+  null,
 );
 
 editor.debug("Git Log plugin initialized (modern buffer-group layout)");
