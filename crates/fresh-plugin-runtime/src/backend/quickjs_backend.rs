@@ -4520,6 +4520,37 @@ impl JsEditorApi {
             .is_ok()
     }
 
+    /// Re-point a buffer-group's panel at a different buffer id.
+    ///
+    /// Streaming plugins (e.g. git-log) allocate one file-backed
+    /// buffer per item and call this on navigation to swap which
+    /// buffer the panel displays — instead of mutating a single
+    /// shared buffer's contents. Resolves with `true` on success.
+    #[plugin_api(
+        async_promise,
+        js_name = "setBufferGroupPanelBuffer",
+        ts_return = "boolean"
+    )]
+    #[qjs(rename = "_setBufferGroupPanelBufferStart")]
+    pub fn set_buffer_group_panel_buffer_start(
+        &self,
+        _ctx: rquickjs::Ctx<'_>,
+        group_id: u32,
+        panel_name: String,
+        buffer_id: u32,
+    ) -> u64 {
+        let id = self.alloc_request_id();
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SetBufferGroupPanelBuffer {
+                group_id: group_id as usize,
+                panel_name,
+                buffer_id: BufferId(buffer_id as usize),
+                request_id: id,
+            });
+        id
+    }
+
     /// Set virtual buffer content (takes array of entry objects)
     ///
     /// Note: entries should be TextPropertyEntry[] - uses manual parsing for HashMap support

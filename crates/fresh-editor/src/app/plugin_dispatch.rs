@@ -1088,6 +1088,19 @@ impl Editor {
             } => {
                 self.handle_refresh_buffer_from_disk(buffer_id, request_id);
             }
+            PluginCommand::SetBufferGroupPanelBuffer {
+                group_id,
+                panel_name,
+                buffer_id,
+                request_id,
+            } => {
+                self.handle_set_buffer_group_panel_buffer(
+                    group_id,
+                    panel_name,
+                    buffer_id,
+                    request_id,
+                );
+            }
             PluginCommand::ScrollToLineCenter {
                 split_id,
                 buffer_id,
@@ -1763,6 +1776,20 @@ impl Editor {
         }
 
         self.resolve_json_callback(request_id, Some(buffer_id.0));
+    }
+
+    /// Re-point a buffer-group's panel at a different buffer id.
+    /// Delegates to `BufferGroupOps::set_buffer_group_panel_buffer`.
+    fn handle_set_buffer_group_panel_buffer(
+        &mut self,
+        group_id: usize,
+        panel_name: String,
+        buffer_id: BufferId,
+        request_id: u64,
+    ) {
+        let actual_buffer_id = self.resolve_buffer_id(buffer_id);
+        let ok = self.set_buffer_group_panel_buffer(group_id, panel_name, actual_buffer_id);
+        self.resolve_json_callback(request_id, ok);
     }
 
     /// Re-stat the file backing `buffer_id` and extend the buffer if

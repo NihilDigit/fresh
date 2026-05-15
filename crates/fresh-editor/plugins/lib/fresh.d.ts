@@ -2488,6 +2488,15 @@ interface EditorAPI {
 	*/
 	focusBufferGroupPanel(groupId: number, panelName: string): boolean;
 	/**
+	* Re-point a buffer-group's panel at a different buffer id.
+	* 
+	* Streaming plugins (e.g. git-log) allocate one file-backed
+	* buffer per item and call this on navigation to swap which
+	* buffer the panel displays — instead of mutating a single
+	* shared buffer's contents. Resolves with `true` on success.
+	*/
+	setBufferGroupPanelBuffer(groupId: number, panelName: string, bufferId: number): Promise<boolean>;
+	/**
 	* Set virtual buffer content (takes array of entry objects)
 	* 
 	* Note: entries should be TextPropertyEntry[] - uses manual parsing for HashMap support
