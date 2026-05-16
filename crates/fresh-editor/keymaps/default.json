@@ -521,6 +521,14 @@
       "when": "normal"
     },
     {
+      "comment": "VSCode-compatible 'Add Cursor to Line Ends' (Shift+Alt+I) — places a cursor at the end of every line covered by the selection.",
+      "key": "i",
+      "modifiers": ["shift", "alt"],
+      "action": "add_cursors_to_line_ends",
+      "args": {},
+      "when": "normal"
+    },
+    {
       "comment": "Normal context - Search and replace",
       "key": "f",
       "modifiers": ["ctrl"],

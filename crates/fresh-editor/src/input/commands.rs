@@ -465,6 +465,13 @@ static COMMAND_DEFS: &[CommandDef] = &[
         custom_contexts: &[],
     },
     CommandDef {
+        name_key: "cmd.add_cursors_to_line_ends",
+        desc_key: "cmd.add_cursors_to_line_ends_desc",
+        action: || Action::AddCursorsToLineEnds,
+        contexts: &[Normal],
+        custom_contexts: &[],
+    },
+    CommandDef {
         name_key: "cmd.remove_secondary_cursors",
         desc_key: "cmd.remove_secondary_cursors_desc",
         action: || Action::RemoveSecondaryCursors,

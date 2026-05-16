@@ -1845,6 +1845,7 @@ impl Editor {
             Action::AddCursorNextMatch => self.add_cursor_at_next_match(),
             Action::AddCursorAbove => self.add_cursor_above(),
             Action::AddCursorBelow => self.add_cursor_below(),
+            Action::AddCursorsToLineEnds => self.add_cursors_to_line_ends(),
             Action::NextBuffer => self.next_buffer(),
             Action::PrevBuffer => self.prev_buffer(),
             Action::SwitchToPreviousTab => self.switch_to_previous_tab(),

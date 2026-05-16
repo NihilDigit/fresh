@@ -237,6 +237,43 @@ pub fn add_cursor_above(state: &mut EditorState, cursors: &Cursors) -> AddCursor
     }
 }
 
+/// Compute end-of-line byte positions for every line covered by the primary
+/// cursor's selection range (or the cursor's current line when there is no
+/// selection). Used to place cursors at the end of each line.
+///
+/// "End of line" is the byte offset immediately before the trailing `\n`
+/// (or `\r\n`), or the position past the last byte for the final line of a
+/// buffer without a trailing newline.
+pub fn line_end_positions_in_selection(state: &mut EditorState, cursors: &Cursors) -> Vec<usize> {
+    let primary = cursors.primary();
+    let (range_start, range_end) = match primary.selection_range() {
+        Some(range) => (range.start, range.end),
+        None => (primary.position, primary.position),
+    };
+
+    let mut positions = Vec::new();
+    let mut iter = state.buffer.line_iterator(range_start, 80);
+    while let Some((line_start, line_content)) = iter.next_line() {
+        // Stop when we've moved past the selection's end line.
+        // The line we want to include is the one containing range_end;
+        // a line strictly after that has line_start > range_end.
+        if line_start > range_end {
+            break;
+        }
+        let trimmed = line_content
+            .trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .len();
+        positions.push(line_start + trimmed);
+    }
+
+    // Deduplicate consecutive equal positions (defensive — line_iterator should
+    // not yield duplicate line_starts, but trim_end_matches could collapse on
+    // an empty trailing line). Keep first occurrence.
+    positions.dedup();
+    positions
+}
+
 /// Add a cursor below the primary cursor at the same column
 pub fn add_cursor_below(state: &mut EditorState, cursors: &Cursors) -> AddCursorResult {
     let position = cursors.primary().position;

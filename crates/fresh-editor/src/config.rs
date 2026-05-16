@@ -2938,6 +2938,13 @@ impl MenuConfig {
                         checkbox: None,
                     },
                     MenuItem::Action {
+                        label: t!("menu.selection.add_cursors_to_line_ends").to_string(),
+                        action: "add_cursors_to_line_ends".to_string(),
+                        args: HashMap::new(),
+                        when: None,
+                        checkbox: None,
+                    },
+                    MenuItem::Action {
                         label: t!("menu.selection.remove_secondary_cursors").to_string(),
                         action: "remove_secondary_cursors".to_string(),
                         args: HashMap::new(),

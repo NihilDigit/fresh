@@ -8,7 +8,8 @@
 use rust_i18n::t;
 
 use crate::input::multi_cursor::{
-    add_cursor_above, add_cursor_at_next_match, add_cursor_below, AddCursorResult,
+    add_cursor_above, add_cursor_at_next_match, add_cursor_below, line_end_positions_in_selection,
+    AddCursorResult,
 };
 use crate::model::buffer_position::byte_to_2d;
 use crate::model::event::{CursorId, Event};
@@ -856,6 +857,78 @@ impl Editor {
             }
             AddCursorResult::WordSelected { .. } => unreachable!(),
         }
+    }
+
+    /// Place a cursor at the end of every line covered by the primary
+    /// cursor's selection. Removes all existing secondary cursors and clears
+    /// selections. If the primary cursor has no selection, this collapses to
+    /// "move to end of current line".
+    pub fn add_cursors_to_line_ends(&mut self) {
+        let cursors = self.active_cursors().clone();
+        let primary_id = cursors.primary_id();
+        let state = self.active_state_mut();
+        let positions = line_end_positions_in_selection(state, &cursors);
+
+        if positions.is_empty() {
+            self.active_window_mut().status_message =
+                Some(t!("clipboard.added_cursors_to_line_ends_failed").to_string());
+            return;
+        }
+
+        let primary = *cursors.primary();
+        let mut events: Vec<Event> = Vec::new();
+
+        // Drop all secondary cursors first.
+        for (cursor_id, cursor) in cursors.iter() {
+            if cursor_id != primary_id {
+                events.push(Event::RemoveCursor {
+                    cursor_id,
+                    position: cursor.position,
+                    anchor: cursor.anchor,
+                });
+            }
+        }
+
+        // Move primary to the first end-of-line position, clearing any selection.
+        let primary_target = positions[0];
+        events.push(Event::MoveCursor {
+            cursor_id: primary_id,
+            old_position: primary.position,
+            new_position: primary_target,
+            old_anchor: primary.anchor,
+            new_anchor: None,
+            old_sticky_column: primary.sticky_column,
+            new_sticky_column: 0,
+        });
+
+        // Add a new cursor at the end of each subsequent line.
+        // Pick IDs strictly above the highest existing one so we never
+        // collide with a cursor that an undo could re-insert later.
+        let next_free_id = cursors
+            .iter()
+            .map(|(id, _)| id.0)
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0);
+        for (i, &pos) in positions.iter().enumerate().skip(1) {
+            let new_id = CursorId(next_free_id + i - 1);
+            events.push(Event::AddCursor {
+                cursor_id: new_id,
+                position: pos,
+                anchor: None,
+            });
+        }
+
+        let total = positions.len();
+        let batch = Event::Batch {
+            events,
+            description: "Add cursors to line ends".to_string(),
+        };
+        self.active_event_log_mut().append(batch.clone());
+        self.apply_event_to_active_buffer(&batch);
+
+        self.active_window_mut().status_message =
+            Some(t!("clipboard.added_cursors_to_line_ends", count = total).to_string());
     }
 
     // =========================================================================

@@ -2722,6 +2722,7 @@ pub fn action_to_events(
         | Action::AddCursorNextMatch
         | Action::AddCursorAbove
         | Action::AddCursorBelow
+        | Action::AddCursorsToLineEnds
         | Action::CommandPalette
         | Action::QuickOpen
         | Action::QuickOpenBuffers

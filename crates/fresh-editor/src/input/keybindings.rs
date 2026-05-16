@@ -415,6 +415,7 @@ pub enum Action {
     AddCursorAbove,
     AddCursorBelow,
     AddCursorNextMatch,
+    AddCursorsToLineEnds,
     RemoveSecondaryCursors,
 
     // File operations
@@ -925,6 +926,7 @@ impl Action {
             "add_cursor_above" => AddCursorAbove,
             "add_cursor_below" => AddCursorBelow,
             "add_cursor_next_match" => AddCursorNextMatch,
+            "add_cursors_to_line_ends" => AddCursorsToLineEnds,
             "remove_secondary_cursors" => RemoveSecondaryCursors,
 
             "save" => Save,
@@ -2275,6 +2277,7 @@ impl KeybindingResolver {
             Action::AddCursorAbove => t!("action.add_cursor_above"),
             Action::AddCursorBelow => t!("action.add_cursor_below"),
             Action::AddCursorNextMatch => t!("action.add_cursor_next_match"),
+            Action::AddCursorsToLineEnds => t!("action.add_cursors_to_line_ends"),
             Action::RemoveSecondaryCursors => t!("action.remove_secondary_cursors"),
             Action::Save => t!("action.save"),
             Action::SaveAs => t!("action.save_as"),
