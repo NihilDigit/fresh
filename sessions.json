@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "machine_id": "unknown",
+  "updated_at": "2026-05-16T17:53:18.009Z",
+  "active": [
+    {
+      "label": "fresh",
+      "branch": "fresh",
+      "base_ref": "origin/master",
+      "created_at": "2026-05-16T17:53:10.706Z"
+    }
+  ],
+  "archived": [
+    {
+      "label": "session-17",
+      "root": "/home/noam/.local/share/fresh/orchestrator/home_noam_repos_fresh/.archived/session-17",
+      "original_root": "/home/noam/.local/share/fresh/orchestrator/home_noam_repos_fresh/session-17",
+      "branch": "session-17",
+      "archived_at": "2026-05-16T17:53:17.258Z"
+    }
+  ]
+}
