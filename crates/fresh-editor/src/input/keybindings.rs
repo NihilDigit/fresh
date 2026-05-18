@@ -548,6 +548,8 @@ pub enum Action {
     CloseSplit,
     NextSplit,
     PrevSplit,
+    NextWindow,
+    PrevWindow,
     IncreaseSplitSize,
     DecreaseSplitSize,
     ToggleMaximizeSplit,
@@ -1016,6 +1018,8 @@ impl Action {
             "close_split" => CloseSplit,
             "next_split" => NextSplit,
             "prev_split" => PrevSplit,
+            "next_window" => NextWindow,
+            "prev_window" => PrevWindow,
             "increase_split_size" => IncreaseSplitSize,
             "decrease_split_size" => DecreaseSplitSize,
             "toggle_maximize_split" => ToggleMaximizeSplit,
@@ -1685,6 +1689,9 @@ impl KeybindingResolver {
                 // Split navigation
                 | Action::NextSplit
                 | Action::PrevSplit
+                // Window navigation
+                | Action::NextWindow
+                | Action::PrevWindow
                 | Action::SplitHorizontal
                 | Action::SplitVertical
                 | Action::CloseSplit
@@ -2380,6 +2387,8 @@ impl KeybindingResolver {
             Action::CloseSplit => t!("action.close_split"),
             Action::NextSplit => t!("action.next_split"),
             Action::PrevSplit => t!("action.prev_split"),
+            Action::NextWindow => t!("action.next_window"),
+            Action::PrevWindow => t!("action.prev_window"),
             Action::IncreaseSplitSize => t!("action.increase_split_size"),
             Action::DecreaseSplitSize => t!("action.decrease_split_size"),
             Action::ToggleMaximizeSplit => t!("action.toggle_maximize_split"),
