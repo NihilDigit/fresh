@@ -143,3 +143,36 @@ fn custom_none_keybinding_disables_ctrl_q() {
          accepts \"none\" as an alias for \"noop\")"
     );
 }
+
+/// B.3 — the keybinding editor UI deletes a default binding by
+/// pushing a `Keybinding { action: "noop", when: Some("normal"), … }`
+/// into the user's config (see
+/// `app/keybinding_editor/editor.rs:879-944`). Exercise that exact
+/// shape — lowercase key, lowercase modifier, explicit
+/// `when: "normal"` — to lock in the UI-driven path that this issue
+/// originally reported ("Can't disable quit key binding doesn't seem
+/// to work if just delete it").
+#[test]
+fn keybinding_editor_delete_of_default_ctrl_q_disables_quit() {
+    let mut config = Config::default();
+    config.keybindings.push(Keybinding {
+        key: "q".to_string(),
+        modifiers: vec!["ctrl".to_string()],
+        keys: Vec::new(),
+        action: "noop".to_string(),
+        args: HashMap::new(),
+        when: Some("normal".to_string()),
+    });
+
+    let mut harness = EditorTestHarness::with_temp_project_and_config(120, 40, config).unwrap();
+
+    harness
+        .send_key(KeyCode::Char('q'), KeyModifiers::CONTROL)
+        .unwrap();
+    assert!(
+        !harness.editor().should_quit(),
+        "deleting Ctrl+Q via the keybinding editor (which pushes a `noop` \
+         entry into the user's config in `normal` context) must actually \
+         disable Quit"
+    );
+}
