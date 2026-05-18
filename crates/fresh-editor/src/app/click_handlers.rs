@@ -526,8 +526,17 @@ impl Editor {
             }
         }
 
-        // Focus file explorer
-        self.active_window_mut().key_context = crate::input::keybindings::KeyContext::FileExplorer;
+        // Focus file explorer. `open_file_preview` below routes through
+        // `set_active_buffer`, which detects "leaving a terminal buffer
+        // while terminal_mode is on" and resets `key_context = Normal`
+        // (active_focus.rs:103-107) — clobbering our FileExplorer write
+        // and stealing focus to the previewed editor buffer (issue
+        // #2029, sub-issue 1b). Use `take_focus_for_file_explorer` so
+        // terminal_mode is cleared *before* the preview opens; then
+        // re-assert `key_context = FileExplorer` after the preview in
+        // case `set_active_buffer` reset it via one of its other
+        // branches (e.g. switching to a regular file buffer).
+        self.take_focus_for_file_explorer();
 
         // Calculate which item was clicked (accounting for border and title)
         // The file explorer has a 1-line border at top and bottom
@@ -577,6 +586,10 @@ impl Editor {
                                 }
                             }
                         }
+                        // `set_active_buffer` may have flipped key_context
+                        // back to Normal during the preview open; restore it.
+                        self.active_window_mut().key_context =
+                            crate::input::keybindings::KeyContext::FileExplorer;
                     }
                 }
             }
