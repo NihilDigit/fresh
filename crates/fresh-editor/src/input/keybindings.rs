@@ -1199,6 +1199,11 @@ impl Action {
         alias {
             "toggle_compose_mode" => TogglePageView,
             "set_compose_width" => SetPageWidth,
+            // Common synonym users reach for when trying to disable a
+            // default binding (issue #2030). Without this alias,
+            // `Action::from_str` returns `None` for `"none"` and the
+            // user's override silently fails to load.
+            "none" => None,
         }
         with_char {
             "insert_char" => InsertChar,
@@ -1850,6 +1855,20 @@ impl KeybindingResolver {
 
             let ui_fallthrough = context.allows_ui_fallthrough();
 
+            // A user binding in Normal context shadows the default
+            // Normal binding for the same key — even if the user's
+            // action doesn't qualify for fallthrough (e.g. `noop` to
+            // disable a default). Without this, the resolver fell
+            // through to the default's application-wide entry,
+            // making it impossible to disable application-wide
+            // bindings like `Ctrl+Q → Quit` from a user config
+            // (issue #2030).
+            let custom_normal_has_binding = self
+                .bindings
+                .get(&KeyContext::Normal)
+                .and_then(|m| m.get(norm))
+                .is_some();
+
             if let Some(normal_bindings) = self.bindings.get(&KeyContext::Normal) {
                 if let Some(action) = normal_bindings.get(norm) {
                     if full_fallthrough
@@ -1865,17 +1884,19 @@ impl KeybindingResolver {
                 }
             }
 
-            if let Some(normal_bindings) = self.default_bindings.get(&KeyContext::Normal) {
-                if let Some(action) = normal_bindings.get(norm) {
-                    if full_fallthrough
-                        || Self::is_application_wide_action(action)
-                        || (ui_fallthrough && Self::is_terminal_ui_action(action))
-                    {
-                        tracing::trace!(
-                            "  -> Found action in default normal bindings (fallthrough): {:?}",
-                            action
-                        );
-                        return action.clone();
+            if !custom_normal_has_binding {
+                if let Some(normal_bindings) = self.default_bindings.get(&KeyContext::Normal) {
+                    if let Some(action) = normal_bindings.get(norm) {
+                        if full_fallthrough
+                            || Self::is_application_wide_action(action)
+                            || (ui_fallthrough && Self::is_terminal_ui_action(action))
+                        {
+                            tracing::trace!(
+                                "  -> Found action in default normal bindings (fallthrough): {:?}",
+                                action
+                            );
+                            return action.clone();
+                        }
                     }
                 }
             }
