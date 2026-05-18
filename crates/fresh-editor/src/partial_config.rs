@@ -168,6 +168,7 @@ pub struct PartialEditorConfig {
     pub auto_save_enabled: Option<bool>,
     pub auto_save_interval_secs: Option<u32>,
     pub hot_exit: Option<bool>,
+    pub confirm_quit: Option<bool>,
     pub restore_previous_session: Option<bool>,
     pub skip_session_restore_when_files_passed: Option<bool>,
     pub auto_create_empty_buffer_on_last_buffer_close: Option<bool>,
@@ -253,6 +254,7 @@ impl Merge for PartialEditorConfig {
         self.auto_save_interval_secs
             .merge_from(&other.auto_save_interval_secs);
         self.hot_exit.merge_from(&other.hot_exit);
+        self.confirm_quit.merge_from(&other.confirm_quit);
         self.restore_previous_session
             .merge_from(&other.restore_previous_session);
         self.skip_session_restore_when_files_passed
@@ -572,6 +574,7 @@ impl From<&crate::config::EditorConfig> for PartialEditorConfig {
             auto_save_enabled: Some(cfg.auto_save_enabled),
             auto_save_interval_secs: Some(cfg.auto_save_interval_secs),
             hot_exit: Some(cfg.hot_exit),
+            confirm_quit: Some(cfg.confirm_quit),
             restore_previous_session: Some(cfg.restore_previous_session),
             skip_session_restore_when_files_passed: Some(
                 cfg.skip_session_restore_when_files_passed,
@@ -684,6 +687,7 @@ impl PartialEditorConfig {
                 .auto_save_interval_secs
                 .unwrap_or(defaults.auto_save_interval_secs),
             hot_exit: self.hot_exit.unwrap_or(defaults.hot_exit),
+            confirm_quit: self.confirm_quit.unwrap_or(defaults.confirm_quit),
             restore_previous_session: self
                 .restore_previous_session
                 .unwrap_or(defaults.restore_previous_session),
