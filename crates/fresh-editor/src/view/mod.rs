@@ -75,6 +75,8 @@ pub mod prompt;
 #[cfg(feature = "runtime")]
 pub mod prompt_input;
 #[cfg(feature = "runtime")]
+pub mod confirm_quit_input;
+#[cfg(feature = "runtime")]
 pub mod query_replace_input;
 #[cfg(feature = "runtime")]
 pub mod reference_highlight_overlay;

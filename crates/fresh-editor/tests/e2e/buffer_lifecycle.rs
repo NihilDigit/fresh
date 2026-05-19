@@ -90,12 +90,10 @@ fn test_quit_with_confirmation_discard() {
         .unwrap();
     harness.render().unwrap();
 
-    // Confirm with 'd' (discard) and Enter
+    // Confirm with 'd' (discard). The quit prompt is a single-key modal
+    // (issue #546) so no Enter is required.
     harness
         .send_key(KeyCode::Char('d'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
 
@@ -155,9 +153,6 @@ fn test_quit_with_discard_key_works_with_hot_exit() {
     harness
         .send_key(KeyCode::Char('d'), KeyModifiers::NONE)
         .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
-        .unwrap();
     harness.render().unwrap();
 
     assert!(
@@ -184,11 +179,9 @@ fn test_quit_save_chains_save_as_for_unnamed_buffer() {
         .send_key(KeyCode::Char('q'), KeyModifiers::CONTROL)
         .unwrap();
     harness.render().unwrap();
+    // The quit prompt is a single-key modal (issue #546) — 's' submits without Enter.
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
 
@@ -231,16 +224,14 @@ fn test_quit_save_chains_save_as_for_multiple_unnamed_buffers() {
     harness.type_text("second scratch").unwrap();
     harness.render().unwrap();
 
-    // Initiate save-and-quit.
+    // Initiate save-and-quit. The quit prompt is a single-key modal
+    // (issue #546), so 's' submits without Enter.
     harness
         .send_key(KeyCode::Char('q'), KeyModifiers::CONTROL)
         .unwrap();
     harness.render().unwrap();
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
 
@@ -299,11 +290,9 @@ fn test_quit_save_chain_cancel_aborts_quit() {
         .send_key(KeyCode::Char('q'), KeyModifiers::CONTROL)
         .unwrap();
     harness.render().unwrap();
+    // Single-key modal (issue #546) — 's' submits without Enter.
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
     harness.assert_screen_contains("Save as:");
@@ -335,12 +324,10 @@ fn test_quit_with_confirmation_cancel() {
         .unwrap();
     harness.render().unwrap();
 
-    // Cancel with 'c' and Enter (or any non-'d' key, default is cancel)
+    // Cancel with 'c' (any non-recognized key defaults to cancel). The quit
+    // prompt is a single-key modal (issue #546) so no Enter is required.
     harness
         .send_key(KeyCode::Char('c'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
 

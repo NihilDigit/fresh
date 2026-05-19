@@ -77,12 +77,11 @@ fn confirm_quit_setting_quits_after_user_confirms() {
         .unwrap();
     assert!(!harness.editor().should_quit());
 
-    // Confirm. The default English binding is "y" (yes).
+    // Confirm. The default English binding is "y" (yes). The quit
+    // confirmation prompt is a single-key modal (issue #546) — pressing 'y'
+    // submits without requiring Enter.
     harness
         .send_key(KeyCode::Char('y'), KeyModifiers::NONE)
-        .unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
     assert!(
         harness.editor().should_quit(),

@@ -1406,7 +1406,15 @@ impl Editor {
         let discard_first = discard_key.chars().next();
         let quit_first = quit_key.chars().next();
 
-        if first_char == save_first {
+        // Accept y/n as locale-independent aliases for save/discard so the
+        // prompt matches familiar nano/vim muscle memory regardless of the
+        // active UI language (issue #546). The non-English `save_key` /
+        // `discard_key` resolved from `t!()` still works as before; this
+        // adds y/n on top, it does not replace them.
+        let is_save = first_char == save_first || first_char == Some('y');
+        let is_discard = first_char == discard_first || first_char == Some('n');
+
+        if is_save {
             // Save all modified file-backed buffers to disk first.
             match self.save_all_on_exit() {
                 Ok(count) => {
@@ -1429,7 +1437,7 @@ impl Editor {
             if !self.start_next_quit_save_as() {
                 self.should_quit = true;
             }
-        } else if first_char == discard_first {
+        } else if is_discard {
             // Discard changes and quit (no recovery). Clearing the modified flag
             // on every buffer ensures `end_recovery_session` will not preserve
             // their recovery files when hot_exit is enabled — the user has

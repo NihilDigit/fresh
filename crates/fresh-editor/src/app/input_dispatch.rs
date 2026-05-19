@@ -7,6 +7,7 @@ use super::terminal_input::{should_enter_terminal_mode, TerminalModeInputHandler
 use super::Editor;
 use crate::input::handler::{DeferredAction, InputContext, InputHandler, InputResult};
 use crate::input::keybindings::{Action, KeyContext};
+use crate::view::confirm_quit_input::ConfirmQuitInputHandler;
 use crate::view::file_browser_input::FileBrowserInputHandler;
 use crate::view::query_replace_input::QueryReplaceConfirmInputHandler;
 use crate::view::ui::MenuInputHandler;
@@ -226,6 +227,21 @@ impl Editor {
                 .is_some_and(|p| p.prompt_type == PromptType::QueryReplaceConfirm);
             if is_query_replace_confirm {
                 let mut handler = QueryReplaceConfirmInputHandler::new();
+                let result = handler.dispatch_input(event, &mut ctx);
+                self.process_deferred_actions(ctx);
+                return Some(result);
+            }
+
+            // ConfirmQuit and ConfirmQuitWithModified are single-key modal
+            // prompts (issue #546) — a typed character submits without Enter.
+            let is_confirm_quit = self.active_window().prompt.as_ref().is_some_and(|p| {
+                matches!(
+                    p.prompt_type,
+                    PromptType::ConfirmQuit | PromptType::ConfirmQuitWithModified
+                )
+            });
+            if is_confirm_quit {
+                let mut handler = ConfirmQuitInputHandler::new();
                 let result = handler.dispatch_input(event, &mut ctx);
                 self.process_deferred_actions(ctx);
                 return Some(result);
