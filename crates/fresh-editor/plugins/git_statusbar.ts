@@ -92,6 +92,11 @@ async function refreshForActiveBuffer(): Promise<void> {
   const bufferId = editor.getActiveBufferId();
   if (bufferId === 0) return;
   const branch = await getCurrentGitBranch();
+  // The buffer may have been closed during the await — common when many
+  // files are opened in rapid succession (transient preview buffers from
+  // fuzzy-finders, etc.). Skip the update rather than letting the host
+  // warn about a missing buffer.
+  if (editor.getBufferInfo(bufferId) === null) return;
   editor.setStatusBarValue(bufferId, GIT_BRANCH, branch);
 }
 
