@@ -61,3 +61,8 @@ bun.lockb
 dist
 .amp/
 .worktrees/
+
+# cargo-mutants run output
+mutants.out/
+mutants.out.old/
+mutants-run.log
