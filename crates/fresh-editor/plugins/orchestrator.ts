@@ -260,6 +260,11 @@ interface OpenDialogState {
 }
 let openDialog: OpenDialogState | null = null;
 let openPanel: FloatingWidgetPanel | null = null;
+// Scope is remembered across opens of the picker (module state
+// survives dialog close). Defaults to "all" so the picker opens
+// showing every session; flipping it with the Project control / Alt+P
+// updates this and the next open honours it.
+let lastOpenScope: "current" | "all" = "all";
 const OPEN_MODE = "orchestrator-open";
 
 // =============================================================================
@@ -1159,11 +1164,9 @@ function openControlRoom(): void {
     showDetails: false,
     inFlight: null,
     lastError: null,
-    // Default to the current project's sessions so re-opening the
-    // editor in project B doesn't dump project A's whole history on
-    // the user. Cross-project sessions stay one keystroke away via
-    // the Project scope control / Alt+P.
-    scope: "current",
+    // Restore the last-used scope (defaults to "all"); the Project
+    // control / Alt+P updates it for next time.
+    scope: lastOpenScope,
   };
   openDialog.filteredIds = filterSessions("");
   const activeIdx = openDialog.filteredIds.indexOf(activeId);
@@ -1758,6 +1761,8 @@ registerHandler("orchestrator_focus_filter", () => {
 function toggleScope(): void {
   if (!openDialog) return;
   openDialog.scope = openDialog.scope === "current" ? "all" : "current";
+  // Remember the choice for the next time the picker opens.
+  lastOpenScope = openDialog.scope;
   // Keep the highlighted session selected across the scope flip
   // when it survives into the new list; otherwise fall back to the
   // top. The filter value is untouched — toggling scope with an

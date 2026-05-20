@@ -302,6 +302,10 @@ pub enum AsyncMessage {
     /// `complete` is `true` when the scan is finished, `false` for incremental
     /// partial updates sent while the walk is still in progress.
     QuickOpenFilesLoaded {
+        /// The working directory the files were enumerated under. Lets
+        /// the editor drop results that arrive after the user has
+        /// switched windows/projects (the cache is keyed by cwd).
+        cwd: String,
         files: std::sync::Arc<Vec<crate::input::quick_open::providers::FileEntry>>,
         complete: bool,
     },

@@ -290,6 +290,15 @@ impl crate::app::Editor {
             }
         }
 
+        // Refresh the plugin state snapshot so `getCwd()` (and every
+        // other snapshot field) reflects the window we just switched
+        // to *before* the `active_window_changed` hook runs. Without
+        // this, plugins that read `editor.getCwd()` — Live Grep, file
+        // finders, etc. — keep targeting the previous window's project
+        // after a dive, surfacing the wrong project's files.
+        #[cfg(feature = "plugins")]
+        self.update_plugin_state_snapshot();
+
         self.plugin_manager.read().unwrap().run_hook(
             "active_window_changed",
             HookArgs::ActiveWindowChanged {

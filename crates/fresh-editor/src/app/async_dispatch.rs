@@ -693,7 +693,11 @@ impl Editor {
                     // Flush any plugin grammars that arrived during the build
                     self.flush_pending_grammars();
                 }
-                AsyncMessage::QuickOpenFilesLoaded { files, complete } => {
+                AsyncMessage::QuickOpenFilesLoaded {
+                    cwd,
+                    files,
+                    complete,
+                } => {
                     // Update the file provider cache and refresh suggestions
                     // if Quick Open is currently showing file mode (empty prefix).
                     if let Some((provider, _)) = self.quick_open_registry.get_provider_for_input("")
@@ -703,9 +707,9 @@ impl Editor {
                             .downcast_ref::<crate::input::quick_open::providers::FileProvider>(
                         ) {
                             if complete {
-                                fp.set_cache(files);
+                                fp.set_cache(&cwd, files);
                             } else {
-                                fp.set_partial_cache(files);
+                                fp.set_partial_cache(&cwd, files);
                             }
                         }
                     }

@@ -1,13 +1,12 @@
-//! The Orchestrator Open dialog scopes to the current project by
-//! default, and reveals every project on the scope toggle (Alt+P).
+//! The Orchestrator Open dialog defaults to showing every project's
+//! sessions, and the scope toggle (Alt+P) narrows to the current
+//! project. The Project control + Alt+P switch between the two, and
+//! the choice is remembered across opens (module state).
 //!
-//! Sessions are inherently cross-project — each row can have its own
-//! `project_path` — but surfacing all of them at once means launching
-//! the editor in project B buries the user under project A's history
-//! (the orchestration bug this scoping fixes). So the default view
-//! lists only the active window's project, with an "N in other
-//! projects" affordance, and the scope toggle brings the rest into a
-//! single grouped list. Nothing is hidden; it's just not foregrounded.
+//! Sessions are inherently cross-project — each row can carry its own
+//! `project_path`. The picker foregrounds all of them by default; the
+//! current-project scope is one keystroke away for when project A's
+//! history is in the way.
 
 use crate::common::harness::EditorTestHarness;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -46,7 +45,7 @@ fn set_orch_project_path(harness: &mut EditorTestHarness, project_path: &Path) {
 }
 
 #[test]
-fn open_dialog_scopes_to_current_project_then_reveals_all() {
+fn open_dialog_defaults_to_all_projects_then_scopes_to_current() {
     let mut harness = EditorTestHarness::with_temp_project(WIDTH, HEIGHT).unwrap();
 
     // Project A: the harness's temp project root, owned by the base
@@ -65,46 +64,49 @@ fn open_dialog_scopes_to_current_project_then_reveals_all() {
     harness.editor_mut().set_active_window(win_b);
     set_orch_project_path(&mut harness, &proj_b);
 
-    // Active window stays in Project B — the dialog should default to
-    // B's sessions only.
     harness.render().unwrap();
 
     run_palette(&mut harness, "Orchestrator: Open");
     harness
-        .wait_until(|h| h.screen_to_string().contains("Project:"))
-        .expect("Orchestrator Open dialog should appear with the Project scope control");
+        .wait_until(|h| h.screen_to_string().contains("all projects"))
+        .expect("Orchestrator Open dialog should default to the all-projects view");
 
+    // Default scope is "all": every session is listed and the Project
+    // control shows "All".
     let screen = harness.screen_to_string();
     assert!(
-        screen.contains(LABEL_B),
-        "Project B's session must be listed — it's the current project.\nScreen:\n{}",
-        screen,
-    );
-    assert!(
         screen.contains("Project:") && screen.contains("(Alt+P)"),
-        "Scoped view must render the visible Project scope control with its \
+        "Picker must render the visible Project scope control with its \
          Alt+P hint.\nScreen:\n{}",
         screen,
     );
+    assert!(
+        screen.contains("All ▾"),
+        "Default view must show the Project control in its 'All' state.\nScreen:\n{}",
+        screen,
+    );
+    assert!(
+        screen.contains(LABEL_B),
+        "Project B's session must be listed in the all-projects view.\nScreen:\n{}",
+        screen,
+    );
 
-    // Toggle scope (Alt+P) → every session, across every project.
+    // Toggle scope (Alt+P) → current project only (Project B, the
+    // active window). B's session stays; the title drops "all
+    // projects".
     harness
         .send_key(KeyCode::Char('p'), KeyModifiers::ALT)
         .unwrap();
     harness.render().unwrap();
     harness
-        .wait_until(|h| h.screen_to_string().contains("all projects"))
-        .expect("scope toggle should switch the dialog to the all-projects view");
+        .wait_until(|h| !h.screen_to_string().contains("all projects"))
+        .expect("scope toggle should switch the dialog to the current-project view");
 
     let screen = harness.screen_to_string();
     assert!(
-        screen.contains("All ▾"),
-        "All-projects view must flip the Project control to 'All'.\nScreen:\n{}",
-        screen,
-    );
-    assert!(
         screen.contains(LABEL_B),
-        "Project B's session must still be listed in the all-projects view.\nScreen:\n{}",
+        "Project B's session must remain listed when scoped to its own \
+         project.\nScreen:\n{}",
         screen,
     );
 
