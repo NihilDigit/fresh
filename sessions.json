@@ -1,7 +1,7 @@
 {
   "version": 1,
   "machine_id": "unknown",
-  "updated_at": "2026-05-20T15:48:43.617Z",
+  "updated_at": "2026-05-20T15:48:46.753Z",
   "active": [
     {
       "label": "csharp_project",
@@ -30,12 +30,6 @@
     {
       "label": "inty",
       "branch": "inty",
-      "base_ref": "origin/master",
-      "created_at": "2026-05-20T15:48:16.870Z"
-    },
-    {
-      "label": "session-24",
-      "branch": "session-24",
       "base_ref": "origin/master",
       "created_at": "2026-05-20T15:48:16.870Z"
     },
