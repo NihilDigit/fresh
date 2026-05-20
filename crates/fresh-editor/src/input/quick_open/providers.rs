@@ -293,6 +293,12 @@ struct FileCache {
     files: Option<std::sync::Arc<Vec<FileEntry>>>,
     /// Whether a background load is in progress.
     loading: bool,
+    /// The cwd the cached `files` (and the in-progress load) belong
+    /// to. A cache hit only counts when this matches the requested
+    /// cwd — otherwise switching windows/projects would keep serving
+    /// the first project's files. Late-arriving results for a stale
+    /// cwd are dropped on the same check.
+    loaded_cwd: Option<String>,
 }
 
 /// Provider for finding files in the project.
@@ -329,6 +335,7 @@ impl FileProvider {
             cache: std::sync::Arc::new(std::sync::Mutex::new(FileCache {
                 files: None,
                 loading: false,
+                loaded_cwd: None,
             })),
             frecency: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             filesystem,
@@ -346,6 +353,7 @@ impl FileProvider {
         if let Ok(mut c) = self.cache.lock() {
             c.files = None;
             c.loading = false;
+            c.loaded_cwd = None;
         }
     }
 
@@ -359,9 +367,15 @@ impl FileProvider {
         }
     }
 
-    /// Update the file cache with final results from a completed background load.
-    pub fn set_cache(&self, files: std::sync::Arc<Vec<FileEntry>>) {
+    /// Update the file cache with final results from a completed
+    /// background load. Dropped if `cwd` no longer matches the cache's
+    /// in-flight cwd — i.e. the user switched projects mid-load, so
+    /// these results are stale.
+    pub fn set_cache(&self, cwd: &str, files: std::sync::Arc<Vec<FileEntry>>) {
         if let Ok(mut c) = self.cache.lock() {
+            if c.loaded_cwd.as_deref() != Some(cwd) {
+                return;
+            }
             c.files = Some(files);
             c.loading = false;
         }
@@ -369,8 +383,11 @@ impl FileProvider {
 
     /// Update the file cache with partial results while the background scan
     /// is still running.  Unlike [`set_cache`], this keeps `loading = true`.
-    pub fn set_partial_cache(&self, files: std::sync::Arc<Vec<FileEntry>>) {
+    pub fn set_partial_cache(&self, cwd: &str, files: std::sync::Arc<Vec<FileEntry>>) {
         if let Ok(mut c) = self.cache.lock() {
+            if c.loaded_cwd.as_deref() != Some(cwd) {
+                return;
+            }
             c.files = Some(files);
             // Keep c.loading = true — the walk is still in progress.
         }
@@ -486,15 +503,29 @@ impl FileProvider {
     fn get_or_start_loading(&self, cwd: &str) -> Option<std::sync::Arc<Vec<FileEntry>>> {
         let mut cache = self.cache.lock().ok()?;
 
-        if let Some(files) = &cache.files {
-            return Some(std::sync::Arc::clone(files));
+        // A cache hit only counts for the cwd the files were loaded
+        // under. When the cwd changed (the user switched windows /
+        // projects), drop the stale list and reload — otherwise the
+        // picker keeps showing the first project's files.
+        let cwd_matches = cache.loaded_cwd.as_deref() == Some(cwd);
+        if cwd_matches {
+            if let Some(files) = &cache.files {
+                return Some(std::sync::Arc::clone(files));
+            }
+            if cache.loading {
+                return None; // already loading this cwd
+            }
+        } else {
+            // Stale cwd: cancel any in-flight load for the old cwd and
+            // reset so the load below starts fresh for `cwd`.
+            self.cancel
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            cache.files = None;
+            cache.loading = false;
         }
 
-        if cache.loading {
-            return None; // already loading
-        }
-
-        // No cache, not loading — kick off background load
+        // No cache for this cwd, not loading — kick off background load
+        cache.loaded_cwd = Some(cwd.to_string());
         let (sender, handle) = match (&self.async_sender, &self.runtime_handle) {
             (Some(s), Some(h)) => (s.clone(), h.clone()),
             _ => {
@@ -536,6 +567,7 @@ impl FileProvider {
                 // shutting down); nothing more to do since we return below.
                 drop(sender.send(
                     crate::services::async_bridge::AsyncMessage::QuickOpenFilesLoaded {
+                        cwd: cwd.clone(),
                         files: std::sync::Arc::new(entries),
                         complete: true,
                     },
@@ -567,7 +599,7 @@ impl FileProvider {
             .collect();
 
         let files = std::sync::Arc::new(entries);
-        self.set_cache(std::sync::Arc::clone(&files));
+        self.set_cache(cwd, std::sync::Arc::clone(&files));
         Some(files)
     }
 
@@ -702,6 +734,7 @@ fn walk_dir_with_updates(
             if sender
                 .send(
                     crate::services::async_bridge::AsyncMessage::QuickOpenFilesLoaded {
+                        cwd: cwd.to_string(),
                         files: std::sync::Arc::new(entries),
                         complete: false,
                     },
@@ -743,6 +776,7 @@ fn walk_dir_with_updates(
         .collect();
     drop(sender.send(
         crate::services::async_bridge::AsyncMessage::QuickOpenFilesLoaded {
+            cwd: cwd.to_string(),
             files: std::sync::Arc::new(entries),
             complete: true,
         },
@@ -1334,10 +1368,11 @@ mod tests {
     fn test_set_partial_cache_keeps_loading() {
         let provider = make_file_provider();
 
-        // Simulate background loading start
+        // Simulate background loading start for a specific cwd.
         {
             let mut cache = provider.cache.lock().unwrap();
             cache.loading = true;
+            cache.loaded_cwd = Some("/proj".to_string());
         }
 
         // Partial cache update should keep loading = true
@@ -1345,7 +1380,7 @@ mod tests {
             relative_path: "foo.rs".to_string(),
             frecency_score: 0.0,
         }]);
-        provider.set_partial_cache(partial);
+        provider.set_partial_cache("/proj", partial);
 
         assert!(provider.is_loading());
         assert!(provider.cache.lock().unwrap().files.is_some());
@@ -1355,8 +1390,20 @@ mod tests {
             relative_path: "foo.rs".to_string(),
             frecency_score: 0.0,
         }]);
-        provider.set_cache(final_files);
+        provider.set_cache("/proj", final_files);
 
         assert!(!provider.is_loading());
+
+        // A stale-cwd update is ignored.
+        let stale = std::sync::Arc::new(vec![FileEntry {
+            relative_path: "other.rs".to_string(),
+            frecency_score: 0.0,
+        }]);
+        provider.set_cache("/different", stale);
+        assert_eq!(
+            provider.cache.lock().unwrap().files.as_ref().unwrap()[0].relative_path,
+            "foo.rs",
+            "results for a different cwd must not overwrite the current cache"
+        );
     }
 }
