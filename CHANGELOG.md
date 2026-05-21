@@ -1,5 +1,53 @@
 # Release Notes
 
+## 0.3.8
+
+### Features / Improvements
+
+#### Environment Managers (venv / direnv / mise)
+
+New built-in **environment-manager** plugin: it detects a project's environment manager — `.venv`/`venv`, `.envrc` (direnv), or `mise.toml`/`.tool-versions` — and, via **Env: Activate**, injects that environment into every editor-spawned process (LSP, formatters, terminals, `spawnProcess`). **Env: Use System (Deactivate)** restores the system environment, and **Env: Show Status** reports the current state. Activation is on-demand (not automatic) and respects Workspace Trust. Adds an opt-in `env` status-bar element.
+
+#### Remote Development
+
+* **LSP over SSH** now runs the language server *on the remote host* instead of falling back to a host-local process, so completions and diagnostics reflect the remote toolchain.
+
+#### Workspace Trust (groundwork)
+
+Foundational **Workspace Trust** support — a per-project trust level (persisted in the project state dir), a *Set Workspace Trust Level* command-palette control, and a `workspaceTrustLevel()` plugin API. The enforcement gate is **off by default this release** (no prompt on open; undecided folders are treated as Trusted) while the trust UX is reworked around sandboxed execution — so there is no behavior change unless you set a trust level yourself.
+
+#### Orchestrator
+
+* The **Open** dialog is now scoped to the current project by default, with a visible scope toggle to reach other projects, a tabular picker, and `/` to filter.
+* New windows open atomically with their terminal (no `[No Name]` placeholder), and terminal output shows immediately.
+
+#### Settings UI
+
+A broad pass on the Settings editor: **number fields now accept direct typing** instead of `[-]`/`[+]` spinners; list editing gets inline `[+] Add new` / `[x]` rows, mouse support, and `Del` to remove; **`Ctrl+R` resets a field to its default**; the focused field's description is shown above the dialog buttons; and confirmations are required before deleting or discarding dirty edits.
+
+#### Editor
+
+* **Next / Previous Window** commands to cycle open windows without the Switch-Project picker (#2031).
+* **Move File Explorer to Other Side** command, persisted to config (#1468, requested by @asukaminato0721).
+* **Templ** (`.templ`) syntax highlighting (#463, requested by @TS22082).
+* New `editor.confirm_quit` setting (default off) to prompt before quitting a clean session.
+
+#### Plugins & API
+
+* Built-in `editor.httpFetch(url, path)` for downloading files — `curl` is no longer bundled.
+* "Install from URL" accepts direct `file://` URLs.
+
+### Bug Fixes
+
+* **Quit binding overrides honored** (#2030): binding `Ctrl+Q` to `noop`/`none` now actually disables it in every context.
+* **Terminals**: line-number gutter and current-line highlight no longer leak on terminal exit; scroll-back viewport anchors correctly; `Shift+Tab` is forwarded to the child as `ESC[Z` (#2029).
+* **File explorer keeps keyboard focus** when leaving a live terminal (#2029).
+* **Closed terminals no longer reappear**, and buffer groups stay visible when a split closes (#2027, reported by @SolarLune).
+* **Git Log**: selected commit stays aligned with the cursor; selection follows scrolling and row clicks.
+* **Adjacent tab indicators** no longer double up (#1997, reported by @brunnerh).
+* **Theming / Live Diff**: light-theme dim fixes, markdown popup body text inherits the terminal fg, and diff lines preserve syntax foreground.
+* Tree-sitter `.scm` query files are included in the Nix source filter, fixing a source-build failure (#2055, reported by @melekbadreddine).
+
 ## 0.3.7
 
 Introduces an experimental **multi-window orchestrator** command (`Alt+Q`) - a UI that manages multiple Fresh windows side by side in a single Fresh process.
