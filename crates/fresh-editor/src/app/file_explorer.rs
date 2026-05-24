@@ -147,15 +147,17 @@ impl Editor {
     // `self.active_window_mut().focus_editor()`.
 
     pub(crate) fn init_file_explorer(&mut self) {
-        // Use working directory as root. For remote mode, fall back to the remote
-        // home directory only when working_dir doesn't exist on the remote
-        // filesystem (e.g. when no path was provided and working_dir defaulted
-        // to the local current directory).
+        // Root the explorer at the ACTIVE WINDOW's own root, not the
+        // global `working_dir` — the explorer is per-window, so it must
+        // reflect the window it belongs to (issue #2056 defect #3). For
+        // remote mode, fall back to the remote home directory only when
+        // that root doesn't exist on the remote filesystem.
+        let window_root = self.active_window().root.clone();
         let root_path = if self.authority.filesystem.remote_connection_info().is_some()
             && !self
                 .authority
                 .filesystem
-                .is_dir(&self.working_dir)
+                .is_dir(&window_root)
                 .unwrap_or(false)
         {
             match self.authority.filesystem.home_dir() {
@@ -167,7 +169,7 @@ impl Editor {
                 }
             }
         } else {
-            self.working_dir.clone()
+            window_root
         };
 
         if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
