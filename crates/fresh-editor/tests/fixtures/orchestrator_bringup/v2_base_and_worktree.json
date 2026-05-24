@@ -5,9 +5,9 @@
   "windows": [
     {
       "id": 1,
-      "label": "",
+      "label": "project",
       "root": "__PROJECT__",
-      "project_path": "__PROJECT__"
+      "plugin_state": {}
     },
     {
       "id": 2,
