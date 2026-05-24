@@ -54,6 +54,20 @@ use std::sync::Arc;
 /// several such lines before churning.
 pub const DEFAULT_BYTE_BUDGET: usize = 8 * 1024 * 1024;
 
+/// Safety-break interval used by `build_base_tokens` (mirrors the private
+/// `MAX_SAFE_LINE_WIDTH` in `view/ui/split_rendering/mod.rs`). Used here only
+/// to size the per-line build budget so a complete logical line is tokenised.
+/// Keep in sync with that constant.
+const MAX_SAFE_LINE_WIDTH: usize = 10_000;
+
+/// Largest logical-line byte length for which `compute_line_layout` builds the
+/// COMPLETE wrapped layout in one cache entry. Longer lines keep the capped
+/// (truncated) behaviour rather than materialise an unbounded `Vec<ViewLine>`
+/// — the long-line render rework's checkpoint tier is the eventual home for
+/// those (see docs/internal/long-line-render-rework-plan.md). 2 MiB of source
+/// at ~115-col wrap is ~18 K rows; well within the 8 MiB cache byte budget.
+pub const MAX_FULL_LINE_LAYOUT_BYTES: usize = 2 * 1024 * 1024;
+
 /// View mode the pipeline is running in.  Conceals and some plugin-
 /// rendered content only apply in Compose.  Kept as a small plain enum
 /// so the key stays cheap to hash.
@@ -466,12 +480,33 @@ pub fn compute_line_layout(
     let estimated_line_length = state.buffer.estimated_line_length();
     let tab_size = state.buffer_settings.tab_size;
 
+    // `build_base_tokens` stops after `visible_count + 4` segments, and it
+    // counts one segment per `MAX_SAFE_LINE_WIDTH` (10 000-char) safety break.
+    // Passing `1` (as this function historically did) therefore caps the
+    // tokenised text at ~5 × 10 000 = 50 000 chars — so the cached layout for
+    // any logical line longer than ~50 KB was silently TRUNCATED, under-
+    // counting its visual rows for every consumer (scroll math, VisualRowIndex,
+    // scrollbar). Size the budget to the actual line length so the cached
+    // entry is the COMPLETE logical line, honouring this cache's "one entry =
+    // one whole logical line" contract. Guarded by `MAX_FULL_LINE_LAYOUT_BYTES`
+    // so a pathologically long line can't build an unbounded entry (those stay
+    // on the capped path — a documented limitation pending the long-line render
+    // rework's checkpoint tier; see docs/internal/long-line-render-rework-plan.md).
+    let line_len = line_end.saturating_sub(line_start);
+    let visible_budget = if line_len <= MAX_SAFE_LINE_WIDTH {
+        1 // short line: one safety segment already covers it (unchanged behaviour)
+    } else if line_len <= MAX_FULL_LINE_LAYOUT_BYTES {
+        (line_len / MAX_SAFE_LINE_WIDTH) + 8
+    } else {
+        1 // too long to materialise fully; keep the capped (truncated) layout
+    };
+
     // Step 1: build tokens for just this one logical line.
     let mut tokens = build_base_tokens(
         &mut state.buffer,
         line_start,
         estimated_line_length,
-        1, // just this one logical line
+        visible_budget,
         is_binary,
         line_ending,
         &[], // no fold skip ranges — folds affect what's rendered, not per-line wrap count
@@ -1276,5 +1311,91 @@ mod tests {
         for (i, v) in variations.iter().enumerate() {
             assert_eq!(cache.get(v).map(|v| v.len()), Some(2 + i));
         }
+    }
+
+    /// Regression: `compute_line_layout` must build the COMPLETE logical line,
+    /// not the first ~50 KB. Before the fix it passed `visible_count = 1` to
+    /// `build_base_tokens`, whose `max_lines = 5` cap (one segment per
+    /// `MAX_SAFE_LINE_WIDTH` safety break) truncated any line longer than
+    /// ~50 KB — under-counting its visual rows for scroll math / VisualRowIndex.
+    ///
+    /// Uses a newline-free, space-free line so `build_base_tokens` emits a
+    /// single Text token and the wrap is pure char-width: the canonical row
+    /// count is `count_visual_rows_for_text` over the whole line, and the two
+    /// must agree exactly.
+    #[test]
+    fn compute_line_layout_builds_complete_long_line() {
+        use crate::model::cursor::Cursors;
+        use crate::model::event::Event;
+        use crate::model::filesystem::StdFileSystem;
+        use crate::state::EditorState;
+        use std::sync::Arc;
+
+        let fs: Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> =
+            Arc::new(StdFileSystem);
+        let mut state = EditorState::new(
+            80,
+            24,
+            crate::config::LARGE_FILE_THRESHOLD_BYTES as usize,
+            fs,
+        );
+
+        // 120 KB single line, no spaces/newlines (well past the old ~50 KB cap,
+        // well under MAX_FULL_LINE_LAYOUT_BYTES).
+        let line_len = 120_000usize;
+        let text: String = std::iter::repeat('x').take(line_len).collect();
+        let mut cursors = Cursors::new();
+        let cursor_id = cursors.primary_id();
+        state.apply(
+            &mut cursors,
+            &Event::Insert {
+                position: 0,
+                text: text.clone(),
+                cursor_id,
+            },
+        );
+        assert_eq!(state.buffer.len(), line_len, "buffer should hold the line");
+
+        let effective_width = 80usize;
+        let gutter_width = 0usize;
+        let geom = WrapGeometry {
+            effective_width,
+            gutter_width,
+            hanging_indent: false,
+            wrap_column: None,
+            line_wrap_enabled: true,
+            view_mode: CacheViewMode::Source,
+        };
+
+        let layout = compute_line_layout(&mut state, 0, line_len, &geom);
+
+        // The decisive check is COVERAGE, not an exact row count: the cached
+        // layout must reference source bytes all the way to the end of the
+        // line. (An exact-count oracle via `count_visual_rows_for_text` is
+        // unreliable here because it wraps a single token and doesn't model
+        // `build_base_tokens`' MAX_SAFE_LINE_WIDTH safety breaks — the two
+        // disagree by ~10 rows on a 120 KB line.) Pre-fix, the build truncated
+        // at ~50 KB, so the furthest source byte was ~49 999.
+        let max_source_byte = layout
+            .iter()
+            .flat_map(|vl| vl.char_source_bytes.iter().copied().flatten())
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_source_byte >= line_len - 2,
+            "compute_line_layout must lay out the COMPLETE line: furthest source \
+             byte {max_source_byte} should reach ~{} (pre-fix truncation stopped \
+             near {})",
+            line_len - 1,
+            50_000,
+        );
+
+        // Sanity: a 120 KB line at 80 cols wraps to ~1500 rows — far past the
+        // old ~625-row (50 KB) cap.
+        assert!(
+            layout.len() > 1000,
+            "expected >1000 visual rows for a 120 KB line, got {} (truncated build?)",
+            layout.len()
+        );
     }
 }
