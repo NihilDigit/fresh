@@ -5,9 +5,9 @@
   "windows": [
     {
       "id": 1,
-      "label": "",
+      "label": "project",
       "root": "__PROJECT__",
-      "project_path": "__PROJECT__"
+      "plugin_state": {}
     },
     {
       "id": 2,
@@ -16,8 +16,8 @@
       "project_path": "__PROJECT__",
       "plugin_state": {
         "orchestrator": {
-          "project_path": "__PROJECT__",
-          "shared_worktree": false
+          "shared_worktree": false,
+          "project_path": "__PROJECT__"
         }
       }
     }
