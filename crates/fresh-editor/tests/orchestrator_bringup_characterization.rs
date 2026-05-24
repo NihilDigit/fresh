@@ -116,6 +116,12 @@ impl Scenario {
     /// active window, build the windows map). Plugins are disabled so
     /// the test exercises only the Rust core path.
     fn bring_up(&self) -> fresh::app::Editor {
+        self.bring_up_in(&self.project_canon)
+    }
+
+    /// Like [`Self::bring_up`] but launches with an explicit cwd (e.g.
+    /// the worktree dir) to exercise the converse of the invariant.
+    fn bring_up_in(&self, cwd: &Path) -> fresh::app::Editor {
         let dir_context = DirectoryContext::for_testing(self.data_root.path());
         let filesystem: Arc<dyn fresh::model::filesystem::FileSystem + Send + Sync> =
             Arc::new(StdFileSystem);
@@ -127,7 +133,7 @@ impl Scenario {
             config,
             80,
             24,
-            Some(self.project_canon.clone()),
+            Some(cwd.to_path_buf()),
             dir_context,
             fresh::view::color_support::ColorCapability::TrueColor,
             filesystem,
@@ -232,6 +238,42 @@ fn v2_worktree_session_does_not_hijack_plain_launch() {
         "worktree survives as a shell"
     );
     assert!(roots.contains(&s.project_canon));
+}
+
+// ---------------------------------------------------------------------------
+// Branch C-converse: launching directly IN the worktree dir must restore
+// that worktree's session (root == cwd), not boot a fresh clean base.
+// This is the other half of the invariant: a worktree dir is restorable
+// by passing it, even though the project dir does NOT pull it in.
+//
+// Discriminating: the project_path-matching (pre-fix) logic would NOT
+// match the worktree session when cwd == worktree (its project_path is
+// the project, not the worktree), so it would boot a clean base at a
+// fresh id with an empty label. Asserting the persisted id + label
+// fails on that behavior and passes only with root-matching.
+// ---------------------------------------------------------------------------
+#[test]
+fn launching_in_a_worktree_restores_that_worktree_session() {
+    let s = Scenario::new();
+    s.place_v2_global("v2_worktree_session.json");
+    let editor = s.bring_up_in(&s.worktree_canon);
+
+    assert_eq!(
+        editor.active_window().root,
+        s.worktree_canon,
+        "launching in the worktree activates a window rooted there"
+    );
+    assert_eq!(
+        editor.active_window().id,
+        fresh_core::WindowId(2),
+        "it is the PERSISTED worktree session (id 2), not a fresh clean base"
+    );
+    assert_eq!(
+        editor.active_window().label,
+        "anna-katharine-green_hand-and-ring",
+        "the persisted session's label is restored, proving it's that session"
+    );
+    assert_eq!(editor.working_dir(), s.worktree_canon.as_path());
 }
 
 // ---------------------------------------------------------------------------

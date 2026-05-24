@@ -268,3 +268,107 @@ fn diving_between_windows_roots_the_ui_at_the_active_window() {
         "diving back re-roots the explorer at the project (not sticky)"
     );
 }
+
+/// Gap 2 + 3: faithful per-window workspace restore.
+///
+/// The original issue-#2056 *body* symptom was foreign tabs/buffers
+/// (incl. `external_files` — files opened outside the project) showing
+/// up in a window. After the fix the active window is rooted at the
+/// launch cwd, and its per-path workspace (keyed by that root) restores
+/// into THAT window. This test:
+///   1. opens an in-project file and an OUT-of-project (external) file,
+///      saves the project's workspace,
+///   2. plants a worktree-hijack windows.json,
+///   3. relaunches in the project and asserts the workspace was restored
+///      into the project-rooted active window (its own buffers), not the
+///      worktree session.
+///
+/// Discriminating: pre-fix the worktree session was the active window,
+/// so the restore landed there and `active_window().root` was the
+/// worktree — the `root == project` assertion fails.
+#[test]
+fn launch_restores_the_projects_own_workspace_into_the_project_window() {
+    fresh::i18n::set_locale("en");
+    let sandbox = tempfile::tempdir().unwrap();
+    let mk = |n: &str| {
+        let p = sandbox.path().join(n);
+        std::fs::create_dir_all(&p).unwrap();
+        p.canonicalize().unwrap()
+    };
+    let data_home = mk("data-home");
+    let project = mk("project");
+    let worktree = mk("worktree");
+    let external = mk("external-dir");
+
+    let in_project = project.join("in_project.txt");
+    std::fs::write(&in_project, "a").unwrap();
+    let out_of_project = external.join("foreign.txt");
+    std::fs::write(&out_of_project, "b").unwrap();
+
+    let dir_context = DirectoryContext::for_testing(&data_home);
+    let config = Config {
+        check_for_updates: false,
+        ..Config::default()
+    };
+
+    // (1) First launch: open both files, save the project's workspace.
+    {
+        let mut h = EditorTestHarness::create(
+            100,
+            40,
+            HarnessOptions::new()
+                .with_working_dir(project.clone())
+                .with_shared_dir_context(dir_context.clone())
+                .with_config(config.clone())
+                .with_empty_plugins_dir(),
+        )
+        .unwrap();
+        h.open_file(&in_project).unwrap();
+        h.open_file(&out_of_project).unwrap();
+        h.editor_mut().save_workspace().unwrap();
+        // Drop without saving orchestrator state, so the windows.json we
+        // plant next is what the relaunch reads.
+    }
+
+    // (2) Plant the worktree-hijack windows.json.
+    let orch = dir_context.data_dir.join("orchestrator");
+    std::fs::create_dir_all(&orch).unwrap();
+    let fixture = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/orchestrator_bringup/v2_worktree_session.json"
+    ))
+    .unwrap()
+    .replace("__PROJECT__", &json_path(&project))
+    .replace("__WORKTREE__", &json_path(&worktree));
+    std::fs::write(orch.join("windows.json"), fixture).unwrap();
+
+    // (3) Relaunch in the project and restore.
+    let mut h = EditorTestHarness::create(
+        100,
+        40,
+        HarnessOptions::new()
+            .with_working_dir(project.clone())
+            .with_shared_dir_context(dir_context)
+            .with_config(config)
+            .with_empty_plugins_dir(),
+    )
+    .unwrap();
+    h.startup(true, &[]).unwrap();
+
+    // The restore landed in the project-rooted active window, not the
+    // worktree session.
+    assert_eq!(
+        h.editor().active_window().root,
+        project,
+        "the project's workspace restores into the project-rooted active window"
+    );
+    let paths = h.editor().active_window().buffers.paths();
+    assert!(
+        paths.contains(&in_project),
+        "the in-project file is restored into the active window; got {paths:?}"
+    );
+    assert!(
+        paths.contains(&out_of_project),
+        "the external file is restored into the active window (faithful), not dropped; got {paths:?}"
+    );
+}
