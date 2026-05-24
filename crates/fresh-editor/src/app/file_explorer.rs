@@ -146,57 +146,11 @@ impl Editor {
     // `focus_editor` lives on `impl Window` — call it via
     // `self.active_window_mut().focus_editor()`.
 
+    /// Thin delegator: building the file explorer is a per-window
+    /// operation that lives on `Window` and roots at `self.root`. The
+    /// editor just forwards to the active window (issue #2056 defect #3).
     pub(crate) fn init_file_explorer(&mut self) {
-        // Root the explorer at the ACTIVE WINDOW's own root, not the
-        // global `working_dir` — the explorer is per-window, so it must
-        // reflect the window it belongs to (issue #2056 defect #3). For
-        // remote mode, fall back to the remote home directory only when
-        // that root doesn't exist on the remote filesystem.
-        let window_root = self.active_window().root.clone();
-        let root_path = if self.authority.filesystem.remote_connection_info().is_some()
-            && !self
-                .authority
-                .filesystem
-                .is_dir(&window_root)
-                .unwrap_or(false)
-        {
-            match self.authority.filesystem.home_dir() {
-                Ok(home) => home,
-                Err(e) => {
-                    tracing::error!("Failed to get remote home directory: {}", e);
-                    self.set_status_message(format!("Failed to get remote home: {}", e));
-                    return;
-                }
-            }
-        } else {
-            window_root
-        };
-
-        if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
-            let fs_manager = Arc::clone(&self.fs_manager);
-            let sender = bridge.sender();
-
-            runtime.spawn(async move {
-                match FileTree::new(root_path, fs_manager).await {
-                    Ok(mut tree) => {
-                        let root_id = tree.root_id();
-                        if let Err(e) = tree.expand_node(root_id).await {
-                            tracing::warn!("Failed to expand root directory: {}", e);
-                        }
-
-                        let view = FileTreeView::new(tree);
-                        // Receiver may have been dropped during shutdown.
-                        #[allow(clippy::let_underscore_must_use)]
-                        let _ = sender.send(AsyncMessage::FileExplorerInitialized(view));
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to initialize file explorer: {}", e);
-                    }
-                }
-            });
-
-            self.set_status_message(t!("explorer.initializing").to_string());
-        }
+        self.active_window_mut().init_file_explorer();
     }
 
     pub fn file_explorer_navigate_up(&mut self) {
@@ -1614,6 +1568,63 @@ impl Editor {
 }
 
 impl crate::app::window::Window {
+    /// Build this window's file explorer, rooted at the window's own
+    /// `root`. A `Window` has no access to any other project's path, so
+    /// the explorer is correct-by-construction (issue #2056 defect #3):
+    /// it spawns the tree build on the window's own runtime/bridge using
+    /// `self.resources`. For remote mode, fall back to the remote home
+    /// dir only when `root` doesn't exist on the remote filesystem.
+    pub(crate) fn init_file_explorer(&mut self) {
+        let is_remote = self
+            .resources
+            .authority
+            .filesystem
+            .remote_connection_info()
+            .is_some();
+        let root_exists = self
+            .resources
+            .authority
+            .filesystem
+            .is_dir(&self.root)
+            .unwrap_or(false);
+        let root_path = if is_remote && !root_exists {
+            match self.resources.authority.filesystem.home_dir() {
+                Ok(home) => home,
+                Err(e) => {
+                    tracing::error!("Failed to get remote home directory: {}", e);
+                    self.set_status_message(format!("Failed to get remote home: {}", e));
+                    return;
+                }
+            }
+        } else {
+            self.root.clone()
+        };
+
+        let Some(runtime) = self.resources.tokio_runtime.clone() else {
+            return;
+        };
+        let fs_manager = Arc::clone(&self.resources.fs_manager);
+        let sender = self.bridge.sender();
+        runtime.spawn(async move {
+            match FileTree::new(root_path, fs_manager).await {
+                Ok(mut tree) => {
+                    let root_id = tree.root_id();
+                    if let Err(e) = tree.expand_node(root_id).await {
+                        tracing::warn!("Failed to expand root directory: {}", e);
+                    }
+                    let view = FileTreeView::new(tree);
+                    // Receiver may have been dropped during shutdown.
+                    #[allow(clippy::let_underscore_must_use)]
+                    let _ = sender.send(AsyncMessage::FileExplorerInitialized(view));
+                }
+                Err(e) => {
+                    tracing::error!("Failed to initialize file explorer: {}", e);
+                }
+            }
+        });
+        self.set_status_message(t!("explorer.initializing").to_string());
+    }
+
     /// Shift focus back to the editor pane (away from the file explorer)
     /// and post a per-window "Editor focused" status message.
     pub fn focus_editor(&mut self) {
