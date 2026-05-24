@@ -1,6 +1,7 @@
 # Long-Line Render Rework — Plan (Option 3)
 
-**Status:** Design only. No code has been written for this plan. It supersedes
+**Status:** Design, with the gating experiment resolved (see §0). No production
+code has been written for this plan yet. It supersedes
 the deferred Section 7 ("Render-consumer path") of
 [`line-wrap-cache-plan.md`](./line-wrap-cache-plan.md) and is scoped to make the
 *renderer itself* a cache consumer, fix the long-single-line scroll/navigation
@@ -12,6 +13,53 @@ This document deliberately spends most of its length on **invariants** and
 either drifted between two layout implementations or short-circuited the
 renderer incorrectly (see the deferred Section 7). Getting the contracts
 written down first is the point.
+
+---
+
+## 0. Resolved findings (run before any Change-B code)
+
+### 0.1 `apply_wrapping_transform` is already linear (Change A is done)
+
+Reading `view/ui/split_rendering/transforms.rs:149` shows the O(n²) per-chunk
+`split_word_bound_indices` rescan is **already fixed**: the word-boundary list
+is computed once per Text token (`transforms.rs:326`) and walked as a monotonic
+`wb_lo` cursor across chunks. Only one `split_word_bound_indices` call remains,
+lifted out of the chunk loop. **Change A requires no work.** The residual
+per-frame cost is therefore *not* algorithmic-per-token; it is the **whole
+window being re-tokenised and re-wrapped every frame** (objective 1) and the
+**build cap** (objective 2). This re-points the effort entirely at Change B.
+
+### 0.2 Wrapping is NOT chunk-local — but IS row-boundary-local (§8.1 resolved)
+
+Empirically (throwaway probe over `apply_wrapping_transform`, since removed):
+
+| Build start byte | Result vs. canonical (from-line-start) wrap |
+|---|---|
+| Arbitrary mid-line byte (e.g. 1000, mid-row) | **Diverges.** Fresh rows start 1000/1080/1160…; canonical rows there are 1040/1120/1200…. |
+| A byte that is itself a canonical **row-boundary** (e.g. 400) | **Matches exactly.** |
+
+Mechanism: `apply_wrapping_transform` carries `current_line_width` /
+`on_continuation` across the whole logical line (reset only on `Newline`,
+`transforms.rs:224`). A fresh build at byte X starts with
+`current_line_width = 0`, i.e. it *assumes X begins a row*. That assumption is
+true iff X is a canonical row boundary.
+
+**Design consequences:**
+
+- The §6.3 "`MAX_LINE_BYTES`-chunk-aligned independent build" mitigation is
+  **wrong**: 100 000-byte chunk boundaries are not row boundaries, so
+  concatenating per-chunk builds would corrupt wrapping at every seam.
+- The correct anchor is a **row-boundary byte**. Any build (and therefore any
+  legal `top_byte`) must start on a canonical row boundary. This is precisely
+  what PR #2085's `Viewport::top_visual_row_source_byte` /
+  `wrap_segment_source_bytes` (`viewport.rs:424-575`) compute — *modulo* their
+  own `MAX_LINE_BYTES` cap inside `line_iterator.next_line`, which must be
+  lifted or checkpointed for positions past 100 KB (see §6.3-revised).
+- This makes **wrap-state checkpointing** the spine of Change B: cache the
+  sequence of row-boundary bytes for a logical line so the renderer can (a)
+  set `top_byte` to the row boundary at the viewport top and build a correct,
+  bounded window from there (fixing the cap), and (b) reuse the checkpoint list
+  across frames (fixing the per-frame rebuild).
 
 ---
 
@@ -309,26 +357,39 @@ Each is a concrete way this rework could ship a correctness bug. For each:
 - **Test.** A scenario that scrolls to EOF on a wrapped buffer and asserts the
   EOF row exists and `find_visual_row(buffer_len)` is `Some`.
 
-### 6.3 `MAX_LINE_BYTES` chunk-boundary disagreement
+### 6.3 (revised) Build anchored off a non-row-boundary byte
 
-- **Mechanism.** Sub-line caching must align its segment boundaries with where
-  `top_byte` can legally sit (chunk-aligned per §2.5) and with where
-  `build_base_tokens` actually starts. If the cache segments the line on
-  word-wrap rows while `top_byte` advances on 100 KB chunks, the assembled
-  window and the cached rows reference different starting bytes.
-- **Symptom.** Duplicated or skipped rows at chunk seams; `char_source_bytes`
-  off by a chunk (the ~100 KB undershoot observed for the 400 KB EOF case).
-- **Mitigation.** Define the sub-line cache unit to be **exactly one
-  `build_base_tokens` build window anchored at a chunk-aligned byte**. The cache
-  key's `segment_start_byte` is always a value `top_byte` can take. Never
-  interpolate rows across a chunk boundary; build each chunk independently and
-  concatenate. Crucially, **wrapping must be reset at chunk boundaries** to
-  match `apply_wrapping_transform`'s behaviour when the renderer starts a build
-  at that byte — verify this is actually how the renderer behaves before relying
-  on it (it is the riskiest assumption in the whole plan; see §7).
-- **Test.** Property: for a single long line, assembling the window from
-  per-chunk cache entries equals a fresh full build from the same `top_byte`,
-  byte-for-byte, swept across many `top_byte`/`top_view_line_offset` positions.
+> Revised after §0.2: the original "chunk-aligned" framing was wrong.
+
+- **Mechanism.** A build (hence a legal `top_byte`) that starts on a byte that
+  is **not** a canonical row boundary produces wrapping that diverges from the
+  from-line-start canonical wrap (proven in §0.2). `MAX_LINE_BYTES` (100 KB)
+  multiples are *not* row boundaries.
+- **Symptom.** Duplicated/skipped rows; `char_source_bytes` off; the ~100 KB
+  undershoot observed for the 400 KB EOF case; cursor lands on the wrong row.
+- **Mitigation.** **Anchor every build and every `top_byte` to a canonical
+  row-boundary byte.** Maintain a per-logical-line **checkpoint list** of
+  row-boundary bytes (the cache value, or a sidecar). To render a window whose
+  top is `top_view_line_offset` rows into the line, look up the row-boundary
+  byte for that offset from the checkpoint list, set `top_byte` to it, reset
+  `top_view_line_offset = 0`, and build forward — this build is correct because
+  it starts on a row boundary. The checkpoint list itself is produced by a
+  single canonical wrap from the line start; for lines longer than the build
+  cap it must be produced incrementally and **persisted past `MAX_LINE_BYTES`**
+  (today `line_iterator.next_line` caps at 100 KB and `build_base_tokens` caps
+  at `max_lines` — both must be bypassed on the checkpoint-building path, which
+  is the one place we accept an O(line length) pass, amortised by caching).
+- **Open sub-question.** Building the checkpoint list for a 100 MB line is an
+  O(100 MB) pass. Acceptable once (cached), but the byte budget can't hold the
+  full `Vec<ViewLine>`; the checkpoint list (just `Vec<usize>` of row starts) is
+  ~8 bytes/row ≈ a few MB for ~1M rows — bounded enough to keep even when the
+  materialised `ViewLine`s are evicted. Treat the checkpoint list and the
+  materialised rows as **two tiers**: cheap-and-kept row-boundary index vs.
+  evictable full layout.
+- **Test.** Property: for a single long line, rendering a window after setting
+  `top_byte` to a checkpoint row-boundary equals a fresh from-line-start
+  canonical wrap sliced at the same offset, byte-for-byte, swept across many
+  offsets — including offsets past 100 KB and at EOF.
 
 ### 6.4 Unbounded entry size for a giant line
 
@@ -483,8 +544,10 @@ deep chunk-aligned positions; that scroll change (`ensure_visible_in_layout`
 
 ## 8. Open questions (resolve before implementation)
 
-1. **Is `apply_wrapping_transform` wrapping chunk-local?** (§7.2.1) — *must be
-   answered empirically first.* If not, the segmentation strategy changes.
+1. ~~**Is `apply_wrapping_transform` wrapping chunk-local?**~~ **RESOLVED (§0.2):
+   not chunk-local; row-boundary-local.** Builds must anchor on canonical
+   row-boundary bytes; the segmentation strategy is now checkpoint-based
+   (§6.3-revised), not `MAX_LINE_BYTES`-chunk-based.
 2. **Byte-offset mode:** in-scope or follow-up? (§7.2.3) Recommend follow-up.
 3. **Does `VisualRowIndex` stay whole-line-derived or sum sub-line entries?**
    (§6.7) Recommend whole-line-derived + an equality assertion.
@@ -528,17 +591,25 @@ timeouts), per-test isolation.
 ## 10. Implementation order (each a self-contained commit)
 
 1. **This doc.**
-2. **Empirically answer Open Question §8.1** (chunk-locality) — a throwaway
-   instrumented probe + a written finding appended here. *Gate for everything
-   after.*
-3. **Change A:** linearise `apply_wrapping_transform`; land + measure alone.
-4. **Re-measure** the 600 KB / 100 MB scenarios. Decide whether Change B is
-   still warranted (it is, for the cap; perf may already be fixed).
-5. **Change B-1:** sub-line cache key + writeback (no renderer read yet);
-   assert P1/P2 on the new entries; no behavior change.
-6. **Change B-2:** renderer reads the sub-line cache on pure-scroll frames
-   (the EOF artefact handled per §6.2); zero-rebuild counter test.
-7. **Change B-3:** allow `top_byte` to advance to deep chunk boundaries; fix
-   `ensure_visible`/scroll; un-`#[ignore]` the reproducer; full nav-suite gate.
-8. **Cleanup:** delete any now-dead `wrap_line`/`compute_wrap_row_count_for_text`
+2. ~~Answer §8.1~~ **DONE (§0).** Change A is already in tree; §8.1 resolved:
+   anchor on row boundaries, not chunks.
+3. **Change B-1 — checkpoint index.** Add a per-logical-line **row-boundary
+   checkpoint list** (`Vec<usize>` of row-start bytes), built by a single
+   canonical wrap from the line start with the build cap lifted *only on this
+   path*. Two-tier with the existing `LineWrapCache` (cheap index kept; full
+   `ViewLine`s evictable). Assert P1/P7-P10 + the §6.3 row-boundary equivalence
+   property. No behaviour change yet (index built, not consumed).
+4. **Change B-2 — renderer builds off a row-boundary `top_byte`.** For a single
+   long line, resolve the viewport-top row offset to its checkpoint byte, set
+   `top_byte` to it, reset `top_view_line_offset = 0`, build forward. Handle the
+   EOF trailing artefact per §6.2. Zero-rebuild counter test for pure scroll.
+5. **Change B-3 — scroll/`ensure_visible` reach the cap-free region.** Let the
+   viewport advance to deep row boundaries; fix `snap_to_logical_line_start` /
+   `calculate_view_anchor` interactions; un-`#[ignore]` the reproducer; full
+   nav-suite gate (issue #1574 et al.).
+6. **Cleanup:** delete any now-dead `wrap_line`/`compute_wrap_row_count_for_text`
    remnants flagged by the original line-wrap-cache plan.
+
+> Byte-offset (>100 MiB) mode stays out of scope (§7.2.3): the 100 MB Up-at-EOF
+> case remains a documented follow-up; this rework fixes long lines under the
+> large-file threshold.
