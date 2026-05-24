@@ -7,9 +7,8 @@
 //! file-explorer must follow the ACTIVE WINDOW (defect #3), re-rooting
 //! when the user dives into another window.
 //!
-//! The #2056 fix is reverted on this branch, so these specs are
-//! EXPECTED TO FAIL (red) until the fix lands. Plugins are OFF to keep
-//! the core path isolated.
+//! These pass with the #2056 fix in place. Plugins are OFF to keep the
+//! core path isolated.
 
 mod common;
 

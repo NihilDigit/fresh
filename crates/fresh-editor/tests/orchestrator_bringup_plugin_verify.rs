@@ -3,8 +3,7 @@
 //! Pins the DESIRED behavior with the embedded orchestrator plugin
 //! LOADED: launching `fresh <project>` activates the project-rooted
 //! window (not the worktree session), and `working_dir` / file-explorer
-//! root / title all agree on the project. The #2056 fix is reverted on
-//! this branch, so this spec is EXPECTED TO FAIL (red) until it lands.
+//! root / title all agree on the project. Passes with the #2056 fix.
 
 #![cfg(feature = "plugins")]
 

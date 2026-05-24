@@ -8,11 +8,11 @@
 //!   - v1 per-cwd  `<data>/orchestrator/<encoded-cwd>/windows.json`  (migrated on read)
 //!   - v0.3.6      `<project>/.fresh/windows.json`                   (in the working tree)
 //!
-//! IMPORTANT: these assert the TARGET behavior, not what the code does
-//! today. The issue-#2056 fix has been reverted on this branch, so the
-//! flipped specs below are EXPECTED TO FAIL (red) until the fix lands.
+//! These assert the TARGET behavior, satisfied by the issue-#2056 fix
+//! (root-matched launch pick + per-window explorer root + foreign-id
+//! preservation).
 //!
-//! The agreed spec (CLI dir matched by `root`):
+//! The spec (CLI dir matched by `root`):
 //!   * `fresh <dir>` activates a window rooted at `<dir>`; a worktree
 //!     session (root != `<dir>`) is NEVER activated by passing the
 //!     project dir — it stays an inactive shell, divable via the
