@@ -497,6 +497,35 @@ function renderListItem(id: number, activeId: number): TextPropertyEntry {
   return styledRow(entries as Parameters<typeof styledRow>[0]);
 }
 
+// Human-readable byte count (e.g. "57.3 MB"). Mirrors the formatter
+// used by `fresh config paths` so the two surfaces read the same.
+function humanSize(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  if (bytes < 1024) return `${bytes} B`;
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+// Memoized worktree sizes, keyed by root path. Sizes barely move while
+// the dialog is open, and `dirSize` walks the whole checkout, so we
+// avoid re-walking on every arrow-key selection change. Cleared when
+// the Open dialog (re)opens.
+const worktreeSizeCache = new Map<string, number>();
+
+// True when `root` is a worktree Fresh created under its own data dir
+// (so its size is space the user can reclaim by archiving/deleting),
+// as opposed to the user's own project checkout.
+function isManagedWorktree(root: string): boolean {
+  const data = editor.getDataDir();
+  return root.startsWith(editor.pathJoin(data, "orchestrator")) ||
+    root.startsWith(editor.pathJoin(data, "conductor"));
+}
+
 // Preview-pane content for the currently selected session.
 // Plain info for Phase 1; later phases append pgid/pids + the
 // last terminal lines.
@@ -568,12 +597,34 @@ function buildPreviewEntries(
       },
     );
   }
-  return [
+  const rows = [
     styledRow(headerEntries as Parameters<typeof styledRow>[0]),
     styledRow([
       { text: s.root, style: { fg: "ui.menu_disabled_fg" } },
     ]),
   ];
+  // Disk footprint — only for worktrees Fresh manages under its data
+  // dir, where the size is reclaimable. The user's own project
+  // checkout (base / shared-worktree sessions) is left out: its size
+  // isn't ours to advise on.
+  if (isManagedWorktree(s.root)) {
+    let bytes = worktreeSizeCache.get(s.root);
+    if (bytes === undefined) {
+      bytes = editor.dirSize(s.root);
+      worktreeSizeCache.set(s.root, bytes);
+    }
+    rows.push(
+      styledRow([
+        { text: "disk ", style: { fg: "ui.menu_disabled_fg" } },
+        { text: humanSize(bytes), style: { fg: "ui.menu_disabled_fg", bold: true } },
+        {
+          text: "  ·  Archive or Delete to reclaim",
+          style: { fg: "ui.menu_disabled_fg", italic: true },
+        },
+      ]),
+    );
+  }
+  return rows;
 }
 
 /// Return the number of orchestrator sessions whose `root`
@@ -1148,6 +1199,9 @@ function refreshOpenDialog(): void {
 
 function openControlRoom(): void {
   if (openPanel) return;
+  // Drop cached worktree sizes so a dialog re-open reflects any
+  // archive/delete done since it last closed.
+  worktreeSizeCache.clear();
   reconcileSessions();
   const activeId = editor.activeWindow();
   // Seed with the screen-max; buildOpenSpec refits to the session

@@ -346,6 +346,165 @@ pub fn print_all_paths(dir_context: &crate::config_io::DirectoryContext) {
 
     writeln!(handle, "Logs:       {}", logs_dir.display()).ok();
     writeln!(handle, "  lsp/:         {}", logs_dir.join("lsp").display()).ok();
+
+    print_disk_usage(&mut handle, data_dir);
+}
+
+/// Append a disk-usage breakdown of the data directory so users can see
+/// what is consuming space (session worktrees dominate) and how to
+/// reclaim it. Read-only: this only measures and advises — it never
+/// deletes anything.
+fn print_disk_usage(handle: &mut impl std::io::Write, data_dir: &std::path::Path) {
+    // The heavy hitters, largest-first by typical footprint. Each is a
+    // direct child of the data dir; missing dirs report 0 and are
+    // skipped from the listing.
+    const SUBDIRS: [(&str, &str); 5] = [
+        ("orchestrator", "session worktrees + state"),
+        ("conductor", "session worktrees"),
+        ("terminals", "per-session scrollback"),
+        ("git-show", "cached diffs"),
+        ("workspaces", "saved layouts"),
+    ];
+
+    let mut rows: Vec<(String, u64, &str)> = Vec::new();
+    let mut total = 0u64;
+    for (name, note) in SUBDIRS {
+        let dir = data_dir.join(name);
+        if !dir.is_dir() {
+            continue;
+        }
+        let size = dir_size_bytes(&dir);
+        total = total.saturating_add(size);
+        rows.push((format!("{name}/"), size, note));
+    }
+
+    writeln!(handle).ok();
+    writeln!(handle, "Disk usage (data dir):").ok();
+    if rows.is_empty() {
+        writeln!(handle, "  (empty)").ok();
+        return;
+    }
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    let label_w = rows.iter().map(|(l, _, _)| l.len()).max().unwrap_or(0).max(6);
+    for (label, size, note) in &rows {
+        writeln!(
+            handle,
+            "  {label:<label_w$}  {:>9}   {note}",
+            human_size(*size),
+            label_w = label_w,
+        )
+        .ok();
+    }
+    writeln!(handle, "  {:-<width$}", "", width = label_w + 13).ok();
+    writeln!(
+        handle,
+        "  {:<label_w$}  {:>9}",
+        "total",
+        human_size(total),
+        label_w = label_w,
+    )
+    .ok();
+
+    // Flag the recursive path-key anomaly: a session whose working dir
+    // is itself inside the data dir gets its full path re-encoded into
+    // the worktree key, so the directory name embeds "orchestrator"
+    // (or "conductor"). Each such dir is a full, duplicated checkout.
+    for top in ["orchestrator", "conductor"] {
+        let dir = data_dir.join(top);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut nested: Vec<(String, u64)> = Vec::new();
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.contains(top) {
+                nested.push((name, dir_size_bytes(&entry.path())));
+            }
+        }
+        if nested.is_empty() {
+            continue;
+        }
+        let waste: u64 = nested.iter().map(|(_, s)| *s).sum();
+        writeln!(handle).ok();
+        writeln!(
+            handle,
+            "warning: {} worktree dir(s) under {top}/ have deeply-nested names",
+            nested.len()
+        )
+        .ok();
+        writeln!(
+            handle,
+            "  totaling {} — duplicated checkouts from sessions launched inside",
+            human_size(waste)
+        )
+        .ok();
+        writeln!(handle, "  the data dir. Inspect with:").ok();
+        writeln!(handle, "    git -C <your-repo> worktree list").ok();
+        writeln!(
+            handle,
+            "  and remove the stale ones with `git worktree remove <path>`,"
+        )
+        .ok();
+        writeln!(handle, "  then `git worktree prune`.").ok();
+    }
+
+    writeln!(handle).ok();
+    writeln!(
+        handle,
+        "Each session keeps its own full checkout (~50-60 MB). Reclaim space by"
+    )
+    .ok();
+    writeln!(
+        handle,
+        "archiving or deleting sessions in Fresh's session manager (which prompts"
+    )
+    .ok();
+    writeln!(
+        handle,
+        "before removing anything), or with `git worktree remove <path>`."
+    )
+    .ok();
+}
+
+/// Total size in bytes of every file under `path`, recursively.
+/// Directory symlinks are not followed.
+fn dir_size_bytes(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else { continue };
+            if ft.is_symlink() {
+                continue;
+            } else if ft.is_dir() {
+                stack.push(entry.path());
+            } else if let Ok(md) = entry.metadata() {
+                total = total.saturating_add(md.len());
+            }
+        }
+    }
+    total
+}
+
+/// Format a byte count as a short human-readable string (e.g. "1.3 GB").
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut v = bytes as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    format!("{v:.1} {}", UNITS[i])
 }
 
 #[cfg(test)]

@@ -2223,6 +2223,30 @@ impl JsEditorApi {
             .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
     }
 
+    /// Total size in bytes of every file under `path`, recursively.
+    /// Returns 0 for a missing or unreadable path. Directory symlinks
+    /// are not followed, so the walk can't loop on a cyclic link.
+    pub fn dir_size(&self, path: String) -> f64 {
+        fn walk(dir: &Path) -> u64 {
+            let mut total = 0u64;
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                return 0;
+            };
+            for entry in rd.flatten() {
+                let Ok(ft) = entry.file_type() else { continue };
+                if ft.is_symlink() {
+                    continue;
+                } else if ft.is_dir() {
+                    total = total.saturating_add(walk(&entry.path()));
+                } else if let Ok(md) = entry.metadata() {
+                    total = total.saturating_add(md.len());
+                }
+            }
+            total
+        }
+        walk(Path::new(&path)) as f64
+    }
+
     /// Create a directory (and all parent directories) recursively.
     /// Returns true if the directory was created or already exists.
     pub fn create_dir(&self, path: String) -> bool {

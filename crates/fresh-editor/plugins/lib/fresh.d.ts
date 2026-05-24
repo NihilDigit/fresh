@@ -1965,6 +1965,12 @@ interface EditorAPI {
 	*/
 	readDir(path: string): DirEntry[];
 	/**
+	* Total size in bytes of every file under `path`, recursively.
+	* Returns 0 for a missing or unreadable path. Directory symlinks
+	* are not followed.
+	*/
+	dirSize(path: string): number;
+	/**
 	* Create a directory (and all parent directories) recursively.
 	* Returns true if the directory was created or already exists.
 	*/
