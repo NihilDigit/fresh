@@ -1724,7 +1724,11 @@ impl Editor {
     ///
     /// This is a transient internal redirect — it deliberately does NOT
     /// fire `active_window_changed` hooks (unlike `set_active_window`).
-    fn with_active_window<R>(&mut self, id: fresh_core::WindowId, f: impl FnOnce(&mut Self) -> R) -> R {
+    fn with_active_window<R>(
+        &mut self,
+        id: fresh_core::WindowId,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
         let prev = self.active_window;
         self.active_window = id;
         let result = f(self);
@@ -1738,7 +1742,10 @@ impl Editor {
     }
 
     /// Restore a specific window's workspace from disk.
-    pub fn restore_workspace_for(&mut self, id: fresh_core::WindowId) -> Result<bool, WorkspaceError> {
+    pub fn restore_workspace_for(
+        &mut self,
+        id: fresh_core::WindowId,
+    ) -> Result<bool, WorkspaceError> {
         self.with_active_window(id, |e| e.try_restore_workspace())
     }
 
