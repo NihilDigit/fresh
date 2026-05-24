@@ -88,6 +88,7 @@ pub mod migrated_virtual_line_bg_and_wrap;
 pub mod migrated_virtual_lines;
 pub mod migrated_workspace;
 pub mod migrated_workspace_extras;
+pub mod move_up_at_eof_single_long_line;
 pub mod multicursor;
 pub mod page_motion_single_long_line;
 pub mod phase_proofs;
