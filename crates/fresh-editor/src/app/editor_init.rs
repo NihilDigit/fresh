@@ -1139,11 +1139,30 @@ impl Editor {
         // exactly like a freshly created window.
         let mut windows = HashMap::new();
         if let Some(ref env) = persisted_env {
+            // The active window came from a real pick when `picked_active`
+            // is `Some` — its persisted entry must NOT also become a shell.
+            // When the pick found nothing we synthesized a clean base at
+            // `WindowId(1)` (the base is always id 1); a global
+            // `windows.json` may already hold a *different* project's id-1
+            // base, which would collide. Re-id that collider onto a fresh
+            // id so it survives as an inactive shell instead of being
+            // shadowed/dropped (issue #2056 cross-project case).
+            let active_came_from_pick = picked_active.is_some();
+            let mut next_fresh_id = env
+                .next_id
+                .max(env.windows.iter().map(|w| w.id).max().unwrap_or(0) + 1)
+                .max(active_window_id.0 + 1);
             for ps in &env.windows {
-                let id = fresh_core::WindowId(ps.id);
-                if id == active_window_id {
+                if active_came_from_pick && ps.id == active_window_id.0 {
                     continue;
                 }
+                let id = if ps.id == active_window_id.0 {
+                    let fresh = fresh_core::WindowId(next_fresh_id);
+                    next_fresh_id += 1;
+                    fresh
+                } else {
+                    fresh_core::WindowId(ps.id)
+                };
                 let resources = crate::app::window_resources::WindowResources {
                     config: Arc::clone(&config_arc),
                     grammar_registry: Arc::clone(&grammar_registry),
