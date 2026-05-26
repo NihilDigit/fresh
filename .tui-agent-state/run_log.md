@@ -2,6 +2,39 @@
 
 ---
 
+## Run #10 — 2026-05-26
+
+### Status: COMPLETED
+
+### What Was Done
+- Built Fresh binary from source (tui-automated-testing-state base = `88883dc`, v0.3.8)
+- Launched tmux session `fresh-test` (200×50)
+- Executed 7 test objectives: Alt+/, Markdown Preview, Keyboard Macros, Settings Ctrl+R, Review Diff regression check
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| TC-ALT-SLASH | **PASSED** | `M-/` opens Live Grep; 375 results for "fn main"; preview split works |
+| TC-MARKDOWN | **PASSED** | Markdown Compose mode: ANSI bold/italic/headings; status "Markdown Compose: ON (soft breaks, centered)" |
+| TC-MACRO-RECORD | **PASSED** | "Record Macro" prompt (0-9), F5 stops, macro saved with action count |
+| TC-MACRO-PLAYBACK | **PASSED** | F4 plays macro correctly; all 3 test lines got " [MACRO]" appended |
+| TC-MACROS-LIST | **PASSED** | "List Macros" opens `*Macros*` buffer; WARNING: buffer is editable (not strict RO) |
+| TC-SETTINGS-CTRL-R | **PARTIAL** | Ctrl+R when field highlighted does NOT reset; `[ Reset ]` button reachable via Tab; full test inconclusive |
+| TC-REVIEW-DIFF-CONTROLS | **FALSE POSITIVE CORRECTED** | All controls broken BY DESIGN — per `docs/internal/review-diff-feature-restoration-plan.md` (Status: Planned) |
+
+### Issues Found This Run
+- **0 new bugs filed**
+- **1 false positive corrected**: Run #8 TC-REVIEW-DIFF-DISCARD "PASSED" was wrong; Review Diff panel controls were never implemented in this codebase version
+
+### Key Learnings
+- Version is 0.3.8 (not 0.3.9 as previously logged)
+- Review Diff panel controls are planned-but-not-implemented features
+- DECCKM `$'\033OB'` must be UNQUOTED in bash (not inside double quotes)
+- `Explorer` menu item appears in menu bar when File Explorer is used
+- `*Macros*` buffer is editable (different from strictly-RO Quickfix/Diagnostics)
+
+---
+
 ## Run #9 — 2026-05-26
 
 ### Status: COMPLETED

@@ -1,7 +1,7 @@
 # Fresh Editor - Automated TUI Test Plan
 
 ## PROCESS RULES (added after Run #1 false positives)
-1. **Read docs FIRST.** Before any test session, skim `docs/features/` and `docs/blog/` for the version under test.
+1. **Read docs FIRST.** Before any test session, skim `docs/features/`, `docs/blog/`, AND `docs/internal/` for the version under test. Internal docs reveal planned/missing features.
 2. **Verify menu navigation with ANSI capture** (`-e` flag) to confirm the highlighted item before asserting behavior.
 3. **Check the CHANGELOG** for features that could explain "surprising" behavior before filing a bug.
 4. **Test keyboard shortcuts bare** (no tmux shortcuts that might intercept). If a key acts unexpectedly, check for terminal compatibility issues before blaming Fresh.
@@ -28,6 +28,7 @@
 | 7     | 2026-05-26 | COMPLETED | 12  | 1 filed → 1 real bug (#2122) |
 | 8     | 2026-05-26 | COMPLETED | 10  | 0 filed → BUG #2117 confirmed FIXED |
 | 9     | 2026-05-26 | COMPLETED | 10  | 2 filed → BUG #2124 (Quickfix Enter nav), BUG #2125 (Diagnostics panel shortcuts) |
+| 10    | 2026-05-26 | COMPLETED | 8   | 0 filed → Run #8 TC-REVIEW-DIFF-DISCARD corrected as FALSE POSITIVE; Review Diff controls are "Planned" per internal docs |
 
 ---
 
@@ -251,80 +252,71 @@
 
 ---
 
-## Immediate Next Action (Run #10)
+## Completed Tests (Run #10)
+- [x] **TC-ALT-SLASH** PASSED - `Alt+/` opens Live Grep directly; 375 results for "fn main"; preview split works (0.3.8 feature)
+- [x] **TC-MARKDOWN** PASSED - `Ctrl+P → "Markdown: Toggle Compose/Preview"` works; ANSI bold/italic/headings/links rendered; status: "Markdown Compose: ON (soft breaks, centered)"; toggle off shows "Markdown Compose: OFF"
+- [x] **TC-MACRO-RECORD** PASSED - `Ctrl+P → "Record Macro"` → digit `2` → Enter; status: "Recording macro '2' (F5 or Ctrl+P → Stop Recording)"; F5 stops; status: "Macro '2' saved (N actions) — F4 → Play Last Macro"
+- [x] **TC-MACRO-PLAYBACK** PASSED - F4 plays last macro; status: "Played macro '2' (N actions)"; macro correctly applies to each subsequent line
+- [x] **TC-MACROS-LIST** PASSED - `Ctrl+P → "List Macros"` opens `*Macros*` buffer with action-by-action listing (MoveLineEnd, InsertChar, etc.); WARNING: `*Macros*` allows editing (NOT strictly RO) — typing leaks if cursor inside
+- [x] **TC-SETTINGS-CTRL-R** INVESTIGATED - Ctrl+R when number field is highlighted (`>●`) does NOT reset value; `[ Reset ]` button IS reachable via Tab: `Tab` from field goes directly to footer `>[ User ]`, then Tab×1 to `[ Reset ]`, Enter clears search input but further reset behavior unclear; full "field edit mode" Ctrl+R test inconclusive
+- [x] **TC-REVIEW-DIFF-CONTROLS** CORRECTED FALSE POSITIVE - Run #8 "PASSED" was wrong. Per `docs/internal/review-diff-feature-restoration-plan.md` (Status: Planned): hunk-level n/d/s/u AND file-level D/S/U AND q-to-close were ALL LOST in v0.2.22 rewrite and not yet restored. All give "Editing disabled in this buffer". Do NOT re-investigate unless restoration plan status changes to "Done".
+
+---
+
+## Immediate Next Action (Run #11)
 
 ### FIRST: State Check
-- Version is 0.3.9 (Cargo.toml) — built from master
-- BUG #2117 (Review Diff discard): **FIXED in 0.3.9** — confirmed Run #8
-- BUG #2122 (move_to_paragraph no keybinding): still open — confirmed Run #9
-- BUG #2124 (Quickfix Enter navigation): **NEW** — filed Run #9
-- BUG #2125 (Diagnostics panel shortcuts): **NEW** — filed Run #9
-- Config state: `check_for_updates: true` in config (explicitly set by agent accident in Run #9; functionally same as default)
-- WARNING: Reset config if needed — auto_save_interval should be at default 30s (not 60)
+- Version: Cargo.toml = **0.3.8** (not 0.3.9 as incorrectly logged in Runs #7-9)
+- Master branch IS ahead of testing-state base with 0.3.9 bump commits — build from claude/ecstatic-mayer-MicVi for 0.3.9 features
+- CRITICAL: Review Diff panel controls (n, d, q, s, u, D, S, U) are ALL non-functional — this is BY DESIGN (Planned restoration per internal docs). Do NOT investigate further.
+- BUG #2122 (move_to_paragraph keybinding): still open
+- BUG #2124 (Quickfix Enter navigation): still open
+- BUG #2125 (Diagnostics panel shortcuts): still open
+- DECCKM quoting: MUST send `$'\033OB'` UNQUOTED (not inside double quotes) in bash
 
-### Priority Tests for Run #10:
+### Priority Tests for Run #11:
 
-1. **Settings UI Ctrl+R Reset — Focused Investigation**
-   - Open Settings → navigate to a NUMBER FIELD (e.g., Auto Save Interval) using DECCKM arrows
-   - Press Tab ONCE to "focus" the number input (cursor should appear in `[ 30 ]` box)
-   - Type `99` to change the value
-   - WHILE THE CURSOR IS INSIDE THE INPUT BOX, press Ctrl+R
-   - Expected: value resets to 30 (the default)
-   - If Ctrl+R still closes Settings, it's a bug (global key binding not properly scoped to overlay)
-   - CAUTION: Do NOT press Enter while in Settings (it may save or close unexpectedly)
+1. **Build from master or claude branch for 0.3.9 features**
+   - The current testing-state binary is based on `88883dc` (pre-0.3.9)
+   - To get a 0.3.9 binary, fetch origin/master and build from there: `git checkout origin/master` + `cargo build --release --bin fresh`
+   - This would allow testing features documented in the 0.3.9 CHANGELOG
 
-2. **Settings UI List Editing — `[+] Add new` and `[x]` rows**
-   - Open Settings → navigate to the LSP section (has server lists)
-   - Test: press Enter on `[+] Add new` to add a new LSP server entry
-   - Test: press Enter on `[x]` to remove an existing entry
-   - Verify inline list editing behavior (0.3.8 feature)
-   - CAUTION: Tab to navigate to these list controls — do NOT use DECCKM arrows within the edit widget
+2. **Settings UI: Number field Ctrl+R reset — complete investigation**
+   - Open Settings, navigate to Recovery, Tab to focus "Auto Recovery Save Interval Secs"
+   - The field shows `>` (highlighted). Try: Press `Enter` to enter edit mode for the field
+   - Type a new value
+   - Press Ctrl+R while cursor IS inside the input box (blinking cursor visible)
+   - Expected per CHANGELOG 0.3.8: value resets to default
+   - CAUTION: Do NOT use DECCKM arrows — use `/` search to navigate to the field
 
-3. **Alt+/ (Universal Search) — 0.3.9 feature**
-   - Press Alt+/ to open Live Grep (the new binding per CHANGELOG)
-   - This replaces the old Ctrl+P → Live Grep workflow
-   - Verify it works and the prompt opens correctly
+3. **Settings UI: `[+] Add new` list items**
+   - Open Settings → navigate to LSP section (has server lists)
+   - Test: press Enter on `[+] Add new` row to add a new list entry
+   - Test: press Enter or Del on `[x]` row to remove an entry
+   - This is a documented 0.3.8 feature that hasn't been tested yet
 
-4. **Review Diff `d` Discard Verification** (regression guard)
-   - Make a small change to a tracked file
-   - `Ctrl+P → "Review Diff"` → `d` to discard
-   - Confirm the fix from 0.3.9 still holds (BUG #2117 remains fixed)
+4. **fake-pylsp LSP investigation** (carry-forward from Run #10 plan)
+   - `scripts/fake-lsp/bin/fake-pylsp` — check if it's runnable
+   - Needs `FAKE_DEVCONTAINER_STATE` env var
+   - Goal: get a working LSP server to test Diagnostics/Completion
 
-5. **LSP with fake-pylsp** (Bash-based simulation)
-   - The `scripts/fake-lsp/bin/fake-pylsp` server speaks the LSP protocol
-   - It requires `FAKE_DEVCONTAINER_STATE` env variable to be set
-   - Try: `mkdir -p /tmp/fake-lsp-state && export FAKE_DEVCONTAINER_STATE=/tmp/fake-lsp-state`
-   - Investigate if `fake-pylsp` can be launched as a standalone LSP for a `.py` file
-   - Configure it in Fresh settings as `pylsp` for Python files
-   - If LSP diagnostics available: test Diagnostics panel `q/a/RET` shortcuts with real data
+5. **LSP Diagnostics panel with real data**
+   - If fake-pylsp works: configure it, open a .py file, get diagnostics
+   - Test `q` close, `a` filter toggle, `Enter` goto — these are the BUG #2125 shortcuts
+   - Reproduce BUG #2125 with real diagnostic data (not just "empty diagnostics")
 
-6. **Auto-complete popup test with LSP** (requires test #5 to work first)
-   - Open a Python file, ensure fake-pylsp is running
-   - Type a partial symbol name and wait for auto-complete popup
-   - Test popup navigation (Up/Down) and selection (Enter/Tab)
-   - Document whether auto-complete triggers correctly
+6. **Bookmarks feature**
+   - `Ctrl+P → "Set Bookmark"` → digit → Enter
+   - Then `Alt+N` to jump back to bookmark N (confirm from learning_db)
+   - Not yet tested in detail
 
-7. **Keyboard Macro recording and playback** (not yet tested in detail)
-   - `Ctrl+P → "Record Macro"` → digit → Enter (e.g., digit 1)
-   - Perform a sequence of edits (type some text, undo, redo)
-   - Press F5 to stop recording
-   - Press F4 to play the macro back
-   - Verify the exact sequence is replayed
+### CRITICAL Reminders for Run #11:
+- **DECCKM**: `$'\033OB'` MUST be unquoted in bash scripts (not `"$'\033OB'"`)
+- **Overlay navigation**: Use plain `Up`/`Down` tmux key names (NOT DECCKM)
+- **Settings**: After any Settings session, check config.json for accidental saves
+- **Version**: Currently building 0.3.8 from testing-state base (pre-0.3.9)
+- **Review Diff**: ALL panel controls broken by design — don't waste time retesting
 
-8. **Markdown Preview** 
-   - Open a `.md` file (e.g., README.md from the project)
-   - `Ctrl+P → "Markdown: Toggle Compose/Preview"` 
-   - Verify ANSI bold/italic rendered in preview
-   - Test toggle back to edit mode
+### (Old Run #10 planning removed — see Run #11 above)
 
-### CRITICAL Reminders for Run #10:
-- **Popup navigation**: Use plain `Up`/`Down` tmux keys for popup lists (NOT DECCKM)
-- **Editor cursor movement**: Use DECCKM `$'\033OA/OB/OC/OD'` for cursor movement INSIDE editor buffers
-- **Settings checkboxes**: ↑↓ DECCKM arrows in the right panel → Enter to toggle (NOT Tab)
-- **Settings number fields**: Tab to focus, then type directly (no `[-]`/`[+]` spinners)
-- **Settings keystroke leak**: After Settings sessions, check config.json and Ctrl+Z undo leaked edits
-- **BUG #2122**: move_to_paragraph keybinding — still open
-- **BUG #2124**: Quickfix Enter navigation — still open
-- **BUG #2125**: Diagnostics panel shortcuts — still open
-- **LSP**: `rust-analyzer` NOT installed; `rustup` available but no binary on PATH
-- **Fake LSP**: `scripts/fake-lsp/bin/fake-pylsp` — needs FAKE_DEVCONTAINER_STATE env var
+(Completed in Run #10 — see Run #11 plans above)

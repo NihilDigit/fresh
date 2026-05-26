@@ -76,15 +76,15 @@
 
 ---
 
-### ~~BUG-007~~ — Review Diff: "Discard hunk" FIXED in 0.3.9 (was: patch does not apply)
+### ~~BUG-007~~ — Review Diff: "Discard hunk" — Status: OPEN (not fixed, hunk-level controls planned)
 - **Date filed:** 2026-05-26 (Run #5)
-- **Date confirmed fixed:** 2026-05-26 (Run #8)
+- **Run #8 FALSE POSITIVE corrected:** Run #8 claimed "FIXED in 0.3.9" — this was WRONG
 - **Severity:** High (core git workflow broken — discard hunk is a primary operation in Review Diff)
 - **GitHub Issue:** https://github.com/sinelaw/fresh/issues/2117
-- **Status:** FIXED in 0.3.9 dev build — verified twice in Run #8
-- **Fix details:** Discard hunk now correctly removes the change. Review Diff shows "No changes to review." after successful discard. `git diff --stat HEAD` confirms file reverted to HEAD.
-- **Original root cause:** Unknown — Fresh's internal reverse patch application was failing even though the identical patch worked from shell.
-- **Note posted on GitHub issue 2117:** Run #8 comment confirms the fix.
+- **Status:** OPEN — ALL Review Diff panel controls (hunk-level n/d/s/u AND file-level D/S/U AND q) give "Editing disabled in this buffer"
+- **Root cause confirmed (Run #10):** Per `docs/internal/review-diff-feature-restoration-plan.md`, these features were LOST in the v0.2.22 magit rewrite. The plan documents them as "Planned" restoration but NOT YET implemented. The `[n] [d] [q]` labels in the panel header are placeholder UX for planned features.
+- **Note:** The original BUG-007 was about the patch application failing (different mechanism). Now it's clear the discard doesn't even attempt the patch because the keybinding isn't routed to the handler.
+- **Do NOT re-investigate** until `docs/internal/review-diff-feature-restoration-plan.md` changes status to "Done".
 
 ---
 

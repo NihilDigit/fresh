@@ -25,6 +25,7 @@ Check this list before filing any issue.
 | Settings checkboxes not navigable via Tab | **Run #6 concern RESOLVED in Run #7.** Checkboxes ARE reachable: use ↑↓ arrows (DECCKM) in the right panel to navigate to a checkbox, then Enter to toggle. Tab only reaches number/text inputs. |
 | "move_to_paragraph" not found in command palette | **By design** (PR #2084): movement-only actions don't get palette entries, same as `move_left`. BUT missing default keybinding is a bug (#2122). These actions exist but require manual keybinding configuration. |
 | "Next Window" command shows "Cancelled" | **Single-window behavior** — correct when only 1 window open. Requires Orchestrator-created multi-window sessions to have multiple windows to cycle. |
+| Review Diff panel controls 'n', 'd', 'q', 's', 'u' give "Editing disabled in this buffer" | **By design (Planned restoration).** These controls were LOST in the v0.2.22 magit rewrite. See `docs/internal/review-diff-feature-restoration-plan.md` (Status: Planned). Not a bug to file. |
 
 ---
 
@@ -649,3 +650,69 @@ Always use `tmux capture-pane -p -e` (with ANSI) to confirm which menu item is h
 - The Tab key in the Settings right panel sometimes focuses a number field and immediately marks it as `●` (pending change) — be cautious
 - After Settings interactions, ALWAYS check config file: `cat /root/.config/fresh/config.json`
 - If incorrect values are saved, edit the config file directly and restart Fresh to pick up changes
+
+---
+
+## Lessons Added in Run #10
+
+### Lesson 51: Version Correction — 0.3.8 not 0.3.9
+- Cargo.toml says `version = "0.3.8"` (not 0.3.9 as logged in Runs #7-9)
+- The `tui-automated-testing-state` branch is based on master commit `88883dc fix(plugin-api): report real cursor line via CursorInfo.line (#2076)` — pre-0.3.9
+- Master branch HAS subsequent commits including `19fb912 Bump version to 0.3.9`
+- The `claude/ecstatic-mayer-MicVi` branch also has additional commits beyond the testing-state base
+- To build a 0.3.9 binary: fetch origin/master, temporarily checkout those commits for build
+
+### Lesson 52: Review Diff Panel Controls — BY DESIGN (Planned Restoration)
+- ALL Review Diff panel controls give "Editing disabled in this buffer": n, p, d, s, u, q, D, S, U, Enter
+- This is NOT a regression and NOT a new bug
+- Per `docs/internal/review-diff-feature-restoration-plan.md` (Status: Planned):
+  - Hunk-level stage/discard/unstage were LOST in v0.2.22 magit rewrite
+  - `q` to close was REMOVED in v0.2.22
+  - File-level D/S/U also don't work
+  - These are PLANNED to be restored but not yet implemented
+- Run #8 "PASSED" for TC-REVIEW-DIFF-DISCARD was a FALSE POSITIVE
+- Do NOT file a bug for this — it's a known planned feature restoration
+- Do NOT investigate further unless `docs/internal/review-diff-feature-restoration-plan.md` status changes to "Done"
+
+### Lesson 53: Alt+/ Opens Live Grep Directly
+- `Alt+/` (tmux: `M-/`) opens Live Grep instantly without going through Ctrl+P
+- Confirmed working in 0.3.8 (per CHANGELOG listed features)
+- Opens with the same toolbar: `[v] Files  [v] Buffers  [v] Terminals  [ ] Diagnostics` etc.
+- The File Explorer sidebar may auto-open alongside Live Grep (side effect — not a bug)
+
+### Lesson 54: Keyboard Macro Feature — Confirmed Working
+- `Ctrl+P → "Record Macro"` → prompt: "Record macro (0-9):" → digit → Enter → starts recording
+- Status bar: "Recording macro 'N' (F5 or Ctrl+P → Stop Recording)"
+- F5 stops recording; status: "Macro 'N' saved (M actions) - F4 → Play Last Macro"
+- F4 plays the last recorded macro; status: "Played macro 'N' (M actions)"
+- `Ctrl+P → "List Macros"` opens `*Macros*` buffer showing each action (MoveLineEnd, InsertChar, etc.)
+- WARNING: `*Macros*` buffer is NOT strictly [RO] — it appears editable and typing leaks into it
+- Register numbers 0-9 available; last macro played with F4 regardless of register
+
+### Lesson 55: Markdown Compose/Preview Mode
+- `Ctrl+P → "Markdown: Toggle Compose/Preview"` or `"Markdown: Toggle Compose/Preview (All Files)"`
+- Status bar: "Markdown Compose: ON (soft breaks, centered)" / "Markdown Compose: OFF"
+- ANSI rendering: `[38;5;51m` cyan for headers, `[1m[38;5;69m` bold for `**text**`, `[4m` underline for links
+- Background: `[48;5;16m` (dark) for content, `[48;5;226m` (yellow) for right margin in centered mode
+- Toggle works bidirectionally; status bar confirms both states
+
+### Lesson 56: Settings Tab Cycle — Footer Buttons ARE Reachable
+- Tab from a Settings right-panel field goes directly to `>[ User ]` in the footer
+- Then Tab×1 = `>[ Reset ]`, Tab×2 = `>[ Save ]`, Tab×3 = `>[ Cancel ]`, Tab×4 = `>[ Edit ]`
+- The `[ Reset ]` button IS reachable via Tab from a number field
+- Pressing Enter on `[ Reset ]` clears the current search input (confirmed) — further behavior unclear without pending changes on a specific field
+- Ctrl+R when a field is highlighted (`>●`) does NOT reset the value — field must be in active "edit" cursor mode for Ctrl+R to work
+
+### Lesson 57: DECCKM in Bash — Quoting Rules (CRITICAL FIX)
+- `$'\033OB'` (bash ANSI-C quoting) MUST be UNQUOTED to be interpreted by bash
+- CORRECT: `tmux send-keys -t SESSION $'\033OB' ""`
+- WRONG: `tmux send-keys -t SESSION "$'\033OB'" ""` — double-quotes prevent $'...' interpretation; sends literal `$'\033OB'` text
+- Previous runs used correct syntax; any failure to navigate Settings via DECCKM is likely this quoting error
+- Settings overlay opens and accepts DECCKM navigation; timing must be adequate (2s sleep after opening)
+
+### Lesson 58: Explorer Menu Item in Fresh Menu Bar
+- When File Explorer is opened or used, the menu bar temporarily shows an "Explorer" item
+- Normal menu bar: `File   Edit   View   Selection   Go   LSP   Help`
+- With Explorer active: `File   Edit   View   Selection   Go   LSP   Explorer   Help`
+- This is the menu for the Explorer panel (likely has Cut/Copy/Paste/New File/etc.)
+- Not a bug — it's a context-aware menu addition
