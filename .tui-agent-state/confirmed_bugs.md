@@ -61,7 +61,7 @@
 - **Date:** 2026-05-26
 - **Severity:** Medium (silent data corruption — user may not notice immediately)
 - **GitHub Issue:** https://github.com/sinelaw/fresh/issues/2113 (filed Run #2)
-- **Status:** Open
+- **Status:** Open (but not reproduced in Run #3)
 - **Root Cause:** Likely a focus/input-routing race condition during command palette mode transition.
 - **Reproduction:**
   1. Open command palette: `Ctrl+P` (opens in command mode with `>` prefix)
@@ -69,7 +69,7 @@
   3. Type a fuzzy search query (e.g. "cargo") to find project files
   4. Select a file with Up + Enter
   5. Return to original buffer — it now contains characters from the search query (e.g. "Cargo" inserted into file content)
-- **Confirmed reproduced:** Timing-sensitive; observed once but consistent within the same session.
+- **Run #3 Status:** NOT REPRODUCED in 2 fresh attempts. Possible the bug was fixed in the current build, or is highly timing-dependent. Continue monitoring in future runs.
 - **Workaround:** After using the fuzzy file finder, check the source buffer and Ctrl+Z if characters were leaked.
 
 ---

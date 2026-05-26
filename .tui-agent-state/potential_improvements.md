@@ -98,6 +98,26 @@ change would make it self-evident without requiring users to read docs.
 
 ## Testing Infrastructure
 
+### IMP-010 — "Toggle Line Wrap" Not Available in Command Palette
+- **Observed:** "Toggle Line Numbers" is in the command palette, but "Toggle Line Wrap" is not.
+- **Correct behavior:** Line wrap can be toggled via View menu (`Alt+V → Line Wrap`).
+- **Problem:** Inconsistency — some view toggles are in the palette (line numbers) and others aren't (line wrap). Users reaching for Ctrl+P to toggle wrap won't find it.
+- **Suggested fix:** Add "Toggle Line Wrap" to the command palette alongside "Toggle Line Numbers".
+- **Effort:** Very low.
+- **Discovered:** Run #3, 2026-05-26
+
+---
+
+### IMP-011 — Shift+F3 Key Binding Documentation May Be Inconsistent
+- **Observed:** `docs/features/editing.md` documents `Shift+F3` = Find Previous. But the command palette shows "Find Previous" bound to `Ctrl+Shift+N`.
+- **Correct behavior:** Unknown without testing in a proper terminal — both may exist simultaneously.
+- **Problem:** If `Shift+F3` doesn't actually work (even outside tmux), users will be confused when the documented shortcut does nothing.
+- **Suggested fix:** Test `Shift+F3` in a proper xterm/Kitty terminal. If it works, document both. If only `Ctrl+Shift+N` works, update editing.md.
+- **Effort:** Low (just testing + doc update).
+- **Discovered:** Run #3, 2026-05-26
+
+---
+
 ### IMP-009 — No `--headless` or Scriptable Test Mode
 - **Observed:** The TUI agent must use tmux to interact with Fresh. This works but is fragile — timing-dependent, ANSI parsing is complex, and key send errors produce hard-to-diagnose bugs (e.g., "S-Left S-Left" sent as literal text).
 - **Suggested fix:** A `fresh --test-mode` or pipe-based command interface that accepts structured input (JSON events) and produces structured output (cursor position, buffer content, status) would make automated testing far more reliable.

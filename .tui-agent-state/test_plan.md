@@ -21,6 +21,7 @@
 |-------|------|--------|-----------|------------|
 | 1     | 2026-05-26 | COMPLETED | 30+ | 4 filed → 2 real, 2 false positives |
 | 2     | 2026-05-26 | COMPLETED | 20+ | 2 filed → 2 real, 0 false positives |
+| 3     | 2026-05-26 | COMPLETED | 20+ | 0 filed → 0 confirmed new bugs |
 
 ---
 
@@ -51,11 +52,14 @@
 - [x] **TC-022** PASSED - Can type path and open existing file
 - [x] **TC-023** PASSED - Ctrl+S on new file prompts Save As
 - [x] **TC-024** PASSED - Ctrl+S on saved file saves immediately (status: "Saved")
-- [ ] **TC-025** Save As (Ctrl+Shift+S) → to test next run
+- [x] **TC-025** PASSED - Save As via File menu (Alt+F → Save As); pre-fills path; no palette command
+          NOTE: Ctrl+Shift+S is NOT reliable in terminals (shift stripped, becomes Ctrl+S)
 - [x] **TC-026** PASSED - "Close Buffer" command prompts `(s)ave, (d)iscard, (C)ancel?` for unsaved
-- [ ] **TC-027** Close saved file → closes without dialog (to verify)
-- [ ] **TC-028** Open multiple files → tabs appear (to test next run)
-- [ ] **TC-029** Switch between tabs (Ctrl+Tab or mouse click) (to test next run)
+          NOTE: In Run #3, prompt required letter + Enter to confirm (not just the letter)
+- [x] **TC-027** PASSED - Close saved file (Alt+W): closes immediately without dialog
+- [x] **TC-028** PASSED - Multiple files open → tabs shown in tab bar
+- [x] **TC-029** PASSED - Ctrl+PgDn / Ctrl+PgUp = Next/Previous Buffer (NOT Ctrl+Tab)
+          NOTE: Ctrl+Tab in tmux sends Tab character to buffer — DO NOT use
 
 ---
 
@@ -66,11 +70,12 @@
 - [x] **TC-031** PASSED - Shift+Left/Right selects text (cursor shown as reversed, selection as blue)
 - [x] **TC-032** PASSED - Ctrl+A selects all text
 - [x] **TC-033** PASSED - Copy (Ctrl+C) and Paste (Ctrl+V) work correctly
-- [ ] **TC-034** Cut (Ctrl+X) - to test next run
+- [x] **TC-034** PASSED - Cut (Ctrl+X): cuts selected text; Ctrl+V pastes correctly
 - [x] **TC-035** PASSED - Ctrl+D adds cursor at next match, multi-cursor editing confirmed working
-- [ ] **TC-036** Block selection mode - to test next run
-- [ ] **TC-037** Comment/uncomment line (Ctrl+/) - to test next run
-- [ ] **TC-038** Auto-indent - to test next run
+- [x] **TC-036** PASSED - Block selection: Alt+Shift+Down extends column downward, Alt+Shift+Right extends right
+          Typing replaces block simultaneously across all affected rows
+- [x] **TC-037** PASSED - Ctrl+/ toggles line comment for JS/language files; no effect on .txt (no language)
+- [x] **TC-038** PASSED - Auto-indent: Enter after `{` inserts indented line at correct level
 
 ---
 
@@ -82,15 +87,17 @@
 - [x] **TC-042** PARTIAL - Enter navigates to first match then CLOSES search bar
           ⚠️ BUG-004 (confirmed): F3 silently ignored while search bar is open. Correct workflow:
           Enter → closes bar → F3 navigates next. But this contradicts VS Code/browser behavior.
-- [ ] **TC-043** Shift+F3 for previous match (after search bar closes) — still to confirm works
+- [x] **TC-043** PARTIAL - Shift+F3 for previous match: NOT recognized in tmux (S-F3 not forwarded)
+          Find Previous works via command palette (binding shown as Ctrl+Shift+N, but also broken in tmux)
+          → PENDING: test in proper terminal to confirm if Shift+F3 works natively
 - [x] **TC-044** PASSED - Escape closes search bar
 - [x] **TC-045** TERMINAL COMPAT ISSUE - Ctrl+H IS intended to open find & replace (documented)
           but terminals send Ctrl+H as Backspace (0x08). Use Ctrl+R as the reliable Replace shortcut.
           Issue #2109 open: suggests adding Ctrl+H to Calibrate Keyboard wizard and documenting the conflict.
 - [x] **TC-046** PASSED (via Ctrl+R) - Replace All works by default
 - [x] **TC-047** PASSED - All 3 occurrences replaced simultaneously
-- [ ] **TC-048** Case-sensitive toggle (Alt+C shown in search bar) - to test next run
-- [ ] **TC-049** Regex toggle (Alt+R shown in search bar) - to test next run
+- [x] **TC-048** PASSED - Case-sensitive toggle (Alt+C): status bar confirms toggle on/off
+- [x] **TC-049** PASSED - Regex toggle (Alt+R): regex mode confirmed; actual regex matching works (e.g. `line\..*`)
 
 ---
 
@@ -102,14 +109,18 @@
           NOTE: "Split Vertical" creates horizontal layout (two panes stacked)
 - [x] **TC-051** PASSED - Alt+] switches to next split pane
 - [x] **TC-052** PASSED - "Close Split" command closes the split pane
-- [x] **TC-053** PASSED - Ctrl+B toggles File Explorer (NOT Ctrl+E as assumed)
-          NOTE: Ctrl+E appears to open file explorer differently
-- [x] **TC-054** PASSED - Arrow keys navigate directories; Right expands, Left collapses
-          Tab key switches focus to file explorer
-- [ ] **TC-055** File Explorer: open file from explorer - to test next run
-- [ ] **TC-056** Toggle line numbers - to test next run
-- [ ] **TC-057** Toggle line wrap - to test next run
-- [ ] **TC-058** Integrated terminal: open/close - to test next run
+- [x] **TC-053** PASSED - Ctrl+B toggles File Explorer
+          NOTE: Ctrl+E switches focus between editor and file explorer (does NOT toggle open/close)
+- [x] **TC-054** PASSED - DECCKM arrow keys navigate directories; Right expands, Left collapses
+- [x] **TC-055** PASSED - File Explorer: arrow navigation auto-previews files; Enter opens as permanent tab
+          NOTE: Focus workflow: Ctrl+B to open, Ctrl+E to focus, DECCKM arrows to navigate, Enter to open
+- [x] **TC-056** PASSED - Toggle line numbers via command palette "Toggle Line Numbers"
+- [x] **TC-057** PASSED - Toggle line wrap via View menu (☑ = on, ☐ = off); status bar confirms
+          NOTE: "Toggle Line Wrap" is NOT in command palette — use View menu (Alt+V)
+- [x] **TC-058** PASSED - Integrated terminal (more features):
+          - Ctrl+Space: toggles terminal mode ↔ scrollback (read-only) mode
+          - Ctrl+F: searches in terminal scrollback
+          - Status bar shows "Terminal mode enabled/disabled" and "Terminal [capture]" for F9 capture mode
 
 ---
 
@@ -158,42 +169,47 @@
 
 ---
 
-## Immediate Next Action (Run #3)
+## Immediate Next Action (Run #4)
 
 ### FIRST: Documentation Review (mandatory before testing)
-- Read `docs/features/editing.md` for complete keybinding table
-- Check `CHANGELOG.md` for 0.3.x features
-- Note: Run #2 did NOT read docs first — still got 0 false positives, but should still verify
+- Check `docs/features/lsp.md` for LSP feature documentation
+- Check `docs/features/git.md` for git integration docs
+- Check `CHANGELOG.md` for any new versions
 
-### CRITICAL tmux Notes (discovered Run #2):
-- **Arrow keys MUST use DECCKM sequences:** `$'\033O[A-D]'` NOT `Up`/`Down` key names
-- **Delete key:** `$'\033[3~'` NOT `DC` tmux key name
-- **Alt+W** = Close Tab (not Ctrl+W which selects word)
+### Priority Tests for Run #4:
+1. TC-060-065: Command Palette (complete coverage — partial in Run #3)
+   - TC-063: Execute command from palette
+   - TC-064: Fuzzy search (partial match like "tog num" → "Toggle Line Numbers")
+   - TC-065: Buffer switch via palette # mode
+2. TC-070-073: Settings & Configuration
+   - TC-070: Access Settings UI (View > Settings...)
+   - TC-071: Change theme via "Select Theme" palette command
+   - TC-072: Keybinding editor access
+   - TC-073: Settings persist after restart
+3. TC-080-085: Edge cases
+   - TC-081: Open binary file
+   - TC-082: Open empty file
+   - TC-083: Rapid key presses for stability
+   - TC-085: Resize terminal window while editor open
+4. Backlog items (from earlier runs):
+   - TC-NEW-002: Hot exit with --no-restore verification
+   - TC-NEW-003: Ctrl+W selects word (quick verify)
+   - Pending: Shift+F3 in proper xterm terminal (not tmux) — does it work?
+5. Advanced features (new):
+   - Git log panel (via command palette "Git Log")
+   - LSP diagnostics panel
+   - Markdown preview
+   - Macro recording (F5 to stop, F4 to play)
+   - Bookmarks (Ctrl+Shift+0-9 to set, Alt+0-9 to jump)
 
-### Priority Tests to Complete (Run #2 leftover):
-1. TC-025: Save As (Ctrl+Shift+S)
-2. TC-027/028/029: Multiple tabs; switch tabs (Alt+W to close, what to switch?)
-3. TC-034: Cut with Ctrl+X
-4. TC-036: Block selection (Alt+Shift+Arrow)
-5. TC-037: Comment/uncomment line (Ctrl+/)
-6. TC-038: Auto-indent
-7. TC-043: Shift+F3 for previous match (after search bar closes)
-8. TC-048/049: Case-sensitive (Alt+C) and regex (Alt+R) search toggles
-9. TC-055: Open file from file explorer (Enter on file in explorer)
-10. TC-056/057: Toggle line numbers/wrap (via View menu or command palette)
-11. TC-058: Integrated terminal (opened via Alt+\` — confirmed in Run #2; test more features)
-12. TC-NEW-001: Verify `File > Revert` shows `(r)evert/(c)ancel` prompt (never re-tested since Run #1 false positive)
-13. TC-NEW-002: Confirm hot exit behavior with `--no-restore`
-14. TC-NEW-003: Test Ctrl+W selects word under cursor (confirmed by Run #1; verify)
-15. TC-NEW-005: Investigate `[⚠ N]` status bar warning indicator — what triggers it?
-16. TC-NEW-006: Verify BUG-006 (#2113 palette leak) reproducibility under controlled conditions
-
-### Reminders from Run #1 + Run #2 Lessons:
-- Verify menu item selection with ANSI capture before asserting behavior
-- tmux sends Ctrl+H as Backspace — use Ctrl+R for Replace
-- Ctrl+W = select word (not close buffer); Alt+W = close tab
-- Close Buffer = Ctrl+P → "Close Buffer"  
-- File Explorer toggle = Ctrl+B
-- F3 navigates search AFTER search bar closes (BUG-004 usability issue)
-- Arrow keys need DECCKM sequences in tmux (`$'\033O[A-D]'`)
-- Search/Replace only works for in-project files (BUG-005 / #2112)
+### CRITICAL Reminders for Run #4:
+- **Tab switching**: `C-NPage` / `C-PPage` (NOT Ctrl+Tab)
+- **File Explorer**: Ctrl+B to toggle, Ctrl+E to focus, DECCKM arrows to navigate
+- **Save As**: File menu only (Alt+F), NOT command palette
+- **Close buffer prompt**: type letter + Enter (not just the letter)
+- **Arrow keys**: DECCKM sequences `$'\033O[A-D]'`
+- **Delete key**: `$'\033[3~'`
+- **Line Wrap toggle**: View menu (Alt+V), NOT command palette
+- **Terminal**: Alt+\` to open, Ctrl+Space to toggle mode, Ctrl+F to search scrollback
+- **Find Previous**: palette command works; Shift+F3 and Ctrl+Shift+N have tmux issues
+- Do NOT use `Ctrl+Tab` (sends Tab character to buffer)

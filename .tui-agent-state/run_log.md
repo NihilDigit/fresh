@@ -179,11 +179,74 @@ If you accidentally corrupt the test file, use `C-z` repeated times or `File > R
 
 ---
 
-## Run #3 — PENDING
+## Run #3 — 2026-05-26
+### Status: COMPLETED
 
-See `test_plan.md` → "Immediate Next Action (Run #3)" for priority list.
-Key items:
-- Verify BUG-006 (#2113 palette leak) reproducibility under controlled conditions
-- Complete TC-025 through TC-058 backlog
-- Test file explorer (TC-055), terminal (TC-058), line ops (TC-034/036/037/038)
-- Investigate `[⚠ N]` status bar indicator (plugin warning)
+### What Was Done
+- Built Fresh binary from source (~3 min build)
+- Read docs: `docs/features/editing.md`, `docs/features/file-explorer.md`, `docs/features/terminal.md`, `docs/features/search-replace.md`, `docs/configuration/keyboard.md`, `CHANGELOG.md` (0.3.8) — MANDATORY PRE-TEST checklist followed
+- Launched tmux session (220×50), executed 20+ test cases
+- Filed 0 new GitHub issues (no confirmed bugs beyond existing known issues)
+
+### Key Technical Discovery
+- **Tab switching**: `Ctrl+PgDn` / `Ctrl+PgUp` = Next Buffer / Previous Buffer (not Ctrl+Tab)
+- **Save As**: accessible via File menu only (not command palette); pre-fills current path
+- **File Explorer focus**: `Ctrl+E` switches focus, then DECCKM arrows navigate. Auto-preview tabs appear as you navigate.
+- **Close buffer prompt** format: `(s)ave, (d)iscard, (C)ancel?` — requires typing the letter THEN Enter to confirm
+- **Find Previous**: palette shows `Ctrl+Shift+N` binding; `Shift+F3` (documented) is NOT recognized in tmux; both have terminal compatibility problems
+- **Mouse Support**: can be toggled via View menu (was off by default, inadvertently enabled during test)
+- **BUG-006 NOT reproduced**: Two attempts at reproducing palette input leak; no leaks detected. May be fixed or timing-dependent.
+
+### Test Results Summary
+| Test | Status | Notes |
+|------|--------|-------|
+| TC-025: Save As | PASSED | File menu → Save As; pre-fills path |
+| TC-027: Close saved file | PASSED | Alt+W closes without dialog |
+| TC-028: Multiple tabs | PASSED | Multiple tabs visible in tab bar |
+| TC-029: Tab switching | PASSED | Ctrl+PgDn/PgUp switches buffers |
+| TC-034: Cut (Ctrl+X) | PASSED | Cuts selected text; Ctrl+V pastes back |
+| TC-036: Block selection | PASSED | Alt+Shift+Down/Right creates column block; typing edits all rows |
+| TC-037: Comment toggle (Ctrl+/) | PASSED | Works on JS files; not on .txt (no language context) |
+| TC-038: Auto-indent | PASSED | Enter after `{` inserts indented new line |
+| TC-043: Shift+F3 (prev match) | PARTIAL | Find Previous works via palette; Shift+F3 NOT recognized in tmux |
+| TC-048: Case-sensitive (Alt+C) | PASSED | Toggles case-sensitive search on/off |
+| TC-049: Regex (Alt+R) | PASSED | Toggles regex mode; actual regex matching confirmed |
+| TC-055: File explorer open file | PASSED | Arrow keys preview, Enter opens permanent tab |
+| TC-056: Toggle line numbers | PASSED | Via command palette "Toggle Line Numbers" |
+| TC-057: Toggle line wrap | PASSED | Via View menu "☑ Line Wrap"; status bar confirms |
+| TC-058: Terminal features | PASSED | Ctrl+Space mode toggle; Ctrl+F scrollback search |
+| TC-NEW-001: Revert prompt | PASSED | "(r)evert, (C)ancel?" confirmed |
+| TC-NEW-005: ⚠ indicator | RESOLVED | Shows LSP diagnostic count; first launch = Test i18n plugin = benign |
+| TC-NEW-006: BUG-006 repro | NOT REPRODUCED | 2 attempts, 0 leaks; possibly fixed or intermittent |
+| TC-060-065: Command palette | PARTIALLY PASSED | Fuzzy search, theme search, buffer switch all work |
+
+### Issues Filed
+None — no new confirmed bugs beyond existing open issues.
+
+### False Positive Rate: 0% (0 of 0)
+
+---
+
+## LESSONS LEARNED — Run #3
+
+### Lesson 8: Close buffer prompt requires letter + Enter, not just the letter
+**What happened:** After `(s)ave, (d)iscard, (C)ancel?` prompt appeared, pressing just "d" typed "d" into the prompt. Had to press "d" then Enter to discard.
+**Rule:** Close buffer prompt may be context-dependent. When it shows as a bottom-line prompt, it appears to require letter + Enter. Test if the VS Code-like "just press the key" works in future runs.
+
+### Lesson 9: Tab switching is Ctrl+PgDn / Ctrl+PgUp
+**What happened:** We tried Ctrl+Tab (sent Tab character to buffer — bug). The correct shortcuts are:
+- `Ctrl+PgDn` = Next Buffer (tmux: `C-NPage`)
+- `Ctrl+PgUp` = Previous Buffer (tmux: `C-PPage`)
+- Alternatively: `Ctrl+P` → `#` for buffer picker
+
+### Lesson 10: File Explorer focus workflow
+1. `Ctrl+B` opens/closes the explorer
+2. `Ctrl+E` switches focus to the explorer
+3. DECCKM arrows (`$'\033O[A-D]'`) navigate; preview tabs open automatically
+4. `Enter` promotes preview tab to permanent
+5. `Ctrl+E` again switches focus back to editor
+
+### Lesson 11: Save As is not in command palette
+- `File > Save As...` is accessible ONLY via the File menu (`Alt+F` or `F10` → navigate)
+- No palette command exists for Save As
+- Ctrl+Shift+S in terminals: Shift is stripped from Ctrl+S; use the menu

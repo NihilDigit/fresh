@@ -17,6 +17,11 @@ Check this list before filing any issue.
 | Arrow keys don't move cursor / navigation seems broken | **DECCKM terminal mode.** Fresh uses application cursor key mode. Must send `$'\033O[A-D]'` NOT tmux `Up`/`Down` key names. See tmux automation section below. |
 | `DC` tmux key name doesn't delete forward | **Wrong escape.** Use `$'\033[3~'` for the Delete key in Fresh. |
 | Search/Replace panel shows "No matches found" for open file | **Workspace scoping bug (#2112).** The search backend only searches within the git project root. Files from /tmp or outside the workspace fail silently. |
+| Shift+F3 does not navigate to previous match | **Terminal compatibility.** `S-F3` in tmux does not send the correct shift+F3 escape. "Find Previous" works via command palette (binding: `Ctrl+Shift+N`, but also problematic in tmux). |
+| `Ctrl+Tab` doesn't switch tabs — types Tab character into buffer | **Wrong key.** Tab switching is `Ctrl+PgDn` / `Ctrl+PgUp` (tmux: `C-NPage` / `C-PPage`). Never use `Ctrl+Tab` in tmux. |
+| File Explorer arrow keys do nothing after Ctrl+B | **Focus not on explorer.** `Ctrl+B` opens the sidebar but does NOT focus it. Use `Ctrl+E` to give focus to the explorer. Status bar shows "File explorer focused". |
+| "Toggle Line Wrap" not found in command palette | **It's in the menu, not the palette.** Toggle Line Wrap is in View menu (`Alt+V` → navigate down 2 from File Explorer to `☑ Line Wrap`). |
+| Close buffer prompt requires Enter after the letter key | **Confirmed in Run #3.** When the close-buffer prompt appears as a bottom-line input, you must type the letter (e.g. `d`) AND press Enter to confirm. Just pressing `d` appends to the prompt text. |
 
 ---
 
@@ -114,10 +119,14 @@ Log your search queries in the issue body so future runs don't repeat the same s
 | `Ctrl+O` | Open file dialog | Full file browser |
 | `Ctrl+S` | Save | Save-as dialog for new files |
 | `Ctrl+Q` | Quit | Hot exit saves state |
-| `Ctrl+B` | Toggle File Explorer sidebar | NOT Ctrl+E |
+| `Ctrl+B` | Toggle File Explorer sidebar | Opens/closes only |
+| `Ctrl+E` | Focus/unfocus File Explorer | Switches keyboard focus between editor and explorer |
 | `Ctrl+W` | **Select word under cursor** | ⚠️ NOT "close buffer" (different from VS Code!) |
-| `Alt+W` | Close current tab | Closes the tab in the focused split; prompts if unsaved |
+| `Alt+W` | Close current tab | Closes the tab in the focused split; prompts if unsaved (requires letter + Enter) |
+| `Ctrl+PgDn` | Next Buffer | tmux: `C-NPage` |
+| `Ctrl+PgUp` | Previous Buffer | tmux: `C-PPage` |
 | Close Buffer | No default shortcut | Use `Ctrl+P → "Close Buffer"` for buffer-level close |
+| Save As | No keyboard shortcut in terminals | Use `Alt+F → navigate to Save As...` |
 
 ### Editing
 | Key | Action | Notes |
@@ -168,8 +177,19 @@ Log your search queries in the issue body so future runs don't repeat the same s
 | Key | Action | Notes |
 |-----|--------|-------|
 | `Alt+\`` | Open terminal in utility dock | Splits screen; terminal at bottom |
-| `Ctrl+Space` | Toggle terminal focus | Defocused = read-only; focus status shown in bar |
+| `Ctrl+Space` | Toggle terminal mode ↔ scrollback mode | "Terminal mode enabled/disabled" in status bar |
+| `Ctrl+]` | Exit terminal mode | Same as Ctrl+Space |
+| `F9` | Toggle keyboard capture in terminal | All keys go to terminal; UI dims |
+| `Ctrl+F` | Search in terminal scrollback | Works when in scrollback (read-only) mode |
 | `Alt+J` | Toggle dock focus | Switch focus between editor and bottom dock |
+
+### View Toggles (Run #3)
+| Key | Action | Notes |
+|-----|--------|-------|
+| `Ctrl+P → "Toggle Line Numbers"` | Toggle line numbers | Via command palette |
+| `Alt+V → ☑ Line Wrap` | Toggle line wrap | Via View menu ONLY (not palette) |
+| `Alt+V → ☐ Mouse Support` | Toggle mouse support | Via View menu |
+| `Alt+V → ☑ Vertical Scrollbar` | Toggle scrollbar | Via View menu |
 
 ---
 
