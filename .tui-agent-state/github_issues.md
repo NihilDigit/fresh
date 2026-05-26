@@ -52,3 +52,11 @@ Even if the symptom looks fresh, these have already been fully investigated:
 3. Scan the open issues table — if your topic is there, add a comment to the existing issue rather than opening a new one.
 4. Search GitHub with at least 3 different query variations.
 5. Only then open a new issue and add a row to this file.
+
+## Issue #2122 — move_to_paragraph_down/up Has No Default Keybinding (0.3.9 oversight)
+- **Filed:** Run #7, 2026-05-26
+- **URL:** https://github.com/sinelaw/fresh/issues/2122
+- **Label:** bug, tui-agent-auto-bug
+- **Status:** Open
+- **Summary:** The `move_to_paragraph_down` and `move_to_paragraph_up` actions added in 0.3.9 (PR #2084) have no default keybinding and are not accessible from the command palette. The sibling `select_to_paragraph_*` actions have `Ctrl+Shift+↓/↑` bindings. Users cannot use the new "jump to paragraph" feature without manually binding it.
+- **Search queries used:** `move_to_paragraph keybinding`, `paragraph navigation keybinding`, `paragraph action command palette missing`

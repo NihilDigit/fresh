@@ -94,6 +94,25 @@
 
 ---
 
+---
+
+### BUG-008 — move_to_paragraph_down/up Has No Default Keybinding (0.3.9 oversight)
+- **Date:** 2026-05-26
+- **Severity:** Medium (new feature completely inaccessible by default)
+- **GitHub Issue:** https://github.com/sinelaw/fresh/issues/2122 (filed Run #7)
+- **Status:** Open
+- **Root Cause:** PR #2084 added `move_to_paragraph_down/up` as Builtin actions but omitted default keybindings. The PR author noted "no palette commands" intentionally (consistent with movement actions like `move_left`), but did NOT address keybindings. The sibling `select_to_paragraph_*` actions have `Ctrl+Shift+↓/↑` bindings; the new move actions have nothing.
+- **Reproduction (verified Run #7):**
+  1. Open Fresh 0.3.9 (`fresh --no-restore`)
+  2. `Ctrl+P` → search `paragraph` → **0 results**
+  3. `Ctrl+P → "Open Keybinding Editor"` → `/paragraph` → see `move_to_paragraph_down` and `move_to_paragraph_up` listed under Builtin(4) with empty Key column
+  4. No way to invoke the feature without manually binding in the keybinding editor
+- **Expected:** Default bindings such as `Ctrl+↓` / `Ctrl+↑` (the "move" analog of `Ctrl+Shift+↓` / `Ctrl+Shift+↑` for select)
+- **Workaround:** Keybinding editor → `/paragraph` → select → Enter → press desired key. Not discoverable.
+- **Confirmed reproduced:** Yes, twice
+
+---
+
 ## Resolved Bugs
 
 *(None yet)*

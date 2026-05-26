@@ -25,6 +25,7 @@
 | 4     | 2026-05-26 | COMPLETED | 30+ | 0 filed → 0 confirmed new bugs |
 | 5     | 2026-05-26 | COMPLETED | 15+ | 1 filed → 1 real bug (#2117) |
 | 6     | 2026-05-26 | COMPLETED | 7   | 0 filed → 0 confirmed new bugs; 1 PENDING investigation |
+| 7     | 2026-05-26 | COMPLETED | 12  | 1 filed → 1 real bug (#2122) |
 
 ---
 
@@ -208,51 +209,68 @@
 
 ---
 
-## Immediate Next Action (Run #7)
+## Completed Tests (Run #7)
+- [x] **TC-DASHBOARD-DEFAULT** CONFIRMED - Fresh 0.3.9 no longer opens dashboard automatically with `--no-restore`
+- [x] **TC-PARA-SELECT** PASSED - select_to_paragraph_down/up work (CSI 1;6B / CSI 1;6A escape sequences)
+- [x] **TC-SETTINGS-CHECKBOX** RESOLVED - Checkboxes ARE keyboard-navigable: ↑↓ arrows in right panel, Enter to toggle
+- [x] **TC-CONFIRM-QUIT** PASSED - `Quit Fresh? (y)es, (N)o:` prompt appears when enabled; letter+Enter to confirm
+- [x] **TC-SCROLL-SYNC** PASSED - Both panes scroll synchronously with same buffer open in each
+- [x] **TC-AUTO-REVERT** PASSED - External file modification detected and auto-reverted within ~3s
+- [x] **TC-NEXT-WINDOW** TESTED - "Cancelled" when single window open (correct); multi-window requires Orchestrator
+- [x] **TC-LIVE-GREP-0.3.9** PASSED - Scope toggles (Files/Buffers/Terminals/Diagnostics), provider cycle, Word/Regex toggles all working
+- [x] **TC-PAGEDOWN-OVERSHOOT** BASIC-PASS - PageDown/PageUp navigate correctly on wrapped file; overshoot repro hard to construct
+- [x] **TC-COMPLETION-AUTO-SHOW** LIMITED - Setting toggles correctly; popup requires LSP (currently off)
+- [x] **TC-PARA-MOVE-BUG** BUG FILED - move_to_paragraph_down/up inaccessible; Issue #2122 opened
 
-### FIRST: Version Check
-- Check CHANGELOG.md for any new version since 0.3.8
-- Check if BUG #2117 (Review Diff discard) has been fixed
+---
 
-### Priority Tests for Run #7:
-1. **INVESTIGATE: Settings UI Checkboxes not Tab-navigable**
-   - Open Settings (Ctrl+P → "Open Settings")
-   - Navigate to Editor > Recovery section
-   - Verify: can Tab reach "Auto Save Enabled: [ ]" checkbox or not?
-   - If confirmed: file bug with clear reproduction steps
-   - If NOT an issue (e.g. there's a non-Tab way to toggle): document the correct method
-   
-2. **confirm_quit setting** — test `editor.confirm_quit`
-   - Open Settings → `/confirm_quit` → enable it
-   - Verify Ctrl+Q shows a confirmation prompt before quitting
-   - Disable it again
-   
-3. **LSP over SSH test** (partial)
-   - Fresh 0.3.8 claims "LSP over SSH now runs language server on remote host"
-   - Open a Rust/TypeScript file and check if LSP status indicator shows up (even if LSP server not installed)
-   - Document what the LSP status shows in "LSP (off)" state vs. potential enabled states
+## Immediate Next Action (Run #8)
 
-4. **Completion popup auto-show**
-   - Settings → `/completion_popup_auto_show` → enable
-   - Edit a Rust/JS file, type a few chars, verify popup appears automatically
-   
-5. **Next / Previous Window commands** (0.3.8 feature)
-   - `Ctrl+P → "Next Window"` — should cycle open windows
-   - Document behavior
+### FIRST: State Check
+- Version is 0.3.9 (Cargo.toml) — built from master
+- BUG #2117 (Review Diff discard): still open, not fixed in 0.3.9
+- BUG #2122 (move_to_paragraph no keybinding): newly filed
+- Config state: auto_save OFF, confirm_quit OFF, completion_popup_auto_show OFF (all restored to defaults)
 
-6. **Auto Revert behavior**  
-   - Open a file in Fresh; modify it externally (via shell); verify Fresh auto-reverts
+### Priority Tests for Run #8:
+1. **LSP status indicator deep-dive**
+   - Open a Rust file from the codebase (e.g., `crates/fresh-core/src/action.rs`)
+   - Observe LSP indicator in status bar — does it offer to download/configure an LSP?
+   - Try `Ctrl+P → "LSP: ..."` commands and document what's available without a server
 
-7. **Scroll Sync in split view**
-   - Open same file in two splits (Split Vertical → Ctrl+P → buffer navigation)
-   - `Ctrl+P → "Toggle Scroll Sync"` → verify scroll synchronizes
+2. **Orchestrator: Attach to existing worktree** (new 0.3.9 feature)
+   - `Ctrl+P → "Orchestrator: Open"` → check if existing worktrees are listed (session-1 from Run #6)
+   - Test "Show all worktrees" toggle and bulk actions (multi-select)
+   - Document the new UI improvements
 
-### CRITICAL Reminders for Run #7:
-- **Settings checkbox navigation**: Tab only reaches number/text inputs. Checkboxes may require mouse or a different key. INVESTIGATE before filing bug.
-- **Orchestrator New Session**: Tab×6 from dialog open to reach "Create Session" button
-- **Auto-save enabled**: Currently ON in /root/.config/fresh/config.json (5s interval) — may affect test results
-- **Theme**: my-test-theme.json is active theme (orange cursor) — may affect visual test results
-- **Config file**: /root/.config/fresh/config.json — check and reset auto_save before testing if it interferes
-- **Review Diff discard**: BUG #2117 still open — use `s` (stage) instead of `d` (discard)
-- **Tour**: Tested and working. Tab to focus "Next →" button, Up arrow also works
-- **Worktree cleanup**: session-1 worktree at /root/.local/share/fresh/orchestrator/home_user_fresh/session-1 exists
+3. **Live Grep: Diagnostics scope** 
+   - `Ctrl+P → "Live Grep"` → enable Diagnostics scope (Alt+D)
+   - Search for something; verify diagnostics scope works or note behavior
+
+4. **Live Grep: Alt+M save matches**
+   - Run Live Grep with results → press Alt+M → verify matches saved to a buffer
+   - Document format of saved matches
+
+5. **Review Diff discard re-test**
+   - Make a small edit, save, `Ctrl+P → "Review Diff"`, navigate to hunk, press `d` (discard)
+   - Verify BUG #2117 is still present in 0.3.9 and update the issue
+
+6. **C3 language support** (new 0.3.9 feature)
+   - Create a file with `.c3` extension containing basic C3 syntax
+   - Verify syntax highlighting activates
+
+7. **Plugin API: getWorkingDataDir / getTerminalDir** (new 0.3.9)
+   - Check if any built-in plugins expose these APIs or if they're only for custom plugins
+   - Document behavior in learning_db
+
+8. **Workspace restore: multiple projects** (0.3.9 fix — #2056)
+   - Verify that reopening Fresh after viewing files from the /tmp directory doesn't mix tabs from multiple projects
+
+### CRITICAL Reminders for Run #8:
+- **Settings checkboxes**: ↑↓ arrows in the right panel → Enter to toggle (NOT Tab)
+- **Settings search**: Press `/` in Settings UI left panel to search settings
+- **Paragraph navigation**: move_to_paragraph_* has no default binding; select_to_paragraph uses CSI 1;6B/6A
+- **Auto-save**: Currently OFF in config. Enable ONLY for auto-save testing; disable when done.
+- **BUG #2117**: Review Diff `d` (discard) is broken — use `s` (stage) instead
+- **BUG #2122**: move_to_paragraph keybinding — watch for fix in future versions
+- **Orchestrator worktree**: session-1 at /root/.local/share/fresh/orchestrator/home_user_fresh/session-1 (may be stale)

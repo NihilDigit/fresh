@@ -22,12 +22,15 @@ Check this list before filing any issue.
 | File Explorer arrow keys do nothing after Ctrl+B | **Focus not on explorer.** `Ctrl+B` opens the sidebar but does NOT focus it. Use `Ctrl+E` to give focus to the explorer. Status bar shows "File explorer focused". |
 | "Toggle Line Wrap" not found in command palette | **It's in the menu, not the palette.** Toggle Line Wrap is in View menu (`Alt+V` → navigate down 2 from File Explorer to `☑ Line Wrap`). |
 | Close buffer prompt requires Enter after the letter key | **Confirmed in Run #3.** When the close-buffer prompt appears as a bottom-line input, you must type the letter (e.g. `d`) AND press Enter to confirm. Just pressing `d` appends to the prompt text. |
+| Settings checkboxes not navigable via Tab | **Run #6 concern RESOLVED in Run #7.** Checkboxes ARE reachable: use ↑↓ arrows (DECCKM) in the right panel to navigate to a checkbox, then Enter to toggle. Tab only reaches number/text inputs. |
+| "move_to_paragraph" not found in command palette | **By design** (PR #2084): movement-only actions don't get palette entries, same as `move_left`. BUT missing default keybinding is a bug (#2122). These actions exist but require manual keybinding configuration. |
+| "Next Window" command shows "Cancelled" | **Single-window behavior** — correct when only 1 window open. Requires Orchestrator-created multi-window sessions to have multiple windows to cycle. |
 
 ---
 
 ## Application Overview
 - **Name:** Fresh — a modern terminal text editor
-- **Version:** 0.3.8
+- **Version:** 0.3.9 (as of Run #7)
 - **Binary:** `./target/release/fresh`
 - **Build:** `cargo build --release --bin fresh`
 
@@ -446,3 +449,53 @@ Always use `tmux capture-pane -p -e` (with ANSI) to confirm which menu item is h
 - Each test run that makes edits will affect the next run via hot exit
 - Use `fresh --no-restore` to launch without restoring previous session state (useful for clean-slate tests)
 - "Calibrate Keyboard" in the command palette detects terminal key-translation issues
+
+---
+
+## Lessons Added in Run #7
+
+### Lesson 29: Settings UI — Checkboxes ARE keyboard-navigable (Run #7 resolution)
+- Previous run thought checkboxes were NOT reachable by Tab. CORRECTION:
+  - ↑↓ arrows (DECCKM: `\033OA`/`\033OB`) navigate ALL items in the right panel, including checkboxes
+  - Enter toggles the highlighted checkbox (`[ ]` → `[v]` or vice versa)
+  - Tab ONLY reaches number/text inputs (skips checkboxes)
+  - The `>` prefix in the right panel shows the selected item
+  - Modified-but-unsaved items show `>●` (bullet = pending change)
+- Confirmed via: Settings UI → search `/confirm_quit` → Enter → checkboxes are selectable
+
+### Lesson 30: Settings Search — Press `/` in LEFT Panel
+- In Settings UI, pressing `/` triggers a SEARCH mode over all setting names/descriptions
+- This works from the LEFT panel (not the right panel)
+- Search shows: "(N-12 of 38) ↓" result count with ↓ arrows to cycle
+- The first match is auto-selected with `▸` arrow in the results
+- Press Enter to navigate to the selected result's location in the right panel
+
+### Lesson 31: select_to_paragraph escape sequences (confirmed Run #7)
+- `Ctrl+Shift+Down` = CSI `1;6B` = `$'\033[1;6B'` in tmux → triggers `select_to_paragraph_down`
+- `Ctrl+Shift+Up` = CSI `1;6A` = `$'\033[1;6A'` in tmux → triggers `select_to_paragraph_up`
+- These escape sequences work correctly in Fresh's application terminal mode
+- Selection renders as `[48;5;17m]` (dark blue background) on selected text
+
+### Lesson 32: confirm_quit prompt behavior
+- When enabled: pressing Ctrl+Q shows `Quit Fresh? (y)es, (N)o:` at the bottom line
+- Requires letter + Enter to confirm: `y` then Enter = quits; `N` then Enter = stays
+- Just pressing `N` alone appends to the prompt without cancelling (same pattern as Close Buffer)
+- Status bar shows "Close cancelled" after pressing N+Enter
+
+### Lesson 33: Live Grep 0.3.9 toolbar and scopes
+- New toolbar format: `Search in: [v] Files Alt+L  [ ] Ignored Alt+H  [v] Buffers Alt+U  [v] Terminals Alt+T  [ ] Diagnostics Alt+D`
+- Toggle with: Alt+L (Files), Alt+H (Ignored), Alt+U (Buffers), Alt+T (Terminals), Alt+D (Diagnostics)
+- Match modes: Alt+O (Word), Alt+G (Regex) — these are toggles shown with [v]/[ ]
+- Provider cycle: Alt+P — cycles git-grep → rg → grep → (back)
+- Save matches: Alt+M — saves current matches to a buffer
+- Result count in header: "1 / 1000" format; "1000+" means capped at 1000
+- Buffer results tagged: `[buf]` prefix (e.g., `[buf] /tmp/fresh-test/sample.js:3`)
+- Status "Searching…" during search, then result count replaces it
+
+### Lesson 34: move_to_paragraph design context (PR #2084)
+- PR #2084 deliberately omitted command palette entries for `move_to_paragraph_*`
+- Reasoning: "just like `move left` command is not needed" (movement-only actions don't get palette entries)
+- BUT: forgot to add DEFAULT KEYBINDING (unlike `select_to_paragraph_*` which have Ctrl+Shift+↓/↑)
+- This is likely an oversight since the select variants DO have bindings
+- Filed as BUG #2122
+- Workaround: Keybinding Editor → `/paragraph` → select action → Enter → press desired key
