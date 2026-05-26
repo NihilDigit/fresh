@@ -26,6 +26,7 @@
 | 5     | 2026-05-26 | COMPLETED | 15+ | 1 filed → 1 real bug (#2117) |
 | 6     | 2026-05-26 | COMPLETED | 7   | 0 filed → 0 confirmed new bugs; 1 PENDING investigation |
 | 7     | 2026-05-26 | COMPLETED | 12  | 1 filed → 1 real bug (#2122) |
+| 8     | 2026-05-26 | COMPLETED | 10  | 0 filed → BUG #2117 confirmed FIXED |
 
 ---
 
@@ -224,53 +225,78 @@
 
 ---
 
-## Immediate Next Action (Run #8)
+## Completed Tests (Run #8)
+- [x] **TC-LSP-STATUS** PASSED - LSP status indicator: `○ rust-analyzer (not running)` popup; Enter starts first option; LSP (error) state when server missing; log tab auto-opens at `/root/.local/state/fresh/logs/lsp/`
+- [x] **TC-LSP-POPUP-NAV** DISCOVERED - Popup navigation: DECCKM sequences CLOSE popups (ESC prefix). Use plain `Up`/`Down` tmux key names for popup list navigation
+- [x] **TC-LIVE-GREP-DIAG** PASSED - Diagnostics scope (Alt+D) toggle works; no results without active LSP (expected); provider line disappears when diagnostics-only
+- [x] **TC-LIVE-GREP-ALTM** PASSED - Alt+M saves matches to `*Quickfix*` [RO] buffer in split; format `file:line:col  content`; header: `Quickfix: <query> (N matches)`
+- [x] **TC-ORCHESTRATOR-0.3.9** PASSED - New UI: Alt+P project scope toggle, Alt+T show all worktrees, `/` filter search, session detail buttons (Visit/Details/Stop/Archive/Delete)
+- [x] **TC-C3-LANGUAGE** PASSED - C3 syntax highlighting confirmed working (keywords/types/functions/numbers/strings/comments all colored); `C3` in status bar; code folding at fn/struct
+- [x] **TC-REVIEW-DIFF-DISCARD** PASSED (BUG FIXED) - Discard hunk now works correctly in 0.3.9; BUG #2117 resolved; comment posted on GitHub issue
+- [x] **TC-WORKSPACE-RESTORE-2056** PASSED - Session isolation by working directory confirmed; no cross-project tab mixing; external files restore in the project that opened them
+- [x] **TC-PLUGIN-API-DATADIRS** DOCUMENTED - `getWorkingDataDir()` (project data root) and `getTerminalDir()` (terminal scrollback dir for current cwd) are 0.3.9 plugin API additions; used by live_grep.ts for scoped terminals search
+
+---
+
+## Immediate Next Action (Run #9)
 
 ### FIRST: State Check
 - Version is 0.3.9 (Cargo.toml) — built from master
-- BUG #2117 (Review Diff discard): still open, not fixed in 0.3.9
-- BUG #2122 (move_to_paragraph no keybinding): newly filed
-- Config state: auto_save OFF, confirm_quit OFF, completion_popup_auto_show OFF (all restored to defaults)
+- BUG #2117 (Review Diff discard): **FIXED in 0.3.9** — confirmed Run #8
+- BUG #2122 (move_to_paragraph no keybinding): still open — watch for fix
+- Config state: auto_save OFF, confirm_quit OFF, completion_popup_auto_show OFF (all defaults)
 
-### Priority Tests for Run #8:
-1. **LSP status indicator deep-dive**
-   - Open a Rust file from the codebase (e.g., `crates/fresh-core/src/action.rs`)
-   - Observe LSP indicator in status bar — does it offer to download/configure an LSP?
-   - Try `Ctrl+P → "LSP: ..."` commands and document what's available without a server
+### Priority Tests for Run #9:
 
-2. **Orchestrator: Attach to existing worktree** (new 0.3.9 feature)
-   - `Ctrl+P → "Orchestrator: Open"` → check if existing worktrees are listed (session-1 from Run #6)
-   - Test "Show all worktrees" toggle and bulk actions (multi-select)
-   - Document the new UI improvements
+1. **LSP popup navigation verification**
+   - Confirm that plain `Up`/`Down` tmux key names work for navigating LSP popup options
+   - Test: `Ctrl+P → "Show LSP Status"` → `Down` (tmux key) → Enter on "Start once" option
+   - Verify the correct option is selected (NOT the first)
+   - Document confirmed navigation method
 
-3. **Live Grep: Diagnostics scope** 
-   - `Ctrl+P → "Live Grep"` → enable Diagnostics scope (Alt+D)
-   - Search for something; verify diagnostics scope works or note behavior
+2. **Quickfix buffer navigation**
+   - `Ctrl+P → "Live Grep"` → search for something → `Alt+M`
+   - Navigate within the `*Quickfix*` buffer
+   - Press `Enter` on a match line — does it jump to that location?
+   - Document the Quickfix buffer's navigation behavior
 
-4. **Live Grep: Alt+M save matches**
-   - Run Live Grep with results → press Alt+M → verify matches saved to a buffer
-   - Document format of saved matches
+3. **LSP with fake server** (Bash-based simulation)
+   - Check `scripts/fake-lsp/` directory — can we launch a fake LSP to test LSP features?
+   - If fake-lsp exists: test completions, diagnostics, hover with the fake server
+   - This would unlock testing of: auto-completion popup, diagnostics panel, inlay hints
 
-5. **Review Diff discard re-test**
-   - Make a small edit, save, `Ctrl+P → "Review Diff"`, navigate to hunk, press `d` (discard)
-   - Verify BUG #2117 is still present in 0.3.9 and update the issue
+4. **Settings UI — new 0.3.9 improvements verification**
+   - `Ctrl+P → "Open Settings"`
+   - Test: `Ctrl+R` to reset a field to default (from CHANGELOG 0.3.8: "Ctrl+R resets a field")
+   - Test: List editing with inline `[+] Add new` / `[x]` rows (e.g., in LSP server list)
+   - Test: Settings search `/` → Enter → then try Tab navigation to the found field
 
-6. **C3 language support** (new 0.3.9 feature)
-   - Create a file with `.c3` extension containing basic C3 syntax
-   - Verify syntax highlighting activates
+5. **Shell Command feature** (`Alt+|`)
+   - Open a file, select some lines
+   - `Alt+|` → Run shell command on selection → output to new buffer
+   - Test: sort a selection, or run `wc -l` on a file
+   - Verify output appears in a new buffer
 
-7. **Plugin API: getWorkingDataDir / getTerminalDir** (new 0.3.9)
-   - Check if any built-in plugins expose these APIs or if they're only for custom plugins
-   - Document behavior in learning_db
+6. **Multi-cursor: Add Cursors to Line Ends** (`Alt+Shift+I`)
+   - Open a file with multiple lines
+   - Select 5 lines → `Alt+Shift+I`
+   - Verify cursor appears at end of each selected line
+   - This is a 0.3.7 feature not yet tested
 
-8. **Workspace restore: multiple projects** (0.3.9 fix — #2056)
-   - Verify that reopening Fresh after viewing files from the /tmp directory doesn't mix tabs from multiple projects
+7. **Diagnostics Panel navigation**
+   - `Ctrl+P → "Toggle Diagnostics Panel"` → wait for LSP diagnostics (or check with i18n plugin)
+   - `Ctrl+P → "Show Diagnostics Panel"` 
+   - Navigate with Up/Down, press Enter to jump to diagnostic location
 
-### CRITICAL Reminders for Run #8:
-- **Settings checkboxes**: ↑↓ arrows in the right panel → Enter to toggle (NOT Tab)
-- **Settings search**: Press `/` in Settings UI left panel to search settings
-- **Paragraph navigation**: move_to_paragraph_* has no default binding; select_to_paragraph uses CSI 1;6B/6A
-- **Auto-save**: Currently OFF in config. Enable ONLY for auto-save testing; disable when done.
-- **BUG #2117**: Review Diff `d` (discard) is broken — use `s` (stage) instead
-- **BUG #2122**: move_to_paragraph keybinding — watch for fix in future versions
-- **Orchestrator worktree**: session-1 at /root/.local/share/fresh/orchestrator/home_user_fresh/session-1 (may be stale)
+8. **BUG #2122 re-check** 
+   - Check if `move_to_paragraph_down/up` still has no default keybinding
+   - Test via Keybinding Editor → `/paragraph` to confirm status
+
+### CRITICAL Reminders for Run #9:
+- **Popup navigation**: Use plain `Up`/`Down` tmux keys (NOT DECCKM `$'\033O[AB]'`) for popup lists
+- **Settings checkboxes**: ↑↓ DECCKM arrows in the right panel → Enter to toggle (NOT Tab)
+- **Settings search**: Press `/` in Settings UI LEFT panel to search settings
+- **Review Diff discard**: NOW FIXED — no longer need to avoid `d` key
+- **BUG #2122**: move_to_paragraph keybinding — still open
+- **LSP**: rust-analyzer NOT installed; `rustup` available but no `rust-analyzer` binary
+- **Fake LSP script**: Check `scripts/fake-lsp/` for testing LSP features

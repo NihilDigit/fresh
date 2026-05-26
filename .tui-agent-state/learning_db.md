@@ -499,3 +499,94 @@ Always use `tmux capture-pane -p -e` (with ANSI) to confirm which menu item is h
 - This is likely an oversight since the select variants DO have bindings
 - Filed as BUG #2122
 - Workaround: Keybinding Editor → `/paragraph` → select action → Enter → press desired key
+
+---
+
+## Lessons Added in Run #8
+
+### Lesson 35: LSP Status Popup — Enter selects FIRST item (no Down navigation needed for first item)
+- `Ctrl+P → "Show LSP Status"` or `Ctrl+P → "LSP: ..."` opens LSP server status popup
+- Popup format: `○ rust-analyzer (not running)` / `Start rust-analyzer (always)` / `Start rust-analyzer once` / `Disable LSP for rust` / `View Log` / `Dismiss (Esc)`
+- **CRITICAL**: DO NOT use DECCKM sequences (`$'\033OB'`) to navigate LSP popups — they will close the popup (ESC character dismisses it) and the remaining characters get typed into the editor buffer
+- Enter selects the FIRST item (currently highlighted — the top option)
+- For navigating popup options beyond the first, use plain tmux key names: `Down` / `Up` (NOT `$'\033OB'`/`$'\033OA'`)
+- When LSP server not installed: Fresh tries to start it → spawns log file tab → status bar: "LSP (error)" → log tab shows full error backtrace
+- LSP log file location: `/root/.local/state/fresh/logs/lsp/<name>-<pid>.log`
+- LSP states visible in status bar: `LSP (off)`, `LSP (error)`, `LSP` (running)
+
+### Lesson 36: Command Palette List Navigation — Use plain tmux key names
+- For navigating the RESULTS LIST in the command palette (both command and file mode), use plain `Up`/`Down` tmux key names
+- DECCKM sequences (`$'\033OA'`/`$'\033OB'`) start with ESC (`\033`) which CLOSES any open overlay/popup/palette
+- So: `$'\033OA'` in palette input = ESC (closes palette) + literal `OA` typed somewhere
+- Safe rule: DECCKM sequences ONLY for cursor movement within the EDITOR BUFFER itself
+- All overlay/popup/dialog navigation: use plain `Up`, `Down`, `Left`, `Right` key names
+
+### Lesson 37: Live Grep Alt+M — Saves to *Quickfix* buffer
+- `Alt+M` in Live Grep closes the overlay and saves all current matches to a `*Quickfix*` [RO] buffer
+- The Quickfix buffer opens in a new split pane
+- Format: `file:line:col  match_content` (one per line)
+- Header line: `Quickfix: <query> (N matches)`
+- The Live Grep overlay is dismissed when Alt+M is pressed (replaced by the buffer)
+- The *Quickfix* buffer is read-only and shows the full path
+- To navigate to a match: use Ctrl+PgDn to switch to the Quickfix tab, then navigate to line and Enter to jump
+
+### Lesson 38: C3 Language Support (0.3.9) — Working
+- Fresh detects `.c3`, `.c3i`, `.c3t` extensions as C3 language
+- Status bar shows `C3` language indicator
+- Grammar: `c3.sublime-syntax` — full syntax highlighting for:
+  - Keywords (`module`, `fn`, `struct`, `import`, `return`, `const`): cyan `[38;5;51m]`
+  - Types (`int`, `double`, `void`, struct names): pink `[38;5;207m]`
+  - Function names: yellow `[38;5;226m]`
+  - Numbers: blue `[38;5;69m]`
+  - Strings: green `[38;5;34m]`
+  - Comments (`//`): gray `[38;5;253m]`
+- Code folding indicators (▾/▸) appear at `fn` and `struct` declarations
+- LSP configuration: `c3lsp` configured but not bundled — shows `LSP (off)` until c3lsp is on PATH
+- C3 file can be opened from outside the project (e.g., `/tmp/test.c3`) via Ctrl+O
+
+### Lesson 39: Orchestrator 0.3.9 UI Improvements
+- New header format: `ORCHESTRATOR :: Sessions  —  [scope]` (scope = "all projects" or "user/fresh")
+- **Alt+P (current only)**: Toggles between all-projects and current-project scope
+  - All projects: `Project: [ All ▾   (Alt+P) ]`
+  - Current project: `Project: [ fresh ▾   (Alt+P) ]`
+  - Header also updates: "all projects" → "user/fresh"
+- **Alt+T (show all worktrees)**: Checkbox toggle `[ ] Show all worktrees` / `[v] Show all worktrees`
+- **Filter search**: Press `/` to enter the filter input box; type to filter session names
+- **Alt+N (New Session)**: Opens session creation form
+- Navigation keys (shown in footer): `↑↓ nav  Enter dive  Space select  Alt+P current only  Tab focus  Esc close`
+- Session detail panel (right): `[ Visit ]  [ Details ]  [ Stop ]  [ Archive ]  [ Delete ]` action buttons
+- BASE session always shown as the current running session
+
+### Lesson 40: Review Diff Discard — FIXED in 0.3.9
+- BUG #2117 (discard hunk fails with "patch does not apply") is FIXED in the 0.3.9 dev build
+- Discard workflow now works correctly:
+  1. Review Diff → `n` to navigate to hunk (status: "Hunk 1 of 1")
+  2. Press `d` → confirmation dialog: "Discard this hunk in 'FILE'? This cannot be undone."
+  3. Enter to confirm → status: "Review Diff: 0 hunks", panel: "No changes to review."
+  4. File is reverted to HEAD state (git diff confirms no changes)
+- Confirmed twice in Run #8
+
+### Lesson 41: Live Grep Diagnostics Scope — No results without active LSP
+- `Alt+D` toggles Diagnostics scope in Live Grep toolbar
+- When only Diagnostics scope is enabled (`[ ] Files`, `[ ] Buffers`, `[ ] Terminals`, `[v] Diagnostics`):
+  - Without an active LSP server: "No matches" for any search (even empty)
+  - The Diagnostics scope searches LSP-generated diagnostics, not just file content
+  - The `[⚠ N]` in status bar (from i18n plugin or LSP errors) does NOT populate Diagnostics scope
+  - Provider line disappears when Diagnostics-only (no git-grep/rg needed for diagnostics search)
+- When LSP is running and diagnosing code: Diagnostics scope would show matches against diagnostic messages
+
+### Lesson 42: getWorkingDataDir() and getTerminalDir() plugin APIs (0.3.9)
+- `editor.getWorkingDataDir()`: Per-working-directory data directory root for plugin storage
+  - Different from `getThemesDir()` — scoped to the current project/worktree
+  - Used for storing project-specific plugin data
+- `editor.getTerminalDir()`: Directory holding terminal scrollback backing files for current working dir
+  - Path: `<data_dir>/terminals/<encoded-cwd>/`
+  - Used by Live Grep to scope "Terminals" search to the current project's terminals (not all terminals)
+  - This is WHY Live Grep "Terminals" scope stays scoped to the current project
+
+### Lesson 43: Workspace Session Isolation
+- Sessions ARE correctly scoped per working directory
+- Launching Fresh from `/home/user/fresh` restores the session for that directory only
+- Launching Fresh from `/tmp/fresh-test-project` restores (or starts fresh) for that directory only
+- External files opened from outside the project (e.g., `/tmp/file.txt` from a project session) ARE included in that project's session restore
+- No cross-project tab mixing observed — issue #2056 appears resolved
