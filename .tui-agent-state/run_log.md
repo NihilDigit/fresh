@@ -2,6 +2,45 @@
 
 ---
 
+## Run #11 — 2026-05-26
+
+### Status: COMPLETED
+
+### What Was Done
+- Built Fresh 0.3.9 binary from `claude/ecstatic-mayer-5DivD` branch (6.5 min build)
+- Checked out `tui-automated-testing-state` branch, loaded all prior state
+- Launched tmux session `fresh-qa` (200×50)
+- Executed 10+ test objectives covering bookmarks, Settings add/delete/reset, and LSP with fake-pylsp
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| TC-BOOKMARKS | **PASSED** | Alt+1/2/etc jump to bookmarks 1/2/etc; "not set" for missing; Ctrl+P → "Set Bookmark" |
+| TC-SETTINGS-ADD-NEW | **PASSED** | Typing while focused on list header activates [+] Add new inline input; Enter confirms |
+| TC-SETTINGS-CTRL-R | **RESOLVED/PARTIAL** | Ctrl+R is a NO-OP for field reset; Escape from field reverts pending changes; [ Reset ] button via Tab works |
+| TC-SETTINGS-DEL-X | **PENDING** | [x] buttons appear mouse-only; keyboard navigation to sub-list items not confirmed |
+| TC-FAKE-LSP | **PASSED** | fake-pylsp recognized as `pylsp`; LSP starts; connection handshake logged |
+| TC-LSP-GOTO-DEF | **PASSED** | F12 Go to Definition works; navigates to LSP-returned location |
+| TC-LSP-HOVER | **PARTIAL** | Alt+K shows "No hover info available" (expected with fake-pylsp null response) |
+| TC-LSP-REFERENCES | **PASSED** | Find References opens dock panel with clickable results; Enter navigates correctly |
+| TC-REFERENCES-NAV | **CONFIRMED** | References panel Enter WORKS (unlike *Quickfix* BUG #2124) |
+
+### Issues Found This Run
+- **0 new bugs filed**
+- **1 important distinction**: References panel (from LSP Find References) correctly handles Enter navigation — this is DIFFERENT from *Quickfix* buffer (BUG #2124 which is from Live Grep Alt+M)
+- **Ctrl+R in Settings**: Does NOT reset number fields — CHANGELOG claim may be incorrect for 0.3.9
+
+### Key Learnings
+- Binary 0.3.9 confirmed from `fresh --version`
+- Bookmarks: `Ctrl+P → Set Bookmark → digit → Enter`; jump with `Alt+N`
+- Settings list [+] Add new: type text directly while header is focused (no Enter needed to start)
+- Settings [x] delete: likely mouse-only (no keyboard path found)
+- Escape from Settings pending field: REVERTS changes (useful as keyboard reset)
+- fake-pylsp setup: symlink `scripts/fake-lsp/bin/fake-pylsp` → `/usr/local/bin/pylsp`; set `FAKE_DEVCONTAINER_STATE` env
+- LSP Find References panel IS keyboard-navigable (Enter works); bug is specific to *Quickfix*
+
+---
+
 ## Run #10 — 2026-05-26
 
 ### Status: COMPLETED

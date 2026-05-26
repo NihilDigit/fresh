@@ -653,6 +653,51 @@ Always use `tmux capture-pane -p -e` (with ANSI) to confirm which menu item is h
 
 ---
 
+## Lessons Added in Run #11
+
+### Lesson 59: Bookmarks Feature — Fully Confirmed Working
+- `Ctrl+P → "Set Bookmark"` → prompt "Set bookmark (0-9):" → type digit → Enter → status: "Bookmark 'N' set"
+- Jump to bookmark: `Alt+N` (where N is the digit 0-9) → status: "Jumped to bookmark 'N'"
+- Example: Bookmark 1 at line 7 → `M-1` (Alt+1) → jumps to line 7
+- Non-existent bookmark: status "Bookmark 'N' not set" (graceful error)
+- Multiple bookmarks (0-9) can be set in the same file; each can be jumped to independently
+- Bookmarks persist across buffer switches; appear to be session-level
+
+### Lesson 60: Settings UI — [+] Add new List Items (Confirmed Working)
+- **How to add:** Navigate to a list setting (e.g., Packages > Sources) in left panel → Enter → Tab to focus right panel → focus is on the list header (e.g., `>  Sources:`) → **type text directly** → inline input field activates immediately with typed characters
+- Confirm add: Enter → item added with `[x]` button, `●` appears on the setting name
+- The [+] Add new tooltip shows `"press Enter (or type) to add a new item"` when the list header is focused
+- **Del to remove**: The `[x]` button visible on list items does NOT appear to be keyboard-navigable via Down/Up/Tab from the list header — this may be mouse-only (needs further investigation)
+- Discard changes: Settings UI → Escape from content → confirmation dialog "Save and Exit / Discard / Cancel" → Tab to Discard → Enter
+
+### Lesson 61: Settings Number Field — Complete Interaction Model
+- **Hover state** (`>  field: [value]`): Tab from left panel puts focus here
+- **Edit mode**: Press Enter to enter edit mode; ANSI shows value with `[48;5;17m]` background
+- **Typing in hover state**: Directly changes value AND creates pending change `●`
+- **Escape from hover state with `●`**: Reverts the pending change back to original/default value
+- **Escape from edit mode** (cursor inside): Likely cancels the draft edit without `●`
+- **Ctrl+R**: Does NOT reset the field in either hover or edit mode — appears to be a no-op in the Settings overlay for number fields (contradicts CHANGELOG 0.3.8 "Ctrl+R resets a field to its default")
+- **[ Reset ] button**: Tab from field → `[ User ]` → Tab → `[ Reset ]` → Enter → confirmation "[ Reset ]  [ Cancel ]" → Enter → field resets to default
+
+### Lesson 62: LSP with fake-pylsp — Go to Definition, References Work
+- Add `/usr/local/bin/pylsp` as symlink to `scripts/fake-lsp/bin/fake-pylsp`
+- Set `FAKE_DEVCONTAINER_STATE=/tmp/fake-lsp-state` env var when launching Fresh
+- Fresh auto-detects `pylsp` in PATH for Python files; use `Ctrl+P → "Show LSP Status"` → Enter to start
+- **Go to Definition (F12)**: Works correctly; navigates to the location returned by LSP
+- **Hover (Alt+K)**: "No hover information available" with fake-pylsp (expected — it returns null for hover)
+- **Find References (Shift+F12 → via palette)**: Works! Opens dock panel with `file:line content` format; Enter on result navigates to location
+- **References panel navigation**: Enter on a reference line correctly jumps (unlike `*Quickfix*` buffer — BUG #2124)
+- Configure definition target: write to `/tmp/fake-lsp-state/fake_lsp_definition_uri`, `fake_lsp_definition_line`, `fake_lsp_definition_character`
+- Log of all LSP requests: `/tmp/fake-lsp-state/fake_lsp_uris`
+
+### Lesson 63: Settings List Items — [x] Delete Button
+- The `[x]` button on list items (e.g., `[https://github.com/sinelaw/f] [x]`) is shown in orange/red ANSI color `[38;5;203m]`
+- Navigation to `[x]` via keyboard: Down/Up arrows do NOT move within the list from the header; Tab jumps to footer buttons
+- The `[x]` button appears to be mouse-only interaction — NO keyboard shortcut confirmed
+- PENDING: further investigation needed to confirm if this is by design or a bug
+
+---
+
 ## Lessons Added in Run #10
 
 ### Lesson 51: Version Correction — 0.3.8 not 0.3.9

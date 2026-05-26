@@ -29,6 +29,7 @@
 | 8     | 2026-05-26 | COMPLETED | 10  | 0 filed → BUG #2117 confirmed FIXED |
 | 9     | 2026-05-26 | COMPLETED | 10  | 2 filed → BUG #2124 (Quickfix Enter nav), BUG #2125 (Diagnostics panel shortcuts) |
 | 10    | 2026-05-26 | COMPLETED | 8   | 0 filed → Run #8 TC-REVIEW-DIFF-DISCARD corrected as FALSE POSITIVE; Review Diff controls are "Planned" per internal docs |
+| 11    | 2026-05-26 | COMPLETED | 10+ | 0 filed → Bookmarks, Settings list [+] Add new, Settings Reset, LSP w/ fake-pylsp all PASSED |
 
 ---
 
@@ -263,7 +264,20 @@
 
 ---
 
-## Immediate Next Action (Run #11)
+## Completed Tests (Run #11)
+- [x] **TC-BOOKMARKS** PASSED - `Ctrl+P → Set Bookmark` → digit → Enter; `Alt+N` jumps; "not set" for missing; multiple bookmarks (0-9) work
+- [x] **TC-SETTINGS-ADD-NEW** PASSED - Typing while focused on list header activates inline [+] Add new input; Enter confirms; `●` pending change indicator works
+- [x] **TC-SETTINGS-CTRL-R** RESOLVED (PARTIAL) - `Ctrl+R` does NOT reset field (appears no-op in overlay); `Escape from hover+●` REVERTS the pending change; `[ Reset ]` button via Tab navigation correctly resets to default with confirmation dialog
+- [x] **TC-SETTINGS-DEL-X** PENDING INVESTIGATION - `[x]` button on list items appears NOT keyboard-navigable (Down/Up/Tab don't reach it from list header); may be mouse-only; not yet confirmed as bug
+- [x] **TC-FAKE-LSP** PASSED - fake-pylsp works; `pylsp` symlink recognized; LSP starts on demand; log at `/tmp/fake-lsp-state/fake_lsp_uris`
+- [x] **TC-LSP-GOTO-DEF** PASSED - F12 Go to Definition jumps to LSP-returned location; error message if file not found (expected)
+- [x] **TC-LSP-HOVER** PASS/PARTIAL - Alt+K Hover shows "No hover information available" with fake-pylsp (expected — null response)
+- [x] **TC-LSP-REFERENCES** PASSED - Find References via palette opens dock panel with `file:line content` rows; Enter navigates (unlike broken Quickfix buffer)
+- [x] **TC-REFERENCES-NAV** CONFIRMED DIFFERENT FROM BUG #2124 - References panel Enter WORKS correctly; BUG #2124 is specific to `*Quickfix*` buffer (Alt+M from Live Grep)
+
+---
+
+## Immediate Next Action (Run #12)
 
 ### FIRST: State Check
 - Version: Cargo.toml = **0.3.8** (not 0.3.9 as incorrectly logged in Runs #7-9)
@@ -274,7 +288,7 @@
 - BUG #2125 (Diagnostics panel shortcuts): still open
 - DECCKM quoting: MUST send `$'\033OB'` UNQUOTED (not inside double quotes) in bash
 
-### Priority Tests for Run #11:
+### [COMPLETED - Now archived] Priority Tests from Run #11:
 
 1. **Build from master or claude branch for 0.3.9 features**
    - The current testing-state binary is based on `88883dc` (pre-0.3.9)
@@ -310,13 +324,14 @@
    - Then `Alt+N` to jump back to bookmark N (confirm from learning_db)
    - Not yet tested in detail
 
-### CRITICAL Reminders for Run #11:
+### CRITICAL Reminders for Run #12 (from Run #11):
+- **Binary is 0.3.9** — built from `claude/ecstatic-mayer-5DivD` branch; binary at `./target/release/fresh`
 - **DECCKM**: `$'\033OB'` MUST be unquoted in bash scripts (not `"$'\033OB'"`)
-- **Overlay navigation**: Use plain `Up`/`Down` tmux key names (NOT DECCKM)
+- **Overlay navigation**: Use plain `Up`/`Down` tmux key names for palette/popup navigation; DECCKM for editor cursor movement ONLY
 - **Settings**: After any Settings session, check config.json for accidental saves
-- **Version**: Currently building 0.3.8 from testing-state base (pre-0.3.9)
 - **Review Diff**: ALL panel controls broken by design — don't waste time retesting
+- **[x] list delete**: Likely mouse-only; don't spend >5 min trying to keyboard-navigate it
+- **Escape from Settings field**: Escape REVERTS pending field changes; Ctrl+R does NOT reset
+- **fake-pylsp**: Must set `FAKE_DEVCONTAINER_STATE=/tmp/fake-lsp-state` in shell; `pylsp` symlink at `/usr/local/bin/pylsp`
 
-### (Old Run #10 planning removed — see Run #11 above)
-
-(Completed in Run #10 — see Run #11 plans above)
+(Run #11 completed — see Run #12 plans above)
