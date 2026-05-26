@@ -7,6 +7,12 @@
 4. **Test keyboard shortcuts bare** (no tmux shortcuts that might intercept). If a key acts unexpectedly, check for terminal compatibility issues before blaming Fresh.
 5. **Never file a bug based on a single observation.** Always reproduce at least twice.
 6. **Launch clean for fresh-state tests:** Use `fresh --no-restore` to skip hot-exit restoration when testing initial launch behavior.
+7. **Before filing an issue, you must be able to state:**
+   - The exact expected behavior (and why — cite VS Code/docs/convention)
+   - The exact actual behavior
+   - That you've reproduced it at least twice
+   If you can't state all three, add a pending test case here instead and file later.
+8. **Issue titles must state the problem, not the investigation.** "F3 does not navigate while search bar is open" ✓ — "F3 navigation not verified" ✗. See `learning_db.md` → ISSUE FILING STANDARDS for the full template and rules.
 
 ---
 

@@ -35,6 +35,73 @@ Before filing any bug, the agent MUST:
 
 ---
 
+## ISSUE FILING STANDARDS
+
+### When to open an issue
+
+Open an issue only when you can answer ALL of the following:
+- **What is the exact expected behavior?** (cite a reference: VS Code, Sublime, browser, or Fresh's own docs)
+- **What is the exact actual behavior?** (observed directly, reproducible)
+- **Would a reasonable user be confused or blocked by this?**
+
+Do NOT open an issue when:
+- You haven't finished testing ("needs re-test", "not yet verified")
+- You're unsure if the behavior is intentional — check docs first, then decide
+- You can only describe the symptom but not the expected vs actual contrast
+
+If you observe something suspicious but haven't confirmed it yet, note it in `test_plan.md` as a pending test case. File the issue only after you have clear evidence.
+
+### Two valid issue types
+
+**1. Bug** — behavior is broken or incorrect per Fresh's own documentation
+- Example: A documented shortcut does nothing, a save dialog corrupts the file, a crash
+
+**2. Usability issue** — behavior works but contradicts what users coming from VS Code/Sublime/browsers will expect
+- Example: F3 silently ignored while search bar is open (#2111), Ctrl+H transmits as Backspace (#2109)
+- These are still valid issues. "It's documented" does not mean "users won't be confused."
+- Label these as `bug` since they represent a user experience failure
+
+**Not a valid issue:**
+- Behavior that matches Fresh's documentation AND matches common editor conventions
+- Something you observed once and couldn't reproduce
+- Something listed in the FALSE POSITIVE PATTERNS table above
+
+### Required issue structure
+
+Every issue MUST contain all four of these sections. If you can't fill them all in, finish testing first.
+
+```
+## Steps to reproduce
+1. [exact, numbered steps starting from a clean state]
+2. ...
+
+## Expected behavior
+[What a user coming from VS Code/Sublime/browser would expect — be specific.
+If citing a reference editor, name it: "In VS Code, F3 advances to the next
+match without closing the search bar."]
+
+## Actual behavior
+[What Fresh actually does — be specific. "Nothing happens" is not enough;
+say "The cursor does not move. The search bar remains open but no navigation occurs."]
+
+## Workaround
+[If one exists. If none, say "None."]
+```
+
+### Issue title rules
+
+- State the problem, not the investigation: **"F3 does not navigate while search bar is open"** not ~~"Search F3 navigation not verified"~~
+- Use present tense: **"F3 does not..."** not ~~"F3 didn't..."~~
+- Name the specific feature or key: **"Ctrl+H opens backspace instead of Find & Replace"** not ~~"Keyboard shortcut issue"~~
+- Never use words like "maybe", "possibly", "needs confirmation", or "not verified" in a title — if you're not sure, don't file yet
+
+### Before filing: search check
+
+Search GitHub with at least 3 query variations. Use: the key name, the symptom, the feature name.
+Log your search queries in the issue body so future runs don't repeat the same searches.
+
+---
+
 ## Key Bindings (VERIFIED)
 
 ### File Operations
