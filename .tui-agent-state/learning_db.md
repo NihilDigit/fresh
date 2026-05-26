@@ -1,136 +1,173 @@
-# Fresh Editor - TUI Agent Knowledge Base
+# Fresh Editor — TUI Agent Knowledge Base
 
 ## Application Overview
-- **Name:** Fresh - a modern terminal text editor
+- **Name:** Fresh — a modern terminal text editor
 - **Version:** 0.3.8
-- **Language:** Rust
-- **Binary name:** `fresh`
-- **Location:** `target/release/fresh` (after build)
+- **Binary:** `./target/release/fresh`
+- **Build:** `cargo build --release --bin fresh`
 
-## Launch Commands
-```bash
-# Open fresh with no files
-./target/release/fresh
+---
 
-# Open a specific file
-./target/release/fresh <filename>
+## MANDATORY PRE-TESTING CHECKLIST
+Before filing any bug, the agent MUST:
+1. Check `docs/features/` for feature documentation
+2. Check `docs/blog/` for release notes (features that look like bugs are often documented)
+3. Check `docs/configuration/keyboard.md` for the actual keybinding table
+4. Verify menu navigation with `tmux capture-pane -p -e` (ANSI) to confirm the highlighted item
+5. Check `CHANGELOG.md` for the relevant version's feature list
 
-# Open in headless/test mode (if available)
-# TBD - explore options
-```
+---
 
-## Key Bindings (VERIFIED through testing)
-
-### Navigation
-- Arrow keys: Move cursor (tmux: use "Up", "Down", "Left", "Right")
-- Ctrl+Home: Go to beginning of file
-- Ctrl+End: Go to end of file
-- Ctrl+Left / Ctrl+Right: Word movement (unverified)
-- S-Left, S-Right, S-Up, S-Down: Select text with Shift+Arrow keys
+## Key Bindings (VERIFIED)
 
 ### File Operations
-- Ctrl+N: New empty buffer
-- Ctrl+O: Open file dialog (file browser dialog)
-- Ctrl+S: Save (shows Save As dialog for new files; saves silently for existing)
-- Ctrl+Q: Quit application
-- Ctrl+B: Toggle File Explorer panel (NOT Ctrl+E!)
-- ⚠️ Ctrl+W: NOT bound to Close Buffer (no default shortcut for Close Buffer)
-- Close Buffer: Use command palette → "Close Buffer" (prompts for unsaved changes)
+| Key | Action | Notes |
+|-----|--------|-------|
+| `Ctrl+N` | New empty buffer | Tab shows "[No Name]" |
+| `Ctrl+O` | Open file dialog | Full file browser |
+| `Ctrl+S` | Save | Save-as dialog for new files |
+| `Ctrl+Q` | Quit | Hot exit saves state |
+| `Ctrl+B` | Toggle File Explorer sidebar | NOT Ctrl+E |
+| `Ctrl+W` | **Select word under cursor** | ⚠️ NOT "close buffer" (different from VS Code!) |
 
 ### Editing
-- Ctrl+Z: Undo (individual characters)
-- Ctrl+Y: Redo
-- Ctrl+C: Copy (selection or line)
-- Ctrl+V: Paste
-- Ctrl+A: Select All
-- Ctrl+D: Multi-cursor - add cursor at next occurrence of selection
-- Ctrl+H: ⚠️ DELETES PREVIOUS WORD (NOT Replace!)
+| Key | Action | Notes |
+|-----|--------|-------|
+| `Ctrl+Z` | Undo | Per-character granularity |
+| `Ctrl+Y` | Redo | |
+| `Ctrl+C` | Copy | |
+| `Ctrl+V` | Paste | |
+| `Ctrl+A` | Select All | |
+| `Ctrl+D` | Add cursor at next match | Multi-cursor: select word first |
+| `Ctrl+H` | ⚠️ BROKEN IN TERMINALS | Intended: Find & Replace. Actual in tmux: Backspace (deletes word). Use `Ctrl+R` instead. |
+| `Alt+↑/↓` | Move line up/down | |
+| `Alt+U` | Uppercase selection/word | |
+| `Alt+L` | Lowercase selection/word | |
 
 ### Search & Replace
-- Ctrl+F: Find (search bar opens at bottom)
-  - Alt+C: Toggle case-sensitive
-  - Alt+W: Toggle whole word
-  - Alt+R: Toggle regex
-  - Enter: Jump to next match AFTER cursor (closes search bar)
-  - Escape: Cancel search
-  - ⚠️ NO F3 or Shift+Enter navigation confirmed working
-- Ctrl+R: Replace (correct shortcut!)
-  - Replaces ALL occurrences by default
-  - Alt+I: Toggle "Confirm each" mode for selective replacement
-- ⚠️ Ctrl+H is NOT Replace (it's Delete Previous Word)
+| Key | Action | Notes |
+|-----|--------|-------|
+| `Ctrl+F` | Open search bar | Remembers previous term |
+| `Ctrl+R` | Open replace bar | |
+| `Ctrl+Alt+R` | Query replace (interactive) | y/n/!/q per match |
+| `Enter` (in search) | Jump to match, close search | |
+| `F3` | Find next (after search closes) | Must be tested with search bar CLOSED |
+| `Shift+F3` | Find previous | |
+| `Escape` | Cancel search | |
+| `Alt+C` | Toggle case-sensitive | In search bar |
+| `Alt+W` | Toggle whole word | In search bar |
+| `Alt+R` | Toggle regex | In search bar |
+| `Alt+A` | Search & Replace in Project | |
 
-### Views & Panels
-- Ctrl+P: Command Palette (opens with all commands)
-- Ctrl+B: Toggle File Explorer sidebar
-- F10 or Alt+letter: Open menu bar
-- "Split Vertical" command: Creates horizontal split (two panes stacked)
-- Alt+]: Next split pane
-- Alt+[: Previous split pane
-- "Close Split" command: Closes current split pane
-- "Toggle Maximize Split" command: Maximize/restore split
+### Views & Navigation
+| Key | Action | Notes |
+|-----|--------|-------|
+| `Ctrl+P` | Command Palette | Modes: `>cmd` `:line` `#buffer` `file` |
+| `F10` or `Alt+letter` | Open menu bar | Arrow keys navigate; Enter selects |
+| `Alt+]` | Next split | |
+| `Alt+[` | Previous split | |
+| `Ctrl+G` | Go to line number | |
+| `F8` | Jump to next error | |
+| `Shift+F8` | Jump to previous error | |
+| `Alt+←` | Navigate back in history | |
 
-### Command Palette Notes
-- Ctrl+P opens palette with multiple modes: `file | >command | :line | #buffer`
-- Type `>` prefix for commands, `:` for line numbers, `#` for buffer names
-- Previous search terms are remembered
+### Close Buffer (no default shortcut)
+- Use: `Ctrl+P` → "Close Buffer" → `Enter`
+- Prompt: `(s)ave, (d)iscard, (C)ancel?` → press letter then `Enter`
 
-## UI Structure
-- **Menu bar** at top (File, Edit, View, Selection, Go, LSP, Help)
-  - Opens with F10 or Alt+letter (underlined letters are shortcuts)
-  - Keyboard navigation with arrow keys WORKS (but highlight is subtle - dark blue)
-  - Enter activates selected menu item
-  - Menu items show keyboard shortcuts on right
-- **Tab bar** below menu (shows open buffers)
-  - Asterisk (*) in tab = unsaved changes
-  - `[+]` in status bar = file modified but not saved
-  - `[RO]` = read-only buffer
-- **Editor area** (main content with line numbers and ~ for empty lines)
-- **Status bar** at bottom: `mode | filename [status] | Ln N, Col N | message | encoding | type | alerts | hint`
+---
 
-## Selection Rendering (ANSI)
-- Cursor position: `[48;5;16m` (very dark background) or `[7m` (reverse video)
-- Selected text: `[48;5;17m` (selection blue/dark blue)
-- Search match highlight: `[48;5;17m` or `[48;5;226m` depending on theme
+## Features That Look Like Bugs (ARE BY DESIGN)
 
-## Confirmed Quirks
-1. **Close Buffer** has no default keyboard shortcut (no Ctrl+W binding)
-2. **Revert** fails with unsaved modifications (BUG-001 - should discard them)
-3. **Ctrl+H** deletes word (BUG-002 - users expect Find & Replace)
-4. **File opens as modified** after previous session with discarded changes (BUG-003)
-5. **Search Enter** doesn't advance when cursor is already at a match (BUG-004)
-6. **"Split Vertical"** actually creates horizontal layout (naming inconsistency)
-7. Menu navigation highlight is subtle (dark blue `[48;5;25m`) - may appear unnavigable
-8. Dashboard shows on first launch with git/disk status info
-9. Session restoration: Fresh remembers previous session state (hot exit)
-10. Warning `[⚠ N]` in status bar - meaning/context needs investigation
+### Hot Exit (session persistence)
+- **What:** All buffers — including unnamed scratch and dirty files — are automatically saved on quit and restored on next launch.
+- **Why it looks like a bug:** Files reopen with `[+]`/asterisk even though content matches disk. An extra `[No Name]*` buffer may appear.
+- **It's correct behavior.** Config: `hot_exit` (default: on). Docs: `docs/features/session-persistence.md`.
+- **UX note to file separately:** Consider showing a "Restored N unsaved changes from previous session" notification to make this self-evident.
 
-## tmux Interaction Notes
-- Always send keys individually for special sequences, not combined in one string
-  - WRONG: `tmux send-keys -t session "S-Left S-Left S-Left" ""`  (sends literal text!)
-  - RIGHT: Send three separate tmux send-keys calls for S-Left
-- Use proper key names: "Up", "Down", "Left", "Right", "S-Left", "S-Right"
-- For modifier combos: "C-p" (Ctrl+P), "M-f" (Alt+F), "S-Left" (Shift+Left)
-- Sleep at least 0.2s between key presses when doing selection
-- Sleep 1-2s after launching the editor before capturing
+### Ctrl+W Selects Word (not close tab)
+- Fresh uses `Ctrl+W` for "Select word under cursor."
+- VS Code uses `Ctrl+W` for "Close tab." This is an intentional divergence.
+- Docs: `docs/features/editing.md` confirms `Ctrl+W = Select word under cursor`.
 
-## Testing Notes
-- Application requires a proper terminal emulator
-- tmux sessions work well for interaction
-- Use `tmux capture-pane -p -e` for ANSI output when checking highlights/colors
-- Fresh binary: `./target/release/fresh`
-- Build command: `cargo build --release --bin fresh`
+### Revert = Discard Changes and Reload
+- `File > Revert` shows a `(r)evert / (c)ancel?` prompt when the buffer is modified — this is correct.
+- `File > Reload with Encoding...` DOES refuse with "Cannot reload: buffer has unsaved modifications" — this is also correct (it prevents overwriting local edits with a re-encoded version).
+- ⚠️ Don't confuse these two menu items.
+
+### Search Enter Closes After First Match
+- This is by design. `Enter` = jump to match + close search bar.
+- `F3` (after search closes) = navigate to next match.
+- To cycle: `Ctrl+F` (pre-filled) → `Enter` → `F3` → `F3` ...
+
+---
 
 ## UI Structure
-- Menu bar at top (File, Edit, View, etc.)
-- Tab bar below menu
-- Editor area (main content)
-- Status bar at bottom
-- Optional: File explorer panel (left), Terminal panel (bottom)
 
-## Known Quirks
-- (None yet - to be populated from testing)
+### Layout
+```
+┌─ Menu bar (File / Edit / View / Selection / Go / LSP / Help) ─┐
+├─ Tab bar ([Dashboard ×] [filename* ×])                        ─┤
+│                                                                 │
+│   Editor area (line numbers, ~ for empty lines)               │
+│                                                                 │
+└─ Status bar: mode | path [±] | Ln N, Col N | msg | enc | ⚠   ─┘
+```
 
-## Testing Notes
-- Application requires a proper terminal emulator
-- tmux sessions work for interaction
-- ANSI color codes present in output
+### Status Bar Indicators
+| Indicator | Meaning |
+|-----------|---------|
+| `[+]` | Buffer has unsaved changes |
+| `[RO]` | Read-only buffer |
+| `*` in tab title | Same as `[+]` |
+| `⚠ N` | N warnings/errors in diagnostics |
+| `[⚠ 1]` on first launch | "Test i18n plugin loaded" (benign) |
+
+### Selection Rendering (ANSI)
+- Cursor character: `[48;5;16m` (near-black bg) or `[7m` (reverse video)
+- Selected text: `[48;5;17m` (dark blue bg)
+- Search match: `[48;5;17m` or `[48;5;226m` depending on theme
+- Menu selected item: `[48;5;25m` (subtle dark blue — **easy to miss in non-ANSI capture**)
+
+---
+
+## tmux Interaction Rules
+
+### Key Sending
+```bash
+# CORRECT — individual send-keys calls
+tmux send-keys -t SESSION "S-Left" ""
+sleep 0.2
+tmux send-keys -t SESSION "S-Left" ""
+
+# WRONG — sends literal text "S-Left S-Left"
+tmux send-keys -t SESSION "S-Left S-Left" ""
+```
+
+### Key Name Reference
+| Intent | tmux name |
+|--------|-----------|
+| Arrow keys | `Up` `Down` `Left` `Right` |
+| Shift+Arrow | `S-Up` `S-Down` `S-Left` `S-Right` |
+| Ctrl+key | `C-p` `C-f` `C-z` etc. |
+| Alt/Meta+key | `M-f` `M-]` `M-[` etc. |
+| Function keys | `F1` … `F12` |
+| Home / End | `Home` `End` |
+| Ctrl+Home/End | `C-Home` `C-End` |
+
+### Timing
+- After launching Fresh: sleep 2s before first capture
+- Between selection keystrokes: sleep 0.2s minimum
+- After Ctrl+P / menu open: sleep 0.5–1s
+- After file operations: sleep 1s
+
+### Verifying Menu Selection
+Always use `tmux capture-pane -p -e` (with ANSI) to confirm which menu item is highlighted (`[48;5;25m`). Plain `-p` capture will not show the selection.
+
+---
+
+## Session / Testing Notes
+- Fresh stores hot-exit state at `$XDG_RUNTIME_DIR/fresh/` or `/tmp/fresh-$UID/`
+- Each test run that makes edits will affect the next run via hot exit
+- Use `fresh --no-restore` to launch without restoring previous session state (useful for clean-slate tests)
+- "Calibrate Keyboard" in the command palette detects terminal key-translation issues
