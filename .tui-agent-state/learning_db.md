@@ -191,6 +191,38 @@ Log your search queries in the issue body so future runs don't repeat the same s
 | `Alt+V → ☐ Mouse Support` | Toggle mouse support | Via View menu |
 | `Alt+V → ☑ Vertical Scrollbar` | Toggle scrollbar | Via View menu |
 
+### Settings & Theme (Run #4)
+| Action | Method | Notes |
+|--------|--------|-------|
+| Open Settings UI | `Ctrl+P → "Open Settings"` | Full visual UI with categories |
+| Change Theme | `Ctrl+P → "Select Theme"` | Arrow keys (DECCKM) to navigate |
+| Edit Theme (visual) | `Ctrl+P → "Edit Theme"` | Color swatch editor |
+| Keybinding Editor | `Ctrl+P → "Open Keybinding Editor"` | 843 bindings, / search, r record-key |
+| Settings persist | Saved to `/root/.config/fresh/config.json` | theme, keybindings |
+
+### Advanced Features (Run #4)
+| Feature | Command | Notes |
+|---------|---------|-------|
+| Git Log | `Ctrl+P → "Git Log"` | q to quit, arrows navigate, Enter preview |
+| Review Diff | `Ctrl+P → "Review Diff"` | n/p hunks, s/u/d stage/unstage/discard |
+| Git Blame | `Ctrl+P → "Git Blame"` | Magit-style per-line blame |
+| Live Grep | `Ctrl+P → "Live Grep"` | Multi-scope (Files/Buffers/Terminals), streaming |
+| Diagnostics Panel | `Ctrl+P → "Toggle Diagnostics Panel"` | Opens in dock; q to close |
+| Record Macro | `Ctrl+P → "Record Macro"` → digit → Enter | F5 stops, F4 plays |
+| Set Bookmark | `Ctrl+P → "Set Bookmark"` → digit → Enter | Alt+N jumps to bookmark N |
+| Markdown Preview | `Ctrl+P → "Markdown: Toggle Compose/Preview"` | ANSI bold/italic rendered |
+| Duplicate Line | `Ctrl+P → "Duplicate Line"` | Duplicates current line below |
+| Surround selection | Select text, type bracket/quote | `[word]`, `"text"`, etc. |
+
+### Editing (Run #4)
+| Feature | Key | Notes |
+|---------|-----|-------|
+| Select line | `Ctrl+L` | Selects current line, cursor advances |
+| Smart Home | `Home` | First: col of first non-whitespace; second: col 1 |
+| Position History Back | `Alt+Left` | Navigate back through edit positions across files |
+| Auto-close brackets | Type `(` → inserts `()` | Cursor inside; typing `)` skips |
+| Binary file handling | Ctrl+O → open .bin | Tab: [BIN], content: `<FF>...`, auto [RO] |
+
 ---
 
 ## tmux Automation Notes (CRITICAL — Run #2 Discovery)

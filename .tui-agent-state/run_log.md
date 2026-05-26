@@ -250,3 +250,92 @@ None — no new confirmed bugs beyond existing open issues.
 - `File > Save As...` is accessible ONLY via the File menu (`Alt+F` or `F10` → navigate)
 - No palette command exists for Save As
 - Ctrl+Shift+S in terminals: Shift is stripped from Ctrl+S; use the menu
+
+---
+
+## Run #4 — 2026-05-26
+
+### Status: COMPLETED
+
+### What Was Done
+- Built Fresh binary from source (`cargo build --release --bin fresh`, ~7 min)
+- Launched tmux session with fresh --no-restore
+- Executed 30+ test cases across command palette, settings UI, edge cases, and advanced features
+- No new bugs confirmed this run
+
+### Test Results Summary
+| Category | Passed | Failed | Notes |
+|----------|--------|--------|-------|
+| Command Palette (TC-060–065) | 6 | 0 | Full coverage |
+| Settings & Configuration (TC-070–073) | 4 | 0 | Theme, Keybindings, Settings UI |
+| Edge Cases (TC-081–085) | 4 | 0 | Binary, empty, rapid keys, resize |
+| Advanced: Git Log | 1 | 0 | 55 commits, live diff preview |
+| Advanced: Macro recording | 1 | 0 | F5 stop, F4 play, 12-action macro |
+| Advanced: Bookmarks | 1 | 0 | Set via palette, Alt+1/2 jump |
+| Advanced: Markdown preview | 1 | 0 | ANSI bold/italic confirmed |
+| Advanced: Review Diff | 1 | 0 | Panel opens, 0 hunks (correct) |
+| Advanced: Live Grep | 1 | 0 | 77 matches, streaming, live preview |
+| Advanced: Diagnostics Panel | 1 | 0 | Opens in dock, 0 items |
+| Editing: Smart Home | 1 | 0 | Toggles non-ws ↔ col 1 |
+| Editing: Position History | 1 | 0 | Alt+Left back across files |
+| Editing: Auto-close | 1 | 0 | ( → () cursor inside |
+| Editing: Surround selection | 1 | 0 | Select word, [ → [word] |
+| Editing: Duplicate Line | 1 | 0 | Via command palette |
+| Editing: Ctrl+L Select Line | 1 | 0 | Selects line, advances |
+| Misc: path:line:col opening | 1 | 0 | Palette file mode, exact Ln+Col |
+| TC-084: 10+ files open | 1 | 0 | 12 tabs, tab switching works |
+
+### Issues Filed
+None — 0 new bugs confirmed.
+
+### False Positive Rate: 0%
+
+---
+
+## LESSONS LEARNED — Run #4
+
+### Lesson 12: Settings UI is comprehensive
+- `Ctrl+P → "Open Settings"` opens a full visual settings editor
+- Left panel: categories (General, Clipboard, Editor, File Browser, File Explorer, Packages, Plugins, Terminal, Warnings, Plugin: dashboard/flash/vi_mode)
+- Right panel: visual controls (dropdowns, checkboxes, text inputs)
+- Press `/` to search settings by name within the panel
+- Keyboard hints at bottom: `↑↓ Navigate Tab Next Enter Edit / Search Esc Close`
+
+### Lesson 13: Keybinding Editor details
+- `Ctrl+P → "Open Keybinding Editor"` or `Edit → Keybinding Editor...`
+- Shows all 843 bindings (builtin + plugins) grouped by source
+- Press `/` to filter by text; press `r` for key-recording search
+- Press `c` to cycle context filter; `s` to cycle source filter
+- `Enter` to edit, `a` to add, `d` to delete custom bindings
+- Config saved to `/root/.config/fresh/config.json` via `Ctrl+S`
+
+### Lesson 14: Macro recording workflow
+- `Ctrl+P → "Record Macro"` → prompt `Record macro (0-9):` → type digit → Enter
+- Status bar confirms "Recording macro 'N' (F5 or Ctrl+P → Stop Recording)"
+- `F5` stops recording; status bar shows "Macro 'N' saved (X actions)"
+- `F4` plays the last macro
+- Macros survive session (stored in Fresh state dir)
+
+### Lesson 15: Theme selection
+- `Ctrl+P → "Select Theme"` shows theme list; current theme marked "(current)"
+- Arrow key navigation in list requires DECCKM sequences ($'\033OA'/OB) 
+- Theme change takes effect immediately; status bar: "Theme changed to 'X'"
+- Theme persisted in /root/.config/fresh/config.json as "theme": "builtin://X"
+
+### Lesson 16: Bookmark workflow  
+- `Ctrl+P → "Set Bookmark"` → prompt `Set bookmark (0-9):` → digit → Enter
+- `Alt+N` (where N = 0-9) jumps to bookmark N
+- Status bar confirms "Bookmark 'N' set" and "Jumped to bookmark 'N'"
+- `Ctrl+Shift+N` shortcut for Set Bookmark may not work in tmux — use palette
+
+### Lesson 17: Binary file handling
+- Binary files open with `[BIN]` in the tab label
+- Content displayed as hex escapes: `<FF><FE>...`
+- File is automatically marked `[RO]` (read-only) in the status bar
+- No crash, no corruption — safe and informative
+
+### Lesson 18: Welcome plugin overrides Ctrl+S
+- In Keybinding Editor, Ctrl+S shows as "Plugin Demo: Save File" (source: welcome plugin, keymap)
+- The action bound is still the built-in `save` action, so Ctrl+S still saves correctly
+- This is cosmetic — the description says "Plugin Demo" but functionality is unchanged
+- NOT a bug — the welcome plugin uses the built-in save action for demonstration
