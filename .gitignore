@@ -61,3 +61,6 @@ bun.lockb
 dist
 .amp/
 .worktrees/
+
+# TUI agent state (lives on tui-automated-testing-state branch, not here)
+.tui-agent-state/
