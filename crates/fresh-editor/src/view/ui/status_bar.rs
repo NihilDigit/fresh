@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::app::WarningLevel;
 use crate::config::{StatusBarConfig, StatusBarElement};
+use crate::model::buffer::Buffer;
 use crate::primitives::display_width::{char_width, str_width};
 use crate::state::EditorState;
 use crate::view::prompt::Prompt;
@@ -526,6 +527,24 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 /// common single-digit case (the text is suffix-padded, not number-padded).
 const CURSOR_COL_RESERVE: usize = 3;
 
+/// Compute the 0-based **character** column of `position` within its line.
+///
+/// `position` is a byte offset. The status bar must report the number of
+/// Unicode scalar values between the start of the line and the cursor, not
+/// the byte distance — otherwise multi-byte characters (box-drawing glyphs,
+/// accents, …) inflate the column (issue #2090). Only the line prefix up to
+/// the cursor is read, so this stays viewport-localized.
+fn cursor_column_chars(buffer: &mut Buffer, position: usize) -> usize {
+    let line_start = buffer.line_iterator(position, 80).current_position();
+    let byte_len = position.saturating_sub(line_start);
+    let bytes = buffer
+        .get_text_range_mut(line_start, byte_len)
+        .unwrap_or_default();
+    // A UTF-8 character count equals the number of non-continuation bytes
+    // (bytes whose top two bits are not `10`).
+    bytes.iter().filter(|&&b| (b & 0xC0) != 0x80).count()
+}
+
 /// Format the cursor's `Ln X, Col Y` indicator so its rendered width is
 /// stable as the cursor moves. The numbers themselves are emitted with
 /// their natural width — preserving the format existing tests and screen-
@@ -816,9 +835,7 @@ impl StatusBarRenderer {
                 let cursor = *ctx.cursors.primary();
                 let line_count = ctx.state.buffer.line_count();
                 let text = if let Some(lc) = line_count {
-                    let cursor_iter = ctx.state.buffer.line_iterator(cursor.position, 80);
-                    let line_start = cursor_iter.current_position();
-                    let col = cursor.position.saturating_sub(line_start);
+                    let col = cursor_column_chars(&mut ctx.state.buffer, cursor.position);
                     let line = ctx.state.primary_cursor_line_number.value();
                     format_cursor_position(line + 1, col + 1, lc)
                 } else {
@@ -836,9 +853,7 @@ impl StatusBarRenderer {
                 let cursor = *ctx.cursors.primary();
                 let line_count = ctx.state.buffer.line_count();
                 let text = if let Some(lc) = line_count {
-                    let cursor_iter = ctx.state.buffer.line_iterator(cursor.position, 80);
-                    let line_start = cursor_iter.current_position();
-                    let col = cursor.position.saturating_sub(line_start);
+                    let col = cursor_column_chars(&mut ctx.state.buffer, cursor.position);
                     let line = ctx.state.primary_cursor_line_number.value();
                     format_cursor_position_compact(line + 1, col + 1, lc)
                 } else {
@@ -2148,5 +2163,32 @@ mod tests {
         let top = format_cursor_position(1, 1, 10_000);
         let high = format_cursor_position(9_999, 999, 10_000);
         assert_eq!(top.len(), high.len());
+    }
+
+    // Regression coverage for issue #2090 — the cursor column must count
+    // characters, not bytes, so multi-byte glyphs don't inflate it.
+    #[test]
+    fn test_cursor_column_counts_chars_not_bytes() {
+        // ASCII baseline: byte and char counts coincide.
+        let mut ascii = Buffer::from_str_test("0123456789");
+        assert_eq!(cursor_column_chars(&mut ascii, 9), 9);
+
+        // Box-drawing glyphs are 3 bytes each, so the byte distance exceeds
+        // the character distance. With the cursor 5 characters into the line,
+        // the column must be 5 — not the (larger) byte offset.
+        let line = "╚═╝  ╚═╝╚═";
+        let mut multibyte = Buffer::from_str_test(line);
+        let byte_offset: usize = line.chars().take(5).map(char::len_utf8).sum();
+        assert!(
+            byte_offset > 5,
+            "multi-byte prefix should exceed char count"
+        );
+        assert_eq!(cursor_column_chars(&mut multibyte, byte_offset), 5);
+
+        // Columns reset per line: a multi-byte prefix on the second line is
+        // measured from that line's start.
+        let mut multiline = Buffer::from_str_test("abc\n╚═╝x");
+        let pos: usize = "abc\n╚═╝".len();
+        assert_eq!(cursor_column_chars(&mut multiline, pos), 3);
     }
 }
