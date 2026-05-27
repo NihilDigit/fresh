@@ -1,10 +1,31 @@
 # Fresh TUI Editor — Test Plan
 
+> **Process:** Read `AGENT_INSTRUCTIONS.md` first. Filing standards, the
+> pre-testing checklist, and the anti-drift rules (R1–R4) live there. In
+> particular: **R1 — do not re-verify `[x]` sprints; R2 — advance a `[ ]` item
+> every run.** Sprints 1–9 are DONE; work the priority order below, not them.
+
 ## Status Legend
 - [ ] Not started
 - [~] In progress
 - [x] Completed
 - [!] Blocked / Bug found
+
+---
+
+## RUN #13+ PRIORITY ORDER (work top-down; these are the unfound-bug frontier)
+
+1. **Sprint 10 — Edge cases & stress** (T45 large file, T46 binary, T47 rapid
+   input, T48 resize reflow). Deferred since Run #1; highest bug-yield.
+2. **Project-wide Search & Replace (Alt+A)** — cross-file replace, untested.
+3. **Sprint 11 — Navigation edge cases** (T28 bracket-match, T30 position
+   history Alt+←/→, T37 line-wrap toggle).
+4. **Calibrate Keyboard wizard** — does it detect the Ctrl+H/`0x08` case (#2109)?
+5. **Bug verification** (Sprint 12: TB01–TB03) — batch low-severity findings into
+   `potential_improvements.md` per R3, do not file individually.
+
+Everything in "Backlog (Future Runs)" below feeds this order; promote items up
+as they're picked.
 
 ---
 
