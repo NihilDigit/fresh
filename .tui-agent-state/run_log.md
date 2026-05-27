@@ -2,6 +2,66 @@
 
 ---
 
+## Run #12 — 2026-05-27
+
+### Status: COMPLETED
+
+### What Was Done
+- Attempted to load existing state (no local state found → pulled from remote)
+- Built fresh 0.3.9 binary from source: `cargo build --release --bin fresh` (~60s)
+  - Binary path: `target/release/fresh` (Note: previous runs used `/opt/node22/bin/fresh` via npm)
+- Created tmux session `fresh-test` (220×50)
+- Executed comprehensive re-verification of Sprints 1-9 (most already tested in Runs 1-11)
+- Investigated 2 new potential bugs
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Sprint 1 (Launch & UI) | **PASS** | All confirmed working as documented |
+| Sprint 2 (File Ops) | **PASS** | Ctrl+N/O/S, Alt+W, save dialog all work |
+| Sprint 3 (Editing) | **PASS** | Ctrl+Z/Y/C/X/V/A/W/L/D//, all working |
+| Sprint 4 (Search/Replace) | **PASS** | Ctrl+F search, Ctrl+R replace, Ctrl+Alt+R query replace all work |
+| Sprint 5 (Navigation) | **PASS** | Ctrl+G go-to-line, Command Palette, menu bar |
+| Sprint 6 (Command Palette) | **PASS** | All modes (file/>command/:line/#buffer) verified |
+| Sprint 7 (Views/Layout) | **PASS** | Split Vertical/Horizontal, File Explorer, Theme Selection |
+| Sprint 8 (Tabs/Buffers) | **PASS** | Multi-tab, next/prev buffer, close with confirm dialog |
+| Sprint 9 (Terminal) | **PASS** | Integrated terminal, Ctrl+Space toggle, Close Split |
+| Settings UI | **PASS** | All categories visible, General settings confirmed |
+| Help System | **PASS** | F1 manual, Shift+F1 keyboard shortcuts both open |
+
+### Issues Found This Run
+
+#### BUG-CANDIDATE-RC12-01: Keyboard Shortcuts Buffer 'q' Close Does Not Work
+- Buffer text at line 4: "Press 'q' to close this buffer."
+- **Actual behavior:** Pressing 'q' shows "Editing disabled in this buffer" in status bar, buffer stays open
+- **Workaround:** Use Alt+W
+- **Severity:** Low
+- **Note:** Check if this is already filed under existing issues before filing new issue
+- **Filing blocked:** GitHub MCP token expired this run; file in Run #13
+
+#### BUG-CANDIDATE-RC12-02: Edit Menu "Replace..." Shows Ctrl+Alt+R (Query Replace, Not Basic Replace)
+- Edit menu item "Replace..." shortcut = `Ctrl+Alt+R` = opens Query Replace (interactive mode)
+- Basic "Replace" (Ctrl+R) is NOT in the Edit menu at all
+- Command palette clearly shows two distinct commands: Replace (Ctrl+R) vs Query Replace (Ctrl+Alt+R)
+- **Assessment:** May be intentional design, or documentation inconsistency
+- **Note:** Already documented in learning_db.md as known behavior; re-verify whether it's a real bug
+- **Filing blocked:** GitHub MCP token expired; assess in Run #13
+
+### Key Learnings / Corrections
+- Binary can be built from source via `cargo build --release --bin fresh`; binary is `target/release/fresh` not `fresh-editor`
+- Binary installed by npm is at `/opt/node22/bin/fresh` (from previous runs); source build works too
+- Session persistence confirmed: Unsaved buffers restored on relaunch (hot exit)
+- Save/discard dialog confirmed: letter + Enter (not single keypress)
+- Keyboard shortcuts buffer cannot be closed with 'q' despite the docs saying so
+- Alt+W and Whole Word toggle conflict documented: Alt+W in search bar = toggle whole word; outside search = close tab
+- Block selection tmux keys: `M-S-Down` appears to NOT trigger block select reliably in this tmux version (investigation needed)
+
+### Cleanup
+- tmux sessions `fresh-test` and `quit-test` both killed
+- No test files left behind on disk (all were in /tmp)
+
+---
+
 ## Run #11 — 2026-05-26
 
 ### Status: COMPLETED

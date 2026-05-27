@@ -129,14 +129,37 @@
 ## Backlog (Future Runs)
 - T28: Go to matching bracket
 - T30: Position history (Alt+Left/Right)
-- T37: Toggle line wrap
+- T37: Toggle line wrap (Line Wrap in View menu; verify via command palette search)
 - T45-T48: Edge cases and stress tests
-- LSP features (requires language server setup)
+- LSP features — tested in Run #11 with fake-pylsp; could test more LSP commands
 - Plugin system testing (TypeScript plugins)
-- Git integration features (git log, git grep, git file finder)
-- Markdown preview
-- Keyboard macros
-- Bookmarks
+- Git integration features — tested partially; more edge cases possible
+- Markdown preview — tested in Run #10; verify behavior with embedded code blocks
+- Keyboard macros — tested in Run #10; verify complex multi-step macros
+- Bookmarks — tested in Run #11; verify all bookmark slots (Alt+0-9)
 - F10 reliability: Sometimes inserts `[21~]` escape sequence instead of opening menu (timing-dependent tmux issue)
 - Search and Replace in Project (Alt+A) — cross-file search
 - Calibrate Keyboard wizard
+- Block selection (Alt+Shift+Arrow) — tmux key sequence M-S-Down did NOT work in Run #12; need to find correct tmux key
+- Verify Keyboard Shortcuts buffer 'q' close bug (Run #12 candidate RC12-01)
+- Verify Edit menu Replace shortcut discrepancy (Run #12 candidate RC12-02)
+- File GitHub issues for RC12-01 if not already filed (requires GitHub MCP re-auth)
+
+## Sprint 10: Edge Cases & Stress (Run #13+ Priority)
+- [ ] **T45** — Open a large file (100MB+); verify performance (no freeze, lazy loading)
+- [ ] **T46** — Open a binary file (/bin/ls); verify graceful handling
+- [ ] **T47** — Rapid keystrokes: buffer text quickly, verify no dropped input
+- [ ] **T48** — Resize tmux window while editing; verify layout reflow
+
+## Sprint 11: Navigation Edge Cases
+- [ ] **T28** — Go to matching bracket (may need bracket in code file)
+- [ ] **T30** — Position history (Alt+Left/Right)
+- [ ] **T37** — Toggle line wrap; verify visual line wrapping
+
+## Sprint 12: Bug Verification (Run #13+ Priority)
+- [ ] **TB01** — Confirm/refute: Keyboard Shortcuts buffer 'q' does not close
+  - Steps: Shift+F1 → press 'q' → observe status bar
+- [ ] **TB02** — Confirm/refute: Edit menu Replace shortcut Ctrl+Alt+R = Query Replace (not basic Replace)
+  - Steps: F10 → Edit → navigate to Replace... → Enter → observe confirm-each checkbox
+- [ ] **TB03** — Confirm/refute: Alt+W in non-search context inconsistently closes tab vs toggles whole-word
+  - Steps: Open file → press Alt+W multiple times → observe each result
