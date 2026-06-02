@@ -13,20 +13,23 @@
 
 ---
 
-## RUN #17+ PRIORITY ORDER (work top-down; these are the unfound-bug frontier)
+## RUN #18+ PRIORITY ORDER (coverage-first; work top-down)
 
-1. **Bug recheck — still open bugs:**
-   - `*Keyboard Shortcuts*` 'q' still broken (Run #16 confirmed in 0.3.10) — tracked via new #2165
-   - #2135 (Edit menu Replace label mismatch) — not re-tested since Run #13; recheck in 0.3.10
-2. **LSP: Code Actions (Alt+.)** — test code actions on a real LSP-supported file (fake-pylsp available)
+> **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
+
+1. **LSP: clangd on C project** — pyright confirmed broken (#2197); try clangd on a small C project in /tmp to test LSP code actions, hover, definition, completion with a WORKING LSP
+2. **LSP: Code Actions (Alt+.)** — requires working LSP from item 1 above
 3. **text-actions plugin** — install from URL and test (github.com/PavelLoparev/fresh-text-actions-plugin)
-4. **Package Manager keyboard UX** — investigate if Uninstall/Install button is truly keyboard-inaccessible (IMP item)
-5. **Git Blame: multi-commit history** — test 'b' (go back) on a file with multiple commits to confirm history navigation
-6. **#2113 race condition** — re-test `>` → file mode transition keystroke leak (in 0.3.10)
-7. **#2111 F3 search navigation** — still open/deferred; re-verify in 0.3.10
-8. **#2122 move_to_paragraph_down/up** — still no keybinding in 0.3.10?
-9. **Quickfix buffer Enter navigation** — #2124 was separate from #2125; still broken?
+4. **Git Blame: multi-commit history** — test 'b' (go back) on a file with multiple commits to confirm history navigation
+5. **#2113 race condition** — re-test `>` → file mode transition keystroke leak (in 0.3.10)
+6. **#2122 move_to_paragraph_down/up** — still no keybinding in 0.3.10?
+7. **SSH features** — open a file via SSH URI if available
+8. **Encoding handling** — open file with non-UTF-8 encoding (e.g., Latin-1), verify encoding picker
+9. **Terminal emulator** — test integrated terminal (if available)
+10. **Themes** — test theme switching (View menu or palette)
+11. **#2165 recheck** — '*Keyboard Shortcuts*' 'q' (filed Run #16); still open?
 
+Note: Run #17 COMPLETE. File Explorer TESTED (PASS), Settings TextList [x] CONFIRMED mouse-only (Delete key = keyboard equivalent), pyright LSP BROKEN (#2197).
 Note: Sprint 10 COMPLETE, Sprint 11 COMPLETE, Sprint 12 COMPLETE (TB01/TB02/TB03), Alt+A TESTED (PASS), Calibrate Keyboard TESTED, Block Selection TESTED (PASS Run #15), Flash:Jump TESTED (PASS Run #15), Package Manager TESTED (PASS Run #15+16), Live Diff TESTED (PASS Run #15+16), Live Grep Cycle Provider TESTED (PASS Run #15), Dev Container TESTED (PASS Run #15+16), Git Blame TESTED (PASS Run #16), Orchestrator TESTED (PASS Run #16), Color Highlighter TESTED (PASS Run #16), Review Diff CONFIRMED FIXED (Run #16, 0.3.10).
 
 Note: Sprint 10 COMPLETE (T45/T46/T47/T48 all PASS), Sprint 11 COMPLETE (T28/T30/T37 all PASS), Sprint 12 COMPLETE (TB01/TB02/TB03), Alt+A TESTED (PASS), Calibrate Keyboard wizard TESTED (24 steps/5 groups; does NOT test Ctrl+H).

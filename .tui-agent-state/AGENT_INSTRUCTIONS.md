@@ -29,6 +29,17 @@ the application through `tmux` *exactly as a human user would*.
 - **Do NOT fix code or open pull requests.** You file issues; humans fix them.
 - *Allowed and encouraged:* reading user-facing **documentation** (`docs/`,
   `docs/configuration/keyboard.md`, `CHANGELOG.md`, `docs/blog/`) to avoid false
+
+**Prefer real-world use cases and tools:**
+- Use real LSP servers (pyright, clangd, etc.) on small test projects, NOT fake
+  stubs. Fake LSPs produce false passes and miss real LSP-integration bugs.
+- Avoid `rust-analyzer` on the fresh repo itself — it's too heavy to index
+  quickly. Instead use pyright on a small Python project, or clangd on a tiny
+  C project created in `/tmp`.
+- When testing features that require real data (LSP, git blame, live grep),
+  set up minimal but real data: real Python/C files, real git repos, real deps.
+- Avoid using `--no-restore` unless you explicitly need a clean slate — testing
+  session persistence is itself a valid user flow.
   positives, and reading/writing your own `.tui-agent-state/` files. Docs are
   not source code; the prohibition is on the implementation.
 

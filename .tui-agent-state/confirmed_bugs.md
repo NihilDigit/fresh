@@ -59,3 +59,24 @@ Each bug entry:
 - **Actual:** "Replace..." in Edit menu maps to `Ctrl+Alt+R` which is Query Replace (interactive). Basic Replace (`Ctrl+R`) has no Edit menu entry.
 - **First Seen:** Run #12, 2026-05-27
 - **Confirmed:** Run #13, 2026-05-27
+
+---
+
+## BUG-004: Pyright LSP — All Request-Based Features Timeout After 30s
+- **ID:** BUG-004
+- **Title:** Pyright LSP: hover, definition, completions, signatureHelp all timeout; diagnostics not published
+- **Severity:** High (major feature non-functional with real LSP)
+- **Status:** Open
+- **GitHub Issue:** [#2197](https://github.com/sinelaw/fresh/issues/2197) — filed in Run #17
+- **Reproduction:**
+  1. Install pyright: `pip install pyright`
+  2. Config: `{"lsp": {"python": {"command": "pyright-langserver", "args": ["--stdio"], "enabled": true}}}`
+  3. Create small Python project in /tmp with main.py
+  4. Launch Fresh from that directory: `fresh --no-restore main.py`
+  5. Wait for "LSP (python) ready" in status bar
+  6. Try F12 (definition), Alt+K (hover), Ctrl+Space (completion) — all timeout after 30s
+- **Expected:** Standard LSP features work (definition, hover, completion, diagnostics)
+- **Actual:** Initialize succeeds ("Async LSP server initialized successfully") but ALL subsequent requests timeout. Diagnostics panel shows 0 items despite `[⚠ N]` counter (which counts timeout warnings, not code diagnostics).
+- **Hint:** Log shows `LSP initialize result: position_encoding=None` — possible UTF-16 encoding mismatch causing pyright to discard all requests silently.
+- **First Seen:** Run #17, 2026-06-02
+- **Confirmed:** Run #17, 2026-06-02 (10/10 requests timed out across hover, definition, completion, signatureHelp)

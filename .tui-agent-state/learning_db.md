@@ -371,3 +371,41 @@ Fresh opens binary files gracefully:
   - Dismiss with ESC
 - When devcontainer.json is NOT found: status shows "No devcontainer.json found" (no dialog)
 - Docker daemon not running does NOT affect this error path (CLI check happens before docker check)
+
+## File Explorer (Run #17)
+- **Toggle sidebar:** `Ctrl+B` — shows/hides file explorer sidebar
+- **Focus explorer:** `Ctrl+E` — moves keyboard focus from editor to file explorer
+- **Navigation:** Up/Down = move cursor; Right = expand directory; Left = collapse directory; Enter = open file (permanent)
+- **Auto-preview:** Cursor movement auto-previews files in editor without permanently opening them
+- **New file:** `Ctrl+N` when explorer is focused (NOT when editor is focused) — creates file in current dir
+- **Delete file:** `Delete` key when file is highlighted → confirmation `y`/`n` → "Moved to trash" on confirm
+- **IMPORTANT:** `Ctrl+N` when editor is focused = new buffer, NOT explorer new file. Must press `Ctrl+E` first to focus explorer.
+- The `>` prefix in file names (or tree node markers) distinguishes folders from files.
+
+## Settings Panel Navigation (Run #17)
+- **Open settings:** Command palette `Ctrl+P` → "Open Settings"
+- **Panel structure:** 3-panel overlay: [Categories list | Settings items | Right content panel]
+- **Tab cycle:** Categories → Settings → Footer → Categories (one Tab per panel)
+- **Categories panel:** When focused (blue `[48;5;25m` bg + `>` prefix), Up/Down navigates categories; right panel updates to show that category's settings
+- **Settings panel:** When focused, Up/Down navigates between individual setting controls. Each control shows a description box below it.
+- **Footer panel:** Shows `[ Edit ]  [ User ]  [ Reset ]  [ Save ]  [ Cancel ]`. Tab cycles: Save → Cancel → Edit → wrap to Categories (Layer/Reset buttons skipped by Tab per known usability bug).
+- **Enter in Settings panel:** For Toggle = toggle value; for Dropdown = open dropdown; for Number = enter edit mode; for TextList = enters editing mode (Up/Down navigate items, Delete removes, Enter confirms/adds)
+- **TextList interaction model:**
+  1. Navigate to TextList header (e.g., "Sources:") with Up/Down in Settings panel
+  2. Press Up to navigate INTO existing items (cursor moves to items list)
+  3. Item focused state: item text shown with blue bracket color `[38;5;25m`, hint text "Del:remove  Enter:edit" appears
+  4. Press Delete to remove focused item; Enter opens inline editor for item text
+  5. Tab exits TextList (jumps to next panel in Tab cycle)
+- **TextList [x] buttons:** Visual-only for mouse users; NOT keyboard-accessible via Tab. Keyboard deletion = Delete key.
+- **Escape behavior:** Closes settings and DISCARDS unsaved changes (no confirmation dialog when changes are pending — contrary to expectation)
+- **Selection highlight:** Blue `[48;5;25m` background = keyboard focus; `[48;5;17m]` darker blue = modified/active indicator
+- **Modification indicator:** `●` appears next to setting label when value differs from default
+
+## LSP: Pyright Status (Run #17)
+- **pyright-langserver** (from `pip install pyright`): Initialize handshake SUCCEEDS ("LSP (python) ready")
+- BUT all request-based features TIMEOUT after 30s: hover, definition, completion, signatureHelp, diagnostics
+- Log evidence: warnings log shows 10 timeouts; `LSP initialize result: position_encoding=None` (suspicious)
+- pyright processes (Python wrapper + Node child) both running but idle (sleeping state = waiting for input)
+- Bug filed: #2197
+- **Suspected cause:** Position encoding mismatch — `position_encoding=None` may mean Fresh defaults to UTF-16 but pyright expects UTF-8, causing it to silently discard all subsequent requests
+- **Alternative to try next run:** clangd on a tiny C project (avoid rust-analyzer = too heavy)

@@ -2,6 +2,66 @@
 
 ---
 
+## Run #17 — 2026-06-02
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state from `tui-automated-testing-state`; built release binary from `claude/awesome-clarke-VmLci` (**v0.3.10**, ~8 min)
+- Created tmux session `fresh-test-run17` (220×50)
+- **Preflight:** Confirmed AGENT_INSTRUCTIONS.md updated per user instructions (real LSP preference added; forget previous issues instruction enacted by resetting test priority to coverage-first).
+- **User overrides this run:**
+  1. "forget previous issues; move on to testing completely other UX aspects or features or user flows"
+  2. "prefer real-world use cases and tools" instruction added to AGENT_INSTRUCTIONS.md
+  3. Removed fake-pylsp symlink; switched to real pyright
+  4. Avoided rust-analyzer; used pyright on small Python project in /tmp
+- **File Explorer (Ctrl+B / Ctrl+E):** Tested full keyboard-only navigation
+- **LSP with pyright:** Set up real pyright on a small Python project in `/tmp/py_lsp_test/`; discovered major LSP timeout bug
+- **Settings panel:** Tested navigation model, TextList [x] delete keyboard accessibility
+- **Bug filed:** #2197 — pyright LSP all request-based features timeout after 30s
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| File Explorer: Ctrl+B toggle | **PASS** | Shows/hides sidebar |
+| File Explorer: Ctrl+E focus | **PASS** | Moves focus from editor to explorer |
+| File Explorer: Up/Down navigate | **PASS** | Moves cursor through files/dirs |
+| File Explorer: Right expand dir | **PASS** | Expands directory |
+| File Explorer: Left collapse dir | **PASS** | Collapses directory |
+| File Explorer: Enter opens file | **PASS** | Opens file permanently (not preview) |
+| File Explorer: auto-preview on navigate | **PASS** | Files auto-preview as cursor moves |
+| File Explorer: New file (Ctrl+N) | **PASS** | Creates file when explorer focused |
+| File Explorer: Delete file (Delete key) | **PASS** | Confirms with y/n; "Moved to trash" |
+| Settings: Tab cycle (Cat→Settings→Footer→Cat) | **PASS** | Blue `[48;5;25m` highlight confirms focus |
+| Settings: TextList navigate Up/Down to items | **PASS** | Up/Down navigates from header into items |
+| Settings: TextList Delete removes item | **CONFIRMED** | Hint "Del:remove" shown when item focused |
+| Settings: TextList [x] keyboard-accessible | **CONFIRMED NOT** | Tab exits TextList; [x] is mouse-only |
+| Settings: Escape discards unsaved changes | **PASS** | No confirmation dialog; changes discarded |
+| pyright LSP: initialize | **PASS** | Shows "LSP (python) ready" in status bar |
+| pyright LSP: hover (Alt+K) | **FAIL** | Timeout after 30s (10/10 requests) |
+| pyright LSP: definition (F12) | **FAIL** | Timeout after 30s |
+| pyright LSP: completion (Ctrl+Space) | **FAIL** | Timeout after 30s |
+| pyright LSP: signatureHelp | **FAIL** | Timeout after 30s |
+| pyright LSP: diagnostics | **FAIL** | 0 items (no code diagnostics published) |
+
+### Issues Filed
+- **#2197** (new): "Pyright LSP: all request-based features (hover, definition, completions) timeout after 30s while LSP shows 'ready'"
+
+### Key Findings
+1. File Explorer fully functional with keyboard-only navigation including file creation and deletion.
+2. Settings panel uses Tab cycle: Categories → Settings → Footer → Categories. Arrow keys in Categories panel navigate categories; Tab switches focus to the Settings panel.
+3. Settings TextList [x] buttons are MOUSE-ONLY. Keyboard deletion uses Delete key while item focused (confirmed via "Del:remove" hint text).
+4. pyright LSP integration broken — initialize succeeds but ALL subsequent LSP requests (hover, definition, completion, signatureHelp, diagnostics) silently timeout after 30s. Position encoding mismatch suspected (log: `LSP initialize result: position_encoding=None`).
+
+### Version
+- Binary: v0.3.10 built from `claude/awesome-clarke-VmLci` (same as Run #16 branch, new commit)
+
+### Cleanup
+- tmux session `fresh-test-run17` killed
+- /tmp/py_lsp_test/ removed
+
+---
+
 ## Run #16 — 2026-05-31
 
 ### Status: COMPLETED

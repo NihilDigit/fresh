@@ -4,7 +4,7 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #16, 2026-05-31
+Last updated: Run #17, 2026-06-02
 
 ---
 
@@ -19,6 +19,8 @@ Last updated: Run #16, 2026-05-31
 | [#2117](https://github.com/sinelaw/fresh/issues/2117) | Review Diff: "Discard hunk" fails with "patch does not apply" even when patch is valid | Run #5 | **FIXED** (Run #16) | Closed by maintainer. Confirmed fixed in 0.3.10 (Run #16): review_diff_test16.txt +4 lines → discard → "Review Diff: 0 hunks". File reverted to original. Do NOT re-file. |
 | [#2125](https://github.com/sinelaw/fresh/issues/2125) | Diagnostics panel keyboard shortcuts (q: close, a: toggle filter, RET: goto) do not work | Run #9 | **CLOSED** (Run #16) | Closed by maintainer. Diagnostics panel 'q' confirmed still fixed in 0.3.10. *Keyboard Shortcuts* 'q' still broken → filed new #2165. Do NOT re-file. |
 | [#2135](https://github.com/sinelaw/fresh/issues/2135) | Edit menu "Replace..." label maps to Ctrl+Alt+R (Query Replace), not basic Replace (Ctrl+R) | Run #13 | **Open** | Filed Run #13. Do NOT re-file. |
+| [#2165](https://github.com/sinelaw/fresh/issues/2165) | *Keyboard Shortcuts* buffer: pressing 'q' shows 'Editing disabled' | Run #16 | **Open** | Re-filed since #2125 closed. Do NOT re-file. |
+| [#2197](https://github.com/sinelaw/fresh/issues/2197) | Pyright LSP: all request-based features (hover, definition, completions) timeout after 30s | Run #17 | **Open** | Real pyright on small Python project. Initialize succeeds, all requests timeout. Position encoding mismatch suspected. Do NOT re-file. |
 
 ---
 
