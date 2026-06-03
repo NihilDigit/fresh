@@ -234,6 +234,183 @@ agents; #3 is the instant "boot screenshot" while the resumed agent repaints.
 The four hard parts are the same ones herdr already solved (trusted-source
 registry, replay, dedupe, deferred launch) — see the verified section above.
 
+## Adopting 2b in Fresh — the concrete plan
+
+> **Decision:** adopt archetype **2b** (native agent resume), layered on the
+> existing #1 (detach server) and #3 (backing-file screenshot). Two hard
+> requirements shape the implementation and push it *away* from a literal
+> port of herdr:
+>
+> 1. It must work across **every authority** — local, SSH, K8s, devcontainer.
+> 2. Per-agent logic (detection + resume command) must **not be hardcoded in
+>    Rust core**; it must be configurable and plugin-extensible (TOML config
+>    and an `init.ts` API), the way LSP servers and grammars already are.
+>
+> These two requirements are why the Fresh design differs from herdr in its
+> two load-bearing mechanisms (capture transport and registry location),
+> while keeping herdr's proven *shape* (capture id → reconstruct argv from a
+> trusted template → type-and-send → dedupe → deferred launch).
+
+### Why herdr's transport doesn't port directly
+
+herdr's capture is a **unix-socket callback**: the agent hook connects to
+`HERDR_SOCKET_PATH` and sends `pane.report_agent_session`. That works because
+**every herdr pane is local**. Fresh panes are not: a terminal opened under
+the SSH / K8s / devcontainer authority runs the agent *on a remote host*
+(`manager.spawn` runs the authority's `TerminalWrapper` — `ssh …` /
+`docker exec …` / `kubectl exec …`). On those hosts:
+
+- Fresh's local control socket (`FRESH_SESSION`, `local_control.rs`) is **not
+  reachable**, and
+- env vars set on the local `CommandBuilder` (`manager.rs:332`) **don't cross
+  the wrapper** to the remote process.
+
+So a socket/env callback is a *local-only fast path*, not the primary
+mechanism. The authority-robust mechanism has to ride a channel that already
+spans the authority boundary — and there is exactly one: the **PTY data
+stream** Fresh is already reading.
+
+### Capture (authority-robust): in-band PTY marker — *primary*
+
+The agent's hook emits a **sentinel escape sequence** to stdout carrying its
+identity; Fresh scans it out of the PTY byte stream, captures it, and strips
+it from the display. Concretely:
+
+- Hook prints e.g. an OSC: `\033]5379;agent=claude;id=<session-id>\007`
+  (5379 = "FRESH"; bikeshed later). For Claude Code this is a one-line
+  `SessionStart` hook — the same install point herdr uses, different payload
+  (print, not socket-connect).
+- Fresh already funnels every terminal's output through
+  `TerminalState::process_output(&mut self, data: &[u8])`
+  (`services/terminal/term.rs:178`) before handing bytes to the
+  `alacritty_terminal` VTE `Processor`. The marker is recognised there
+  (a cheap byte-scan for the `\033]5379;` prefix), captured against **this
+  terminal** (attribution is automatic — it's *this* PTY), and elided from
+  the bytes fed to the emulator so it never renders.
+
+Why this is the right primary:
+
+- **Authority-agnostic by construction.** It is pure in-band PTY data, so it
+  behaves identically whether the agent runs locally, over SSH, in a pod, or
+  in a container. No socket reachability, no env propagation, no per-authority
+  code.
+- **No per-terminal token needed.** Because Fresh reads the marker off a
+  specific terminal's stream, it knows the owning `TerminalId`/`WindowId`
+  without the agent echoing back an id (herdr needs `HERDR_PANE_ID` precisely
+  because the socket callback is out-of-band).
+- **Harmless when unobserved.** An agent that prints the marker into a plain
+  terminal (no Fresh) just emits an ignored OSC. So hooks can emit
+  unconditionally; no env-gating required for remote.
+
+Alternatives kept as secondary:
+
+| Capture transport | Authorities | Notes |
+|---|---|---|
+| **In-band PTY marker** | **all** | primary; rides the data channel |
+| Unix-socket / `fresh --cmd terminal report-agent` | local only | fast path; reuses `local_control.rs` + a new `ClientControl::ReportAgent` variant (insertion points already scoped: `main.rs` cmd parse, `protocol.rs` enum, `editor_server.rs` dispatch) |
+| Marker file via `authority.filesystem` | all (needs FS) | hook writes id to a file; Fresh reads it through the same remote-FS abstraction used in `restore_terminal_from_workspace`. Slower, polled; fallback when a host strips OSC |
+| Agent store scrape / argv detection | local mostly | last-resort enrichment (A3/A4 below) |
+
+### Replay (authority-robust): type-and-send into the wrapper's own shell
+
+Use **B1 (type-and-send)** exactly as herdr does, and it composes with
+authorities *for free* — for a subtle but decisive reason: on restore Fresh
+spawns the pane's shell through the **same authority `TerminalWrapper`**, so
+the shell that receives the typed keystrokes **is already the remote/container
+shell** (`ssh …`, `docker exec …`). Writing `claude --resume <id>\r` via
+`TerminalHandle::write(&[u8])` (`manager.rs:76`) therefore runs the resume
+command *on the host where the agent lived*, with no authority-specific logic.
+The `exec`/`initial_command` variant (B2) would instead require threading the
+command through every wrapper constructor — more work for worse UX. B1 wins
+twice under the authority requirement.
+
+### Registry-as-data: config + `init.ts` API + a bundled default plugin
+
+No agent names, match rules, or resume flags live in Rust. The core holds a
+**generic registry** populated from three layers (later overrides earlier):
+
+1. **Built-in defaults** shipped as a **bundled TS plugin**
+   (`crates/fresh-editor/plugins/agent-resume.ts`, like the existing
+   `k8s-workspace.ts`) that registers claude/codex/opencode/copilot/pi/hermes
+   /aider. This keeps even the defaults out of Rust and makes them
+   user-overridable.
+2. **User config** — TOML `[[terminal.agents]]` entries.
+3. **Plugins** — `init.ts` calls, following the established
+   `registerLspServer` / `registerGrammar` pattern
+   (`quickjs_backend.rs:2930` / `:2860`), with the same collision handling.
+
+The registry entry shape (config and API mirror each other):
+
+```ts
+fresh.terminal.registerAgent({
+  name: "claude",
+  // detection (for argv-sniff capture + UI labelling)
+  match: { program: "claude" },
+  // capture transport this agent uses
+  capture: "marker",                  // "marker" | "socket" | "file" | "none"
+  // resume invocation — argv ARRAY with a placeholder element, never a
+  // concatenated string, so the captured id can't break out into shell words
+  resume:     ["claude", "--resume", "{session_id}"],
+  resumeCwd:  ["claude", "--continue"],   // when no id was captured
+  sessionRefKind: "id",               // "id" | "path"  (pi uses "path")
+});
+```
+
+The Orchestrator plugin registers nothing extra — it already knows the agent
+it launched, so it can pre-seed `agent_resume` for its panes (covers the
+parallel-worktree case with zero hooks).
+
+### Persist the resolved template, not a registry pointer
+
+To keep **restore independent of plugin load order** (plugins init at
+startup; terminal restore is early), persist the *resolved* resume template
+with the captured ref, not just `(agent)`:
+
+```rust
+// added to SerializedTerminalWorkspace (workspace.rs:409), Option => today's behaviour
+pub agent_resume: Option<AgentResume>,
+
+pub struct AgentResume {
+    pub agent: String,               // for UI + re-resolve
+    pub session_ref: SessionRef,     // { kind: Id|Path, value: String }
+    pub resume_argv: Vec<String>,    // resolved template w/ "{session_id}" slot
+    pub captured_via: String,        // "marker" | "socket" | "orchestrator" | …
+    pub captured_at: u64,
+}
+```
+
+On restore the core expands `resume_argv` with `session_ref.value` (pure
+string substitution into the placeholder *element*, then shell-quote each
+element for type-and-send) — **no registry lookup required**. If the agent is
+still registered, optionally re-resolve to pick up a corrected template; else
+use the stored one. The captured **id is always data**: it only ever lands in
+the placeholder argv element and is shell-quoted, so a hostile id can make
+resume fail but cannot inject a command — even though the template now comes
+from config/plugins rather than hardcoded Rust.
+
+### Code-level change map
+
+| Concern | Where | Change |
+|---|---|---|
+| Registry store | new `services/terminal/agent_registry.rs` | generic `AgentDef` list; resolve `(argv, kind)` from a detected/known agent |
+| Plugin API | `quickjs_backend.rs` (by `registerLspServer`) | `registerAgent(def)` + collision handling; expose on `fresh.terminal` |
+| Config | `config.rs` `TerminalConfig` (:1861) + `config-schema.json` | `agents: Vec<AgentDef>` |
+| Built-in defaults | `crates/fresh-editor/plugins/agent-resume.ts` (+ hook assets) | bundled plugin registering the 7 agents; ports herdr's hook scripts to emit the marker |
+| Capture (marker) | `services/terminal/term.rs:178` `process_output` | scan/strip marker; surface `(TerminalId, agent, session_ref)` |
+| Capture (socket, local) | `main.rs` cmd-parse + `protocol.rs` `ClientControl` + `editor_server.rs` dispatch | optional `terminal report-agent` fast path |
+| Per-terminal capture store | `Window`/`Editor` | `HashMap<TerminalId, AgentResume>`; populated by capture, read at save |
+| Persist | `workspace.rs:409` + capture block at `app/workspace.rs:2020` | add `agent_resume` field; write it in `capture_workspace` |
+| Replay | `app/workspace.rs:691` `restore_terminal_from_workspace` | when `agent_resume` present + enabled: skip backing-file load, `TerminalHandle::write` the quoted argv + `\r`, mark no-respawn |
+| Dedupe + deferred launch | restore path + a per-frame check (cf. herdr `app/agent_resume.rs`) | resume each `session_ref` once; defer until pane has a render rect |
+| Config switch | `config.rs` `[session]` | `resume_agents_on_restore` (+ `resume_mode`) |
+
+This satisfies both requirements: **authority-robustness** comes from the
+in-band marker (capture) and type-and-send into the wrapper's own shell
+(replay), neither of which has per-authority code; **no-hardcoding** comes
+from the generic registry fed by config + `registerAgent` + a bundled
+defaults plugin, with the resolved template persisted so the Rust core never
+needs to know what "claude" is.
+
 ## Problem decomposition
 
 The feature splits cleanly into two independent axes. Most of the design
@@ -281,6 +458,14 @@ herdr gates on `is_official_agent_source`.
 and old workspace files keep loading.
 
 ## Axis A — capturing agent + session id
+
+> **Superseded by the concrete plan above.** The axes below are the original
+> analysis. Under Fresh's authority + no-hardcoding requirements, the chosen
+> capture transport is the **in-band PTY marker** (not the unix-socket
+> callback A1 describes), and the registry lives in config/plugins (not Rust).
+> A1's *hook install point* still applies — the hook just **prints a marker**
+> instead of connecting to a socket. Read this section for the trade-offs;
+> read "Adopting 2b in Fresh" for what we build.
 
 ### A1. Integration hooks (herdr's approach) — *recommended primary*
 
@@ -570,27 +755,31 @@ unexpected. Guardrails:
 
 ## Phasing
 
-- **Phase 0 — plumbing (no behaviour change).** Add `agent_resume`
-  (`source` + `agent` + `session_ref`) to `SerializedTerminalWorkspace`, the
-  registry config + built-in defaults (the six verified argv templates), and
-  a `pending_agent_resume` field on terminal state. Everything still resolves
-  to "plain shell."
-- **Phase 1 — replay via type-and-send (B1).** On restore, when a plan
-  exists and `resume_agents_on_restore` is on: spawn the shell as today, skip
-  the backing-file load, shell-quote the argv and send it + `\r`, set
-  no-respawn-on-exit. Include **session dedupe** and **deferred launch** from
-  day one (they're correctness, not polish). Source the plan from A2
-  (Orchestrator-known agent) first — smallest end-to-end slice for the
-  parallel-worktree use case.
-- **Phase 2 — hook integrations (A1).** `fresh integration install claude`
-  writes a `SessionStart` hook into `~/.claude/settings.json` that reports
-  `(pane, agent, session_id)` to Fresh's control socket via a new
-  `terminal report-agent` verb; inject `FRESH_TERMINAL_ID` on spawn. This
-  gives id-accurate resume for hand-launched agents. Add
-  codex/opencode/copilot/pi/hermes by porting herdr's hook assets.
-- **Phase 3 — enrichment & polish.** Store-scraping fallback (A3), argv
-  detection prompts (A4), staleness expiry, optional `confirm` UX, and flip
-  the default to `true` once dogfooded — as herdr did.
+- **Phase 0 — generic plumbing (no behaviour change).** Add the generic
+  agent **registry** (`agent_registry.rs`), the `registerAgent` plugin API +
+  `[[terminal.agents]]` config, the `agent_resume` field on
+  `SerializedTerminalWorkspace` (with the **resolved `resume_argv`**), and the
+  per-terminal capture store. No agent names in Rust. Everything still
+  resolves to "plain shell."
+- **Phase 1 — Orchestrator pre-seed + replay (B1), authority-robust.** The
+  Orchestrator knows the agent it launched, so it pre-seeds `agent_resume`
+  (resume-by-`--continue`). On restore, when present and
+  `resume_agents_on_restore` is on: skip the backing-file load, type the
+  shell-quoted argv + `\r` via `TerminalHandle::write`, mark no-respawn.
+  **Session dedupe** and **deferred launch** ship here (correctness, not
+  polish). Works on every authority because the keystrokes go to the
+  wrapper's own (possibly remote) shell. Ship the bundled `agent-resume.ts`
+  defaults plugin.
+- **Phase 2 — in-band marker capture (id-accurate, all authorities).** Scan
+  the marker in `process_output`; port herdr's hook scripts to **print the
+  marker** (Claude `SessionStart`, etc.) via `fresh integration install …`.
+  This upgrades `--continue` to `--resume <id>` and covers hand-launched
+  agents under SSH/K8s/devcontainer. Add the **local unix-socket fast path**
+  (`terminal report-agent`) opportunistically.
+- **Phase 3 — enrichment & polish.** Marker-file fallback via
+  `authority.filesystem` for hosts that strip OSC; store-scrape / argv
+  detection (A3/A4); staleness expiry; optional `confirm` UX; flip the
+  default to `true` once dogfooded — as herdr did.
 
 ## Open questions
 
