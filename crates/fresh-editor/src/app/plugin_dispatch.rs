@@ -912,8 +912,11 @@ impl Editor {
                 self.handle_set_authority(payload);
             }
 
-            PluginCommand::AttachRemoteAgent { payload } => {
-                self.handle_attach_remote_agent(payload);
+            PluginCommand::AttachRemoteAgent {
+                payload,
+                request_id,
+            } => {
+                self.handle_attach_remote_agent(payload, request_id);
             }
 
             PluginCommand::ClearAuthority => {
@@ -3460,7 +3463,7 @@ impl Editor {
         }
     }
 
-    fn handle_attach_remote_agent(&mut self, payload: serde_json::Value) {
+    fn handle_attach_remote_agent(&mut self, payload: serde_json::Value, request_id: u64) {
         // Opaque at the fresh-core boundary; the concrete schema lives in
         // services::authority so core stays backend-agnostic.
         let spec =
@@ -3468,7 +3471,7 @@ impl Editor {
                 Ok(spec) => spec,
                 Err(e) => {
                     tracing::warn!("attachRemoteAgent: invalid payload: {}", e);
-                    self.set_status_message(format!("attachRemoteAgent rejected: {e}"));
+                    self.reject_remote_attach(request_id, format!("invalid attach spec: {e}"));
                     return;
                 }
             };
@@ -3478,7 +3481,7 @@ impl Editor {
         let runtime = self.tokio_runtime.clone();
         let sender = self.async_bridge.as_ref().map(|b| b.sender());
         let (Some(runtime), Some(sender)) = (runtime, sender) else {
-            self.set_status_message("attachRemoteAgent: async runtime not available".to_string());
+            self.reject_remote_attach(request_id, "async runtime not available".to_string());
             return;
         };
 
@@ -3530,10 +3533,12 @@ impl Editor {
                                 keepalive: Box::new(keepalive),
                                 working_dir: workspace,
                                 mode,
+                                request_id,
                             },
                         ),
                         Err(e) => AsyncMessage::RemoteAttachFailed {
                             error: e.to_string(),
+                            request_id,
                         },
                     };
                     #[allow(clippy::let_underscore_must_use)]
@@ -3576,10 +3581,12 @@ impl Editor {
                                 keepalive: Box::new(keepalive),
                                 working_dir: workspace,
                                 mode,
+                                request_id,
                             },
                         ),
                         Err(e) => AsyncMessage::RemoteAttachFailed {
                             error: e.to_string(),
+                            request_id,
                         },
                     };
                     #[allow(clippy::let_underscore_must_use)]
@@ -3587,6 +3594,28 @@ impl Editor {
                 });
             }
         }
+    }
+
+    /// Resolve the `attachRemoteAgent` promise behind `request_id` — the
+    /// session (authority + window) is fully constructed. Resolves with
+    /// `null`; the plugin only needs the success signal to close its dialog.
+    pub(crate) fn resolve_remote_attach(&self, request_id: u64) {
+        self.plugin_manager.read().unwrap().resolve_callback(
+            fresh_core::api::JsCallbackId::from(request_id),
+            "null".to_string(),
+        );
+    }
+
+    /// Reject the `attachRemoteAgent` promise behind `request_id` with `error`
+    /// — the connect failed, or the spec was bad / the runtime unavailable, or
+    /// window creation failed. The plugin surfaces the reason and creates no
+    /// window.
+    pub(crate) fn reject_remote_attach(&self, request_id: u64, error: String) {
+        tracing::warn!("attachRemoteAgent rejected: {error}");
+        self.plugin_manager
+            .read()
+            .unwrap()
+            .reject_callback(fresh_core::api::JsCallbackId::from(request_id), error);
     }
 
     fn handle_set_remote_indicator_state(&mut self, state: serde_json::Value) {
