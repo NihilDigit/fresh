@@ -155,6 +155,85 @@ four non-obvious pieces of engineering: a per-pane env token, a trusted-
 source registry that turns ids into argv (never shell text), session-level
 dedupe, and theme-gated deferred launch.
 
+## The landscape: five ways to restore a terminal
+
+Surveying the field (multiplexers, terminal emulators, IDEs, process-
+checkpoint tools, and the new wave of agent orchestrators), every approach
+is one of five archetypes — or a layering of them. Each was checked against a
+real implementation.
+
+**1. Keep the process alive (daemon / server + reattach).** Never kill the
+program; a resident background process owns the PTY and clients reattach.
+- *Examples:* tmux/screen, `abduco`/`dtach`, iTerm2 Session Restoration
+  (jobs run in long-lived servers), VS Code "process reconnect" (pty-host
+  survives window reload), **claude-squad** (tmux-backed), **Superset**
+  (its `pty-daemon` even hands off live PTY master fds to a successor daemon
+  on upgrade — verified from source — so agents survive app *and* daemon
+  restarts), and **Fresh's own detach/reattach** (background server).
+- *Trade-off:* perfect fidelity (the live process, all in-memory state). But
+  only survives *soft* restarts — app reload, disconnect, daemon upgrade —
+  **not** host reboot, daemon crash, or OS kill. Costs a resident process +
+  memory.
+
+**2. Re-launch from saved metadata (replay the command).** Process dies; on
+restore re-run a command.
+- *2a — bare re-run:* tmux-resurrect "restore programs" (conservative
+  whitelist + `~prog->prog *` rules), zellij resurrection (re-runs command
+  panes behind a "Press ENTER to run" banner; `--force-run-commands` to
+  skip).
+- *2b — native agent resume:* **herdr**, **cmux**, **Conductor** (re-drives
+  Claude Code via its own resume/chat-history), VS Code "revive process".
+  **This is the archetype this doc proposes for Fresh.**
+- *Trade-off:* survives full reboots, cheap, no resident process. But loses
+  live in-memory state (only what the program persisted comes back) and needs
+  the program to support resume for any fidelity. Re-running is a side effect,
+  hence the confirm banners.
+
+**3. Snapshot the rendered screen only (cosmetic).** Save/restore the painted
+text; the process is gone.
+- *Examples:* tmux-resurrect `capture-pane-contents`, zellij
+  `pane_viewport_serialization`, iTerm2 OS window restoration (content-only
+  → reverse-video "Session Restored" banner), VS Code scrollback restore, and
+  **Fresh's current backing-file restore**.
+- *Trade-off:* instant, looks identical, zero risk — but it's a screenshot,
+  not interactive. Almost always layered under #1 or #2.
+
+**4. Checkpoint/restore the process image (freeze/thaw).** CRIU, DMTCP.
+- *Trade-off:* highest fidelity for *arbitrary* processes with no resume
+  support needed. But heavy and fragile: needs intact parent-child trees and
+  the *same PID*, special handling for PTYs/fds/IPC namespaces, usually root,
+  and it cannot save live network sockets or GPU state — fatal for an agent
+  mid-conversation with a remote API. Impractical here.
+
+**5. App-level reconstruction from the agent's transcript.** Don't restore a
+terminal at all; a GUI owns the conversation and re-drives the agent.
+- *Examples:* **Conductor**, **Crystal**, **Vibe Kanban**, agent-sessions.
+- *Trade-off:* richest UX (searchable history, kanban, checkpoints, diff
+  review) but a bespoke per-agent integration, not generic terminal restore;
+  the "terminal" is an implementation detail they often hide.
+
+### Where Fresh sits, and why 2b is the gap to fill
+
+Fresh already implements **#1** (detach/reattach to the background server)
+and **#3** (backing-file screenshot on cold restore). The hole is the cold-
+restart path: today it's #3 + a bare shell. The agent orchestrators converge
+on two answers for that hole — **keep agents alive in a daemon (#1, Superset/
+claude-squad)** or **resume them natively (#2b, herdr/cmux/Conductor)**:
+
+| If Fresh wanted… | Pick | Cost | Notes |
+|---|---|---|---|
+| Survive app restart / detach with *zero* state loss | **#1** (already have it) | resident server | dies on reboot/crash |
+| Survive *reboot/crash* for agent panes | **#2b** (this doc) | per-agent resume registry | only as good as the agent's own resume |
+| Make a dead pane *look* restored instantly | **#3** (already have it) | screenshot | layer under #2b during agent boot |
+| Restore *any* process losslessly | #4 | very high / fragile | rejected |
+| Own the whole conversation UX | #5 | bespoke GUI per agent | that's the Orchestrator's job, not terminal restore |
+
+The recommendation stands: **layer #2b on top of the existing #1 and #3.**
+#1 handles soft restarts; #2b extends coverage to hard restarts for known
+agents; #3 is the instant "boot screenshot" while the resumed agent repaints.
+The four hard parts are the same ones herdr already solved (trusted-source
+registry, replay, dedupe, deferred launch) — see the verified section above.
+
 ## Problem decomposition
 
 The feature splits cleanly into two independent axes. Most of the design
