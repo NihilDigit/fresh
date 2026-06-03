@@ -13,17 +13,19 @@
 
 ---
 
-## RUN #19+ PRIORITY ORDER (coverage-first; work top-down)
+## RUN #20+ PRIORITY ORDER (coverage-first; work top-down)
 
 > **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
 
-1. **LSP: Code Actions (Alt+.)** — Run #18: "No code actions available" at C error location; retry with C++ file or different error type to determine if it's a Fresh bug or clangd limitation
-2. **#2113 race condition** — re-test `>` → file mode transition keystroke leak
-3. **SSH features** — open a file via SSH URI if available
-4. **Encoding handling** — open file with non-UTF-8 encoding (e.g., Latin-1), verify encoding picker
-5. **Themes** — test theme switching (View menu or palette)
-6. **Clangd auto-start investigation** — Run #18: clangd shows "not running" despite `"enabled": true` in config; investigate if this is expected or a bug (IMP-013)
-7. **text-actions: Decode round-trip** — verify Base64/URI decode works correctly (Run #18 only tested encode)
+1. **text-actions: Decode round-trip** — verify Base64/URI decode works correctly; BLOCKED in Run #19 (no GitHub network); retry in next run or pre-install manually
+2. **SSH features** — open a file via SSH URI if available
+3. **#2212 recheck on v0.3.10** — verify if LSP code action `context.diagnostics` bug is fixed in newer build
+4. **#2113 race condition** — continue monitoring; not reproduced in 8 attempts (Run #19)
+5. **Bookmarks** — test Alt+0-9 bookmark slots
+6. **Keyboard macros** — test complex multi-step macros
+7. **Markdown preview** — verify embedded code block behavior
+
+Note: Run #19 COMPLETE. Code Actions BUG CONFIRMED + FILED (#2212): empty context.diagnostics always sent. Encoding handling TESTED (PASS — detect/reload/set/save all work). Themes TESTED (all 8 including new 'nord' PASS). Clangd auto-start RESOLVED: `auto_start` setting exists (default false); IMP-013 updated.
 
 Note: Run #18 COMPLETE. clangd LSP TESTED (hover/def/complete/refs/rename all PASS; Code Actions INCONCLUSIVE). text-actions plugin TESTED (install + Base64 encoding PASS). Git Blame multi-commit TESTED (PASS — 'b' depth tracking confirmed). #2122 CONFIRMED still no keybinding. #2165 CONFIRMED still broken.
 

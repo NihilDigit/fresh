@@ -62,6 +62,31 @@ Each bug entry:
 
 ---
 
+## BUG-005: LSP Code Actions (Alt+.) Always Report "No Code Actions Available" for Diagnostic-Based Fixes
+- **ID:** BUG-005
+- **Title:** Alt+. code actions silently fail for clangd-reported "fix available" diagnostics due to empty `context.diagnostics`
+- **Severity:** High (feature non-functional for all diagnostic-based fixes)
+- **Status:** Open
+- **GitHub Issue:** [#2212](https://github.com/sinelaw/fresh/issues/2212) — filed Run #19 (2026-06-03)
+- **Reproduction:**
+  1. Install clangd; configure `{"lsp": {"cpp": {"command": "clangd", "enabled": true}}}`
+  2. Create `main.cpp` with `#include <string>` (unused) and `int z; return z;` (uninit)
+  3. Launch Fresh, start clangd via LSP Status menu
+  4. Wait for "LSP (cpp) ready"; open Diagnostics panel
+  5. Observe `[W] 2:1 Included header string is not used directly **(fixes available)**`
+  6. Navigate cursor to line 2, col 1; press `Alt+.`
+  7. Status bar shows: **"No code actions available"**
+- **Expected:** Code action popup with "Remove unused include" fix
+- **Actual:** "No code actions available" — clangd returns empty `[]` because Fresh sends `"context":{"diagnostics":[]}` (empty) in every codeAction request
+- **Evidence from LSP log:**
+  - Fresh RECEIVED: `publishDiagnostics` with 7 diagnostics including "(fix available)" markers
+  - Fresh SENT: `codeAction` with `"context":{"diagnostics":[]}` (always empty)
+  - clangd replied: `"result":[]`
+- **Root cause:** `context.diagnostics` in `textDocument/codeAction` is always empty — the "TODO: Implement diagnostic retrieval when needed" from source comment is not yet implemented
+- **Workaround:** None — Alt+. does not provide diagnostic-based fixes
+- **First Seen:** Run #18 (inconclusive), Run #19 (confirmed)
+- **Confirmed:** Run #19, 2026-06-03
+
 ## BUG-004: Pyright LSP — All Request-Based Features Timeout After 30s
 - **ID:** BUG-004
 - **Title:** Pyright LSP: hover, definition, completions, signatureHelp all timeout; diagnostics not published

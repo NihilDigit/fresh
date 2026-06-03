@@ -140,11 +140,12 @@ change would make it self-evident without requiring users to read docs.
 
 ---
 
-### IMP-013 — clangd LSP Does Not Auto-Start Despite `enabled: true` in Config
+### IMP-013 — clangd LSP Does Not Auto-Start; `auto_start` Setting Exists But Not Documented Prominently
 - **Observed (Run #18):** After installing clangd and adding `{"lsp": {"c": {"command": "clangd", "args": [], "enabled": true}}}` to `~/.config/fresh/config.json`, Fresh shows `LSP (off)` on launch and the LSP Status popup shows "○ clangd (not running)". The user must manually click "Start clangd (always)" to start the server.
-- **Correct behavior (per docs):** `docs/features/lsp.md` states "Install the server and Fresh will use it automatically" in the Built-in LSP Support table. The same doc lists C/C++ with clangd. If `enabled: true` is set, the server should auto-start when a matching file is opened.
-- **Problem:** Users who configure clangd per the documentation and then open a `.c` file expect LSP to start automatically. Instead, they see `LSP (off)` with no indication of why or what to do. The LSP Status popup is not discoverable — users won't know to click on `LSP (off)` or run "Show LSP Status".
-- **Possible cause:** Fresh may be treating `enabled: true` as "not disabled" rather than "auto-start"; the auto-start may require a project-level trust/consent step. Or the built-in config for C/clangd may have `enabled: false` by default, and the custom config's `enabled: true` conflicts rather than overrides.
-- **Suggested fix:** Either (a) auto-start the LSP when `enabled: true` is in config and the binary is on PATH, or (b) show a more prominent notification: *"clangd is configured but not running. [Start LSP (Alt+L)] [Dismiss]"* in the status bar or as a notification banner.
-- **Effort:** Low to Medium — behavioral change in LSP startup logic or UX notification.
-- **Discovered:** Run #18, 2026-06-03
+- **Run #19 follow-up:** Found `auto_start` setting in config-schema.json with `default: false` and description: "Whether to auto-start this LSP server when opening matching files. If false (default), the server must be started manually via command palette." This is the INTENDED design — `enabled: true` means "not disabled" and `auto_start: true` means "launch immediately on file open."
+- **Doc vs reality mismatch:** `docs/features/lsp.md` states "Install the server and Fresh will use it automatically" — this refers to the CONFIG being pre-built (no user setup needed), NOT to auto-starting the server process. The wording is misleading.
+- **Status:** NOT A BUG — `auto_start` is a deliberate opt-in. However, the docs are misleading.
+- **Problem:** Users who configure clangd per the documentation expect LSP to start automatically. The `auto_start: true` requirement is not mentioned in the main LSP docs.
+- **Suggested fix:** (a) In `docs/features/lsp.md`, change "Fresh will use it automatically" to "Fresh has its configuration pre-built — just install the binary. To auto-start on file open, set `auto_start: true`." Or (b) Change the default to `auto_start: true` for built-in (pre-configured) servers only.
+- **Effort:** Very low (docs clarification).
+- **Discovered:** Run #18, 2026-06-03; resolved to docs issue in Run #19, 2026-06-03

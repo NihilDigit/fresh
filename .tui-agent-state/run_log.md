@@ -2,6 +2,57 @@
 
 ---
 
+## Run #19 — 2026-06-03
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state from `tui-automated-testing-state`; built release binary from `tui-automated-testing-state` (**v0.3.8**, ~7 min build)
+- Created tmux session `fresh-test-run19` (220×50)
+- **Preflight:** GitHub MCP auth confirmed (7 open/filed issues). Playbook integrity confirmed. All sections of AGENT_INSTRUCTIONS.md present.
+- **LSP Code Actions (Alt+.)** — Definitive root cause found via LSP log: Fresh always sends `"context":{"diagnostics":[]}` (empty) in codeAction requests. clangd requires diagnostics to provide fix-based code actions. Filed new issue #2212.
+- **#2113 race condition** — 8 rapid attempts across 3 patterns; not reproduced. Consistent with "timing-sensitive, reproduced once" history.
+- **Encoding handling** — Latin-1 file: auto-detected as Windows-1252, Reload with Encoding, Set Encoding all work. UTF-8 round-trip confirmed by hex inspection.
+- **Themes** — All 8 themes (dark, dracula, high-contrast, light, nord, nostalgia, solarized-dark, terminal) tested. Colors confirmed distinct via ANSI. "nord" is new compared to v0.3.9 test.
+- **Clangd auto-start** — Confirmed: `enabled: true` does NOT auto-start; `auto_start` setting exists (default: false). Docs say "automatically" but mean "config is pre-built" not "auto-launches". Updated IMP-013 with this finding.
+- **text-actions decode** — BLOCKED: GitHub network unavailable. git clone hangs; Fresh shows "Failed to install..." correctly after process killed.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| LSP Code Actions (Alt+.) | **BUG (#2212)** | Fresh sends empty `context.diagnostics` always; clangd needs them for fix-based actions |
+| #2113 race condition | **NOT REPRODUCED** | 8 attempts, 3 patterns; timing-sensitive per original report |
+| Encoding: auto-detect Latin-1 | **PASS** | Detected as Windows-1252 (correct superset); all chars render properly |
+| Encoding: Reload with Encoding | **PASS** | 8-encoding picker; current marked; navigation works with ANSI verify |
+| Encoding: Set Encoding | **PASS** | Switches buffer encoding, marks modified, UTF-8 round-trip correct on save |
+| Themes: dark/dracula/high-contrast | **PASS** | Color codes confirm distinct themes |
+| Themes: light | **PASS** | Light background (`48;5;254m`); correct for light theme |
+| Themes: nord | **PASS** | New in v0.3.8; distinct blue-grey palette (`188/237` codes) |
+| Themes: nostalgia/solarized-dark/terminal | **PASS** | All 8 themes apply and produce different colors |
+| Clangd auto_start investigation | **IMP-013 UPDATED** | `auto_start` setting exists, default `false`; docs misleading but not a bug |
+| text-actions decode | **BLOCKED** | GitHub network unavailable; documented |
+
+### Issues Filed / Comments
+- **#2212** — NEW: "Alt+. shows 'No code actions available' for diagnostic-based fixes even when clangd reports '(fix available)'" — LSP log evidence: empty `context.diagnostics` in every codeAction request
+
+### Key Findings
+1. **Code Actions root cause confirmed**: Fresh always sends `"context":{"diagnostics":[]}` in `textDocument/codeAction`. clangd published 7 diagnostics with "(fix available)" but returns empty `[]` without the diagnostic context. This is the "TODO: Implement diagnostic retrieval when needed" left from closed issue #1915. Filed as new dedicated issue #2212.
+2. **Encoding feature fully functional**: Detection, reload, set-encoding, and save all work correctly. Latin-1 ↔ UTF-8 round-trip confirmed via hex. 8-encoding picker with "current" marker and ANSI-confirmable navigation.
+3. **All 8 themes work**: Including new "nord" theme (not present in v0.3.9 tests). Navigation in theme picker requires ANSI verify (no plain-text indicator of selected item).
+4. **auto_start LSP setting discovered**: Config schema has `auto_start: boolean, default: false`. Users who want clangd to auto-start must set `"auto_start": true`. Docs saying "use it automatically" refer to pre-built config, not auto-launch.
+5. **text-actions decode BLOCKED**: No GitHub network in this environment. Fresh plugin install handles failure gracefully ("Failed to install...").
+
+### Version
+- Binary: v0.3.8 built from `tui-automated-testing-state` (2026-06-03)
+
+### Cleanup
+- tmux session `fresh-test-run19` killed
+- Temp files removed: /tmp/cpp_lsp_test/, /tmp/latin1_test.txt, /tmp/test_palette_leak.txt, /tmp/claude-0/fresh-pkg-clone-*
+- Config reset to `{}`
+- clangd stopped (fresh exited)
+
+---
+
 ## Run #18 — 2026-06-03
 
 ### Status: COMPLETED

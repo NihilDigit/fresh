@@ -443,6 +443,59 @@ Fresh opens binary files gracefully:
 - **Base64 verified:** "Hello World" → "SGVsbG8gV29ybGQ=" (correct)
 - **Uninstall:** `rm -rf /root/.config/fresh/plugins/packages/fresh-text-actions-plugin`
 
+## Encoding Handling (Run #19)
+- **Auto-detection:** Fresh auto-detects encoding on file open. Latin-1 encoded files are detected as "Windows-1252" (a superset — correct and reasonable).
+- **Status bar encoding:** Shows current encoding (e.g., `LF  Windows-1252  Text`)
+- **Reload with Encoding...** command (command palette or File menu):
+  - Opens an encoding picker with 8+ encodings: UTF-8, UTF-8 BOM, UTF-16 LE, UTF-16 BE, ASCII, Latin-1, Windows-1252 (+ more)
+  - Current encoding marked with "current" label in the picker
+  - Bottom prompt shows selected encoding name: "Reload with encoding: Latin-1"
+  - Navigation: Up/Down; use ANSI capture (`-e`) to confirm highlighted item (`[48;5;25m` background)
+  - Pressing Enter reloads the file from disk with the selected encoding
+  - Characters render correctly after reload with correct encoding
+- **Set Encoding** command (command palette):
+  - Same encoding picker as Reload
+  - Changes the BUFFER encoding (how Fresh interprets/saves the bytes) without reloading from disk
+  - Marks buffer as modified `[+]` with asterisk `*` in tab title
+  - Status: "Encoding set to UTF-8"
+  - Saving after Set Encoding writes the file in the new encoding
+  - **Round-trip verified:** Latin-1 file → Set Encoding to UTF-8 → Save → file bytes are valid UTF-8 (confirmed by hex)
+- **Encoding picker navigation tip:** Arrow keys work; plain-text capture doesn't show selection — use `capture-pane -e` and grep for `48;5;25m` to find highlighted item
+
+## Themes (Run #19)
+- **8 themes in v0.3.8:** dark, dracula, high-contrast, light, nord, nostalgia, solarized-dark, terminal
+- **"nord" is NEW** compared to the list observed in earlier tests (v0.3.9 had 7 themes without nord)
+- **Select Theme** command in command palette; no default keyboard shortcut
+- **Theme picker navigation:** Arrow keys; current theme marked "(current)" in list; ANSI `-e` capture needed to see selection highlight (`48;5;25m`)
+- **Theme apply confirmation:** Status bar shows "Theme changed to '[name]'"
+- **ANSI color evidence (selected samples):**
+  - high-contrast: menu bar `38;5;231m` fg, `48;5;236m` bg
+  - dark: menu bar `38;5;252m` fg, `48;5;237m` bg
+  - light: menu bar `38;5;234m` fg, `48;5;254m` bg (near-white background)
+  - nord: menu bar `38;5;188m` fg, `48;5;237m` bg (light blue-grey text)
+
+## LSP: auto_start Setting (Run #19)
+- **Config schema defines:** `auto_start: boolean, default: false`
+  - Description: "Whether to auto-start this LSP server when opening matching files. If false (default), the server must be started manually via command palette"
+- **`enabled: true`** ≠ auto-start. It means "this server is configured and not disabled."
+- **To auto-start:** Set `"auto_start": true` in LSP config. Example:
+  ```json
+  {"lsp": {"cpp": {"command": "clangd", "enabled": true, "auto_start": true}}}
+  ```
+- **Built-in LSP config docs:** "Fresh will use it automatically" = the CONFIG is pre-built (no manual JSON needed). NOT that the server auto-launches.
+- **Without `auto_start: true`:** User must open LSP Status popup and click "Start [server] (always)" to start it
+
+## LSP: Code Actions Root Cause (Run #19)
+- **Bug #2212:** Fresh always sends `"context":{"diagnostics":[]}` (empty array) in all `textDocument/codeAction` requests
+- **Effect:** clangd's fix-based code actions (triggered by diagnostics) are never returned — clangd returns `[]` when `context.diagnostics` is empty
+- **LSP log evidence:**
+  - Incoming: `publishDiagnostics` with N diagnostics including `"(fix available)"` markers
+  - Outgoing: `codeAction` with `{"context":{"diagnostics":[]},"range":...}`
+  - Reply: `{"result":[]}`
+- **Root cause (from closed issue #1915 source comment):** `// TODO: Implement diagnostic retrieval when needed` in `app/lsp_requests.rs`
+- **Not a clangd limitation:** This is a Fresh implementation gap. Clangd DOES return fix actions — but requires the diagnostic objects in the context.
+- **Affected:** All diagnostic-based code actions for any LSP server (clangd, potentially others). Non-diagnostic refactoring actions may also be absent for other reasons.
+
 ## Git Blame: Multi-Commit History Navigation (Run #18)
 - **'b' key behavior with multi-commit files:** Navigates to PARENT commit of the commit on the current cursor line
 - **Depth tracking:** Status bar shows "Git blame at <SHA>^ | depth: N | b: go deeper | q: close"
