@@ -13,21 +13,19 @@
 
 ---
 
-## RUN #18+ PRIORITY ORDER (coverage-first; work top-down)
+## RUN #19+ PRIORITY ORDER (coverage-first; work top-down)
 
 > **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
 
-1. **LSP: clangd on C project** — pyright confirmed broken (#2197); try clangd on a small C project in /tmp to test LSP code actions, hover, definition, completion with a WORKING LSP
-2. **LSP: Code Actions (Alt+.)** — requires working LSP from item 1 above
-3. **text-actions plugin** — install from URL and test (github.com/PavelLoparev/fresh-text-actions-plugin)
-4. **Git Blame: multi-commit history** — test 'b' (go back) on a file with multiple commits to confirm history navigation
-5. **#2113 race condition** — re-test `>` → file mode transition keystroke leak (in 0.3.10)
-6. **#2122 move_to_paragraph_down/up** — still no keybinding in 0.3.10?
-7. **SSH features** — open a file via SSH URI if available
-8. **Encoding handling** — open file with non-UTF-8 encoding (e.g., Latin-1), verify encoding picker
-9. **Terminal emulator** — test integrated terminal (if available)
-10. **Themes** — test theme switching (View menu or palette)
-11. **#2165 recheck** — '*Keyboard Shortcuts*' 'q' (filed Run #16); still open?
+1. **LSP: Code Actions (Alt+.)** — Run #18: "No code actions available" at C error location; retry with C++ file or different error type to determine if it's a Fresh bug or clangd limitation
+2. **#2113 race condition** — re-test `>` → file mode transition keystroke leak
+3. **SSH features** — open a file via SSH URI if available
+4. **Encoding handling** — open file with non-UTF-8 encoding (e.g., Latin-1), verify encoding picker
+5. **Themes** — test theme switching (View menu or palette)
+6. **Clangd auto-start investigation** — Run #18: clangd shows "not running" despite `"enabled": true` in config; investigate if this is expected or a bug (IMP-013)
+7. **text-actions: Decode round-trip** — verify Base64/URI decode works correctly (Run #18 only tested encode)
+
+Note: Run #18 COMPLETE. clangd LSP TESTED (hover/def/complete/refs/rename all PASS; Code Actions INCONCLUSIVE). text-actions plugin TESTED (install + Base64 encoding PASS). Git Blame multi-commit TESTED (PASS — 'b' depth tracking confirmed). #2122 CONFIRMED still no keybinding. #2165 CONFIRMED still broken.
 
 Note: Run #17 COMPLETE. File Explorer TESTED (PASS), Settings TextList [x] CONFIRMED mouse-only (Delete key = keyboard equivalent), pyright LSP BROKEN (#2197).
 Note: Sprint 10 COMPLETE, Sprint 11 COMPLETE, Sprint 12 COMPLETE (TB01/TB02/TB03), Alt+A TESTED (PASS), Calibrate Keyboard TESTED, Block Selection TESTED (PASS Run #15), Flash:Jump TESTED (PASS Run #15), Package Manager TESTED (PASS Run #15+16), Live Diff TESTED (PASS Run #15+16), Live Grep Cycle Provider TESTED (PASS Run #15), Dev Container TESTED (PASS Run #15+16), Git Blame TESTED (PASS Run #16), Orchestrator TESTED (PASS Run #16), Color Highlighter TESTED (PASS Run #16), Review Diff CONFIRMED FIXED (Run #16, 0.3.10).

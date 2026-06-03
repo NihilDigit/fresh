@@ -137,3 +137,14 @@ change would make it self-evident without requiring users to read docs.
   3. Alternatively, expose Install/Uninstall as direct keybindings (e.g., `i` to install, `u` to uninstall) within the Package Manager panel, consistent with how other panels use single-key shortcuts.
 - **Effort:** Medium — requires fixing focus/event routing in the Package Manager widget and adding a palette command.
 - **Discovered:** Run #16, 2026-05-31
+
+---
+
+### IMP-013 — clangd LSP Does Not Auto-Start Despite `enabled: true` in Config
+- **Observed (Run #18):** After installing clangd and adding `{"lsp": {"c": {"command": "clangd", "args": [], "enabled": true}}}` to `~/.config/fresh/config.json`, Fresh shows `LSP (off)` on launch and the LSP Status popup shows "○ clangd (not running)". The user must manually click "Start clangd (always)" to start the server.
+- **Correct behavior (per docs):** `docs/features/lsp.md` states "Install the server and Fresh will use it automatically" in the Built-in LSP Support table. The same doc lists C/C++ with clangd. If `enabled: true` is set, the server should auto-start when a matching file is opened.
+- **Problem:** Users who configure clangd per the documentation and then open a `.c` file expect LSP to start automatically. Instead, they see `LSP (off)` with no indication of why or what to do. The LSP Status popup is not discoverable — users won't know to click on `LSP (off)` or run "Show LSP Status".
+- **Possible cause:** Fresh may be treating `enabled: true` as "not disabled" rather than "auto-start"; the auto-start may require a project-level trust/consent step. Or the built-in config for C/clangd may have `enabled: false` by default, and the custom config's `enabled: true` conflicts rather than overrides.
+- **Suggested fix:** Either (a) auto-start the LSP when `enabled: true` is in config and the binary is on PATH, or (b) show a more prominent notification: *"clangd is configured but not running. [Start LSP (Alt+L)] [Dismiss]"* in the status bar or as a notification banner.
+- **Effort:** Low to Medium — behavioral change in LSP startup logic or UX notification.
+- **Discovered:** Run #18, 2026-06-03

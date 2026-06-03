@@ -2,6 +2,64 @@
 
 ---
 
+## Run #18 — 2026-06-03
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state from `tui-automated-testing-state`; built release binary from `tui-automated-testing-state` (**v0.3.8**, ~8 min build from scratch)
+- Installed clangd-18 via `apt-get install clangd` (not installed by default)
+- Created tmux session `fresh-test-run18` (220×50)
+- **Preflight:** GitHub MCP auth confirmed (7 open/filed issues verified). Playbook integrity confirmed. All 3 AGENT_INSTRUCTIONS.md sections present.
+- **LSP: clangd on C project** — Set up small C project in `/tmp/c_lsp_test/` with compile_commands.json; configured clangd in Fresh config. Tested all major LSP features.
+- **text-actions plugin** — Installed from GitHub URL and tested encoding/decoding commands.
+- **Git Blame: multi-commit history** — Tested 'b' navigation on CHANGELOG.md (399 blocks, multiple commits). Confirmed depth tracking.
+- **#2122 recheck** — Confirmed move_to_paragraph_down/up still has no keybinding in v0.3.8 (keybinding editor shows empty for those actions).
+- **#2165 recheck** — Confirmed *Keyboard Shortcuts* 'q' still shows "Editing disabled" in v0.3.8.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| clangd: auto-start | **NEEDS MANUAL START** | Even with `"enabled": true` in config, shows "not running" — needed "Start clangd (always)" from LSP Status popup |
+| LSP: Hover (Alt+K) | **PASS** | Shows function signature popup: "int add(int a, int b)" |
+| LSP: Go to Definition (F12) | **PASS** | Jumped to definition at main.c:9, status "Jumped to definition at /tmp/c_lsp_test/main.c:9" |
+| LSP: Completions (Ctrl+Space) | **PASS** | Showed "make_point(int x, int y) Point" suggestion for "mak" prefix |
+| LSP: Find References (Shift+F12) | **PASS** | Found 2 references to 'add' (definition + call site) |
+| LSP: Rename Symbol (F2) | **PASS** | Renamed 'add' → 'sum' at definition and all call sites simultaneously |
+| LSP: Inlay hints | **PASS** | Parameter names shown in call sites: "add(a: 3, b: 4)", "make_point(x: 10, y: 20)" |
+| LSP: Code Actions (Alt+.) | **NOT AVAILABLE** | "No code actions available" even at error location (malloc undeclared). Likely clangd limitation for this error type, not a Fresh bug. |
+| text-actions plugin: install | **PASS** | "Installed and activated fresh-text-actions-plugin v0.1.0" |
+| text-actions plugin: commands | **PASS** | 6+ commands: Base64/JSON/URI encode+decode |
+| text-actions plugin: Base64 | **PASS** | "Hello World" → "SGVsbG8gV29ybGQ=" (correct) |
+| Git Blame: multiple commits | **PASS** | CHANGELOG.md shows 399 blocks with multiple distinct commit hashes |
+| Git Blame: 'b' go to parent | **PASS** | bc11f2b → 059f4ab → 60d0ba2; depth counter shown in status |
+| Git Blame: 'q' close | **PASS** | "Git blame closed" status |
+| #2122 move_to_paragraph keybinding | **CONFIRMED STILL OPEN** | No keybinding in v0.3.8 (same as #2122 report) |
+| #2165 *Keyboard Shortcuts* 'q' | **CONFIRMED STILL OPEN** | "Editing disabled in this buffer" in v0.3.8 |
+
+### Issues Filed / Comments
+- No new issues filed — all findings either PASS or match known open issues
+- Note: clangd auto-start behavior is a potential UX issue (docs say "auto", but requires manual start). Logged in potential_improvements.md as IMP-013.
+
+### Key Findings
+1. **clangd LSP fully functional** once started: hover, definition, completions, references, rename all work. Inlay hints shown automatically.
+2. **Code Actions (Alt+.)** returned "No code actions available" even at diagnostic error locations. This may be clangd's behavior for C "undeclared function" errors (no quick-fix available), not a Fresh bug. Future run should test with C++ or a different error type.
+3. **text-actions plugin** installs cleanly from external GitHub URL. All 6+ encoding commands appear in palette. Base64 encoding verified correct.
+4. **Git Blame multi-commit history** navigation works: 'b' goes to parent, depth counter shown, multiple commits verified. First commit shows "Cannot get blame at SHA^ (may be initial commit)".
+5. **clangd auto-start**: Despite `"enabled": true` in config.json, clangd shows as "not running" on fresh launch. Requires manual "Start clangd (always)" from LSP Status popup. This contradicts the docs which say LSP auto-starts when installed. Documented as IMP-013.
+
+### Version
+- Binary: v0.3.8 built from `tui-automated-testing-state` branch (2026-06-03)
+
+### Cleanup
+- fresh exited cleanly via Ctrl+Q
+- tmux session `fresh-test-run18` killed
+- text-actions plugin removed: `rm -rf /root/.config/fresh/plugins/packages/fresh-text-actions-plugin`
+- LSP config reset to `{}`
+- /tmp/c_lsp_test/ removed
+
+---
+
 ## Run #17 — 2026-06-02
 
 ### Status: COMPLETED

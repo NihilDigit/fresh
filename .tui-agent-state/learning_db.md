@@ -409,3 +409,50 @@ Fresh opens binary files gracefully:
 - Bug filed: #2197
 - **Suspected cause:** Position encoding mismatch — `position_encoding=None` may mean Fresh defaults to UTF-16 but pyright expects UTF-8, causing it to silently discard all subsequent requests
 - **Alternative to try next run:** clangd on a tiny C project (avoid rust-analyzer = too heavy)
+
+## LSP: clangd Integration (Run #18)
+- **Install:** `apt-get install clangd` (not pre-installed; installs clangd-18 via Ubuntu package)
+- **Config for clangd:** `{"lsp": {"c": {"command": "clangd", "args": ["--log=verbose"], "enabled": true}}}`
+- **compile_commands.json:** Place in project root to help clangd find include paths
+- **Auto-start behavior:** Despite `enabled: true` in config, clangd shows as "not running" on Fresh launch. Must manually start via LSP Status popup (click/run "Show LSP Status" → "Start clangd (always)"). After "Start clangd (always)", LSP shows "ready".
+- **Confirmed working features:**
+  - Hover (Alt+K): Shows function signature popup
+  - Go to Definition (F12): Jumps to definition, "Jumped to definition at <file>:<line>" in status
+  - Completions (Ctrl+Space): Shows typed-function-matching completions with signature
+  - Find References (Shift+F12): Opens popup with all reference locations
+  - Rename Symbol (F2): Prompts "Rename to:", renames at definition + all call sites
+  - Inlay hints: Auto-shown (parameter names in call sites, e.g., "add(a: 3, b: 4)")
+- **Code Actions (Alt+.):** "No code actions available" at C error location (undeclared malloc). May be clangd limitation — C++ errors typically have more code actions. Needs further testing with C++ or different error type.
+- **Language ID:** Use "c" (lowercase) in config.json for C files (Fresh detects .c files as language "C")
+- **LSP Status popup format:** `○ clangd (not running)` then options: "Start clangd (always)", "Start clangd once", "Disable LSP for c", "View Log", "Dismiss"
+
+## text-actions Plugin (Run #18)
+- **Install URL:** `https://github.com/PavelLoparev/fresh-text-actions-plugin`
+- **No subfolder needed** (standalone repo, not monorepo)
+- **Version:** v0.1.0
+- **Status after install:** "Installed and activated fresh-text-actions-plugin v0.1.0"
+- **Commands added (source: "plugin"):**
+  - "Encode String to Base64"
+  - "Encode String to JSON String"
+  - "Encode String to URI Component Encoded"
+  - "Encode String to URI Encoded"
+  - "Decode URI Component Encoded to String"
+  - "Decode URI Encoded to String"
+  - "Encode JSON Byte Array to Hex String"
+- **Usage:** Select text BEFORE opening command palette. Ctrl+L (select line) + Ctrl+P works reliably. Ctrl+A + Ctrl+P may lose selection.
+- **Base64 verified:** "Hello World" → "SGVsbG8gV29ybGQ=" (correct)
+- **Uninstall:** `rm -rf /root/.config/fresh/plugins/packages/fresh-text-actions-plugin`
+
+## Git Blame: Multi-Commit History Navigation (Run #18)
+- **'b' key behavior with multi-commit files:** Navigates to PARENT commit of the commit on the current cursor line
+- **Depth tracking:** Status bar shows "Git blame at <SHA>^ | depth: N | b: go deeper | q: close"
+  - depth: 0 = HEAD blame (initial state)
+  - depth: 1 = one parent commit back
+  - depth: 2 = two parent commits back
+  - etc.
+- **Confirmed on CHANGELOG.md (399 blame blocks):**
+  - Line 3 at HEAD: bc11f2b (1 week ago)
+  - After 'b': 059f4ab (2 weeks ago) at depth: 1
+  - After 'b' again: 60d0ba2 (2 weeks ago) at depth: 2
+- **When at initial commit:** "Cannot get blame at <SHA>^ (may be initial commit or file didn't exist)"
+- **Important:** Fresh must be launched from the git repo directory for git blame to work. If launched from /tmp, git blame returns "No blame information available (not a git file or error)"
