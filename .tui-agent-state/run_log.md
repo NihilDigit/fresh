@@ -2,6 +2,57 @@
 
 ---
 
+## Run #21 — 2026-06-03
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state from `tui-automated-testing-state`; built release binary from `claude/awesome-clarke-fYwrE` (**v0.3.10**, ~6.5 min build)
+- Created tmux session `fresh-test-run21` (220×50)
+- **Preflight:** GitHub MCP auth confirmed (9 open/filed issues after filing #2221). Playbook integrity confirmed.
+- **SSH features** — Tested both URI forms. URL-style `ssh://` DOES NOT WORK (treated as local path, BUG #2221). scp-style `user@host:/path` works correctly (triggers SSH path, fails at ssh-binary-not-found).
+- **Keybinding editor** — Full workflow tested: open editor, search, add binding (F9→save, normal context), save with Ctrl+S, verify F9 triggers save. All PASS.
+- **Search in selection** — NOT IMPLEMENTED. Find bar has only Case/Whole Word/Regex options. No "In Selection" toggle.
+- **Multi-root workspaces** — PASS. Workspace scoping correct (file picker shows only CWD files). Cross-workspace file opens and appears in project-wide search with full path.
+- **#2165 recheck** — CONFIRMED STILL OPEN in v0.3.10 (`claude/awesome-clarke-fYwrE`): 'q' in *Keyboard Shortcuts* still shows "Editing disabled".
+- **#2113 recheck** — NOT REPRODUCED in 8 more attempts (16 total across all runs).
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| SSH URL-style `ssh://` | **BUG (#2221)** | Treated as local relative path; no connection; no error |
+| SSH scp-style `user@host:/path` | **PASS** (partial) | Correctly detects SSH; fails at ssh-not-found (no ssh binary installed) |
+| Keybinding editor: Open | **PASS** | 852 bindings, Config path shown |
+| Keybinding editor: Search (/) | **PASS** | "10/852 shown" filter works for 'save' |
+| Keybinding editor: Add binding (F9→save) | **PASS** | Dialog: key capture → action autocomplete → context cycle → Save |
+| Keybinding editor: Save (Ctrl+S) | **PASS** | "Keybinding changes saved"; config.json updated correctly |
+| Keybinding editor: Binding works | **PASS** | F9 triggers file save ("Saved" in status bar) |
+| Search in selection | **NOT IMPLEMENTED** | No "In Selection" toggle in find bar |
+| Multi-root: workspace scoping | **PASS** | File picker shows only CWD files |
+| Multi-root: cross-workspace file open | **PASS** | Ctrl+O opens outside workspace; full path shown |
+| Multi-root: project-wide search | **PASS** | Alt+A includes all open buffers (in- and out-of-workspace) |
+| #2165 *Keyboard Shortcuts* 'q' | **CONFIRMED STILL OPEN** | v0.3.10 / claude/awesome-clarke-fYwrE |
+| #2113 race condition | **NOT REPRODUCED** | 8 more attempts; 16 total without reproduction |
+
+### Issues Filed / Comments
+- **#2221** (new): "SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection"
+
+### Key Findings
+1. **SSH URL-style form is broken**: `fresh ssh://host/path` silently opens an empty local file. Log confirms path resolved as CWD + URI. scp-style correctly triggers SSH (fails gracefully if `ssh` binary missing). Filed as #2221.
+2. **Keybinding editor fully functional**: Add/edit/save/test cycle all work. Autocomplete for action names works. Context field cycles with ←/→. Ctrl+S saves to config.json. Added F9→save binding verified working.
+3. **Search in selection not implemented**: Fresh's search bar has no "In Selection" option. Documented as IMP-014.
+4. **Multi-root workspaces work correctly**: Workspace scoping (file picker), cross-workspace file opening, and project-wide search all work as expected.
+
+### Version
+- Binary: v0.3.10 built from `claude/awesome-clarke-fYwrE` (2026-06-03)
+
+### Cleanup
+- tmux session `fresh-test-run21` killed
+- Config reset to `{}`
+- Temp files: /tmp/multiroot_a/, /tmp/multiroot_b/, /tmp/search_in_sel_test.txt
+
+---
+
 ## Run #20 — 2026-06-03
 
 ### Status: COMPLETED

@@ -13,16 +13,18 @@
 
 ---
 
-## RUN #21+ PRIORITY ORDER (coverage-first; work top-down)
+## RUN #22+ PRIORITY ORDER (coverage-first; work top-down)
 
 > **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
 
-1. **SSH features** — open a file via SSH URI if available
-2. **#2113 race condition** — continue monitoring; not reproduced in 8 attempts (Run #19-20)
-3. **Search in selection** — test if Fresh supports searching/replacing within a selected region only
-4. **Multi-root workspaces** — test opening Fresh in different directories, verifying workspace isolation
-5. **Keybinding editor** — test rebinding a key, verifying it saves and takes effect
-6. **Tour feature** — test loading a `.fresh-tour.json` and stepping through it
+1. **SSH scp-style verification** — install `openssh-client` or verify scp-style form end-to-end when SSH is available; #2221 tracks the URL-style bug
+2. **#2113 race condition** — continue monitoring; not reproduced in 16 total attempts (Run #19-21)
+3. **Keybinding editor: Delete binding** — test deleting a custom binding, verifying config.json is updated
+4. **Keybinding editor: Record Key Search** — test 'r' record-key search mode in keybinding editor
+5. **Tour feature** — ALREADY TESTED in Run #6 (TC-TOUR: PASS). Mark done; no need to re-test.
+6. **LSP keybinding (missing)** — #2122 `move_to_paragraph` still has no binding; verify in new build
+
+Note: Run #21 COMPLETE. SSH URL-style BUG FOUND (#2221 filed): `ssh://` URI treated as local path; scp-style works correctly. Keybinding editor PASS (add/edit/save/verify all work). Search in selection: NOT IMPLEMENTED (no such toggle in search bar). Multi-root workspaces PASS (workspace scoping correct; cross-workspace files included in search when open). #2165 CONFIRMED STILL OPEN. #2113 NOT REPRODUCED (8 more attempts).
 
 Note: Run #20 COMPLETE. text-actions Decode ALL PASS (Base64/URI/JSON/Hex; NEW decode commands discovered). Bookmarks ALL PASS (Alt+0-9). Keyboard macros PASS (5-action complex macro). Markdown compose PASS (bold/italic ANSI, code blocks with syntax-hl, editing inside blocks). #2212 CONFIRMED STILL OPEN in v0.3.10 (comment added).
 

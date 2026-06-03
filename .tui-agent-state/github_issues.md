@@ -4,7 +4,7 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #20, 2026-06-03
+Last updated: Run #21, 2026-06-03
 
 ---
 
@@ -22,6 +22,7 @@ Last updated: Run #20, 2026-06-03
 | [#2165](https://github.com/sinelaw/fresh/issues/2165) | *Keyboard Shortcuts* buffer: pressing 'q' shows 'Editing disabled' | Run #16 | **Open** | Re-filed since #2125 closed. Do NOT re-file. |
 | [#2197](https://github.com/sinelaw/fresh/issues/2197) | Pyright LSP: all request-based features (hover, definition, completions) timeout after 30s | Run #17 | **Open** | Real pyright on small Python project. Initialize succeeds, all requests timeout. Position encoding mismatch suspected. Do NOT re-file. |
 | [#2212](https://github.com/sinelaw/fresh/issues/2212) | Alt+. shows "No code actions available" for diagnostic-based fixes even when clangd reports "(fix available)" | Run #19 | **Open** | Fresh always sends `"context":{"diagnostics":[]}` in codeAction requests. clangd needs populated diagnostics to return fix-based actions. CONFIRMED in v0.3.10 (Run #20) — comment added. Do NOT re-file. |
+| [#2221](https://github.com/sinelaw/fresh/issues/2221) | SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection | Run #21 | **Open** | Fresh treats `ssh://` URI as relative local path (CWD + URI). scp-style (`user@host:/path`) correctly detects SSH. No error shown. Do NOT re-file. |
 
 ---
 
@@ -59,6 +60,14 @@ Even if the symptom looks fresh, these have already been fully investigated:
 3. Scan the open issues table — if your topic is there, add a comment to the existing issue rather than opening a new one.
 4. Search GitHub with at least 3 different query variations.
 5. Only then open a new issue and add a row to this file.
+
+## Issue #2221 — SSH URL-style URI (`ssh://host/path`) treated as local file path
+- **Filed:** Run #21, 2026-06-03
+- **URL:** https://github.com/sinelaw/fresh/issues/2221
+- **Label:** bug, tui-agent-auto-bug
+- **Status:** Open
+- **Summary:** When Fresh is launched with `ssh://host/path`, the URI is resolved as a local relative path (CWD + URI string), resulting in an empty local file being opened silently. No SSH connection is attempted, no error is shown. The scp-style form (`user@host:/path`) correctly triggers the SSH code path. Log evidence: `path="/home/user/fresh/ssh://localhost/etc/hosts"`. The `ssh://` form is documented in `docs/features/ssh.md` as the preferred URL-style form.
+- **Search queries used:** `repo:sinelaw/fresh ssh:// URI not recognized`, `repo:sinelaw/fresh ssh URL local path remote`, `repo:sinelaw/fresh ssh:// treated as local file path`, `repo:sinelaw/fresh ssh remote editing URL form`, `repo:sinelaw/fresh "ssh://" command line argument`
 
 ## Issue #2212 — Alt+. shows "No code actions available" for diagnostic-based fixes
 - **Filed:** Run #19, 2026-06-03

@@ -14,6 +14,23 @@ Each bug entry:
 
 ---
 
+## BUG-006: SSH URL-style URI (`ssh://host/path`) Treated as Local File Path
+- **ID:** BUG-006
+- **Title:** `ssh://host/path` CLI argument silently opens empty local file instead of SSH connection
+- **Severity:** High (documented feature not working; no error shown to user)
+- **Status:** Open — GitHub issue #2221 filed (Run #21)
+- **GitHub Issue:** [#2221](https://github.com/sinelaw/fresh/issues/2221) — filed Run #21 (2026-06-03)
+- **Reproduction:**
+  1. Launch Fresh with URL-style SSH URI: `fresh --no-restore "ssh://localhost/etc/hosts"`
+  2. Observe: Tab opens titled "hosts", status bar shows "Local | ssh://localhost/etc/hosts", buffer is empty
+  3. Check logs: `path="/home/user/fresh/ssh://localhost/etc/hosts"` — treated as relative local path
+- **Expected:** Fresh connects via SSH per docs/features/ssh.md; status bar shows `[SSH:localhost]`
+- **Actual:** Fresh treats URI as local relative path (CWD + URI). No connection, no error, empty file opened.
+- **Contrast:** scp-style form (`user@host:/path`) correctly detects SSH and shows "Connecting via SSH to..."
+- **First Seen:** Run #21, 2026-06-03
+
+---
+
 ## BUG-001: *Keyboard Shortcuts* Buffer 'q' Does Not Close
 - **ID:** BUG-001
 - **Title:** `*Keyboard Shortcuts*` buffer 'q' does not close despite in-buffer documentation

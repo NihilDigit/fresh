@@ -550,6 +550,64 @@ Learning_db.md previously documented only 7 commands. The plugin v0.1.0 has MORE
 - **Complex macro confirmed working** (Run #20): 5-action macro = Home + "#" + " " + Down + Home. Played on 5 consecutive lines, all received "# " prefix correctly.
 - **Slots:** 0-9 (tested slot 3 in Run #20; slots 0-9 in Run #10 earlier)
 
+## SSH Remote Editing (Run #21)
+
+### Forms Documented (docs/features/ssh.md)
+- **scp-style:** `user@host:path[:line[:col]]` — WORKS (correctly triggers SSH connection path)
+- **URL-style:** `ssh://[user@]host[:port]/path[:line[:col]]` — BUG (#2221): treated as local path
+
+### scp-style Behavior
+- `fresh user@host:/path` → shows "Connecting via SSH to user@host..." in terminal stdout
+- Fails at SSH-spawn step if `ssh` binary not installed: "Failed to spawn SSH process (No such file or directory)"
+- Error message is actionable: "Is the `ssh` command installed and in your PATH?"
+- Requires Python 3 on remote host for the agent component
+
+### URL-style Bug (#2221)
+- `fresh ssh://host/path` is treated as a **local relative path** (CWD + URI string)
+- Log evidence: `open_file_no_focus: path="/home/user/fresh/ssh://localhost/etc/hosts"`
+- Empty local file opened; no error shown; status bar shows "Local | ssh://..."
+- Workaround: use scp-style form (`user@host:/path`)
+
+### Requirements for SSH
+- `ssh` binary must be in PATH (error message tells you if not)
+- Python 3 on remote host (for the remote agent)
+- Status bar shows `[SSH:user@host]` when connected (per docs)
+
+## Keybinding Editor (Run #21 — full workflow tested)
+
+### Opening
+- Command palette → "Open Keybinding Editor" (or Edit → Keybinding Editor...)
+- Shows 852 bindings by default; Config path shown at top
+
+### Adding a New Binding
+1. Press `a` → "Add Keybinding" dialog
+2. Press `Enter` → key capture mode → press any key → key captured (e.g., F9)
+3. `Tab` → Action field: type action name; autocomplete popup with Up/Down/Tab/Enter navigation
+4. `Tab` → Context field: `[normal]  ←/→ to change` (cycles: global, normal, prompt, popup, file_explorer, menu, terminal)
+5. `Tab` → Save/Cancel buttons at bottom
+6. `Enter` on Save → dialog closes, binding count increments, `[modified]` shown
+
+### Saving Changes
+- `Ctrl+S` in keybinding editor → saves to config.json, status bar: "Keybinding changes saved"
+- Config format: `{"keybindings": [{"key": "F9", "action": "save", "when": "normal"}]}`
+
+### Verified Working (Run #21)
+- Add F9 → save → normal → Save → Ctrl+S → "Keybinding changes saved" ✅
+- F9 triggers file save correctly after adding binding ✅
+- config.json written correctly ✅
+- Search (`/`): filters by action name/description/key; shows count (e.g., "10/852 shown") ✅
+
+## Search in Selection (Run #21)
+- **NOT IMPLEMENTED** — Find bar has no "In Selection" toggle
+- Search always spans entire buffer regardless of active selection
+- See IMP-014 in potential_improvements.md
+
+## Multi-Root Workspaces (Run #21)
+- **Workspace scoping:** Ctrl+P file mode shows ONLY files from the CWD (workspace root)
+- **Cross-workspace:** Files outside workspace root opened via Ctrl+O appear with full absolute paths
+- **Project-wide search (Alt+A):** Includes ALL open buffers — workspace files (relative paths) AND out-of-root files (full paths)
+- **Session isolation:** Workspace root = CWD at launch. Different CWDs have separate sessions.
+
 ## Markdown Compose Mode (Run #20 — full verification)
 - **Toggle:** Ctrl+P → "Markdown: Toggle Compose/Preview" → prompts "Compose width: None" → press Enter for viewport width
   - Second toggle = OFF

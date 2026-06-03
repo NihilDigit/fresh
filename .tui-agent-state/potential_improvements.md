@@ -149,3 +149,13 @@ change would make it self-evident without requiring users to read docs.
 - **Suggested fix:** (a) In `docs/features/lsp.md`, change "Fresh will use it automatically" to "Fresh has its configuration pre-built — just install the binary. To auto-start on file open, set `auto_start: true`." Or (b) Change the default to `auto_start: true` for built-in (pre-configured) servers only.
 - **Effort:** Very low (docs clarification).
 - **Discovered:** Run #18, 2026-06-03; resolved to docs issue in Run #19, 2026-06-03
+
+---
+
+### IMP-014 — Search/Replace Has No "Search in Selection" Option
+- **Observed (Run #21):** The Find bar (`Ctrl+F`) has three options: Case Sensitive, Whole Word, Regex. There is no "Search in Selection" or "Find in Selected Text" toggle.
+- **Correct behavior:** Searching always spans the entire buffer, regardless of any active text selection.
+- **Problem:** Users who want to search/replace within a specific block of text (e.g., replace a variable name in one function only) cannot restrict the search to a selection. They must manually navigate to the region and use match count to avoid going out of bounds.
+- **Suggested fix:** Add a 4th toggle to the search bar: `[ ] In Selection (Alt+S)`. When enabled, matches and replacements are constrained to the pre-existing selection. VS Code, Sublime Text, and Vim all support this.
+- **Effort:** Medium — requires passing the selection range to the search engine and only highlighting/replacing within it.
+- **Discovered:** Run #21, 2026-06-03
