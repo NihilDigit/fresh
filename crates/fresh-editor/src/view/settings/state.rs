@@ -2160,6 +2160,47 @@ impl SettingsState {
         }
     }
 
+    /// Insert a whole string into the current editable control. Mirrors
+    /// [`Self::text_insert`] but inserts in one pass so single-line text
+    /// fields can flatten embedded newlines (used by the paste path).
+    pub fn text_insert_str(&mut self, s: &str) {
+        if let Some(item) = self.current_item_mut() {
+            match &mut item.control {
+                SettingControl::TextList(state) => state.insert_str(s),
+                SettingControl::Text(state) => state.insert_str(s),
+                SettingControl::Map(state) => {
+                    for c in s.chars() {
+                        state.new_key_text.insert(state.cursor, c);
+                        state.cursor += c.len_utf8();
+                    }
+                }
+                SettingControl::Json(state) => state.insert_str(s),
+                _ => {}
+            }
+        }
+    }
+
+    /// Route a paste to whichever Settings text input currently has focus
+    /// — the entry-dialog field when an entry dialog is open, otherwise the
+    /// main-panel control being edited. Returns `true` when a text field
+    /// accepted the paste. The bracketed-paste router relies on this so a
+    /// paste lands in the focused field instead of the buffer behind the
+    /// dialog (issue #2268).
+    pub fn paste_into_focused_text(&mut self, text: &str) -> bool {
+        if let Some(dialog) = self.entry_dialog_mut() {
+            if dialog.editing_text {
+                dialog.insert_str(text);
+                return true;
+            }
+            return false;
+        }
+        if self.editing_text {
+            self.text_insert_str(text);
+            return true;
+        }
+        false
+    }
+
     /// Backspace in the current editable control
     pub fn text_backspace(&mut self) {
         if let Some(item) = self.current_item_mut() {

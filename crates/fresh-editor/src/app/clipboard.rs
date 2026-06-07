@@ -1133,6 +1133,18 @@ impl Editor {
     /// hidden buffer). Returns `false` when no panel owns the keyboard,
     /// so the caller falls back to the normal `paste_text` path.
     pub(crate) fn paste_bracketed_into_focused_panel(&mut self, text: &str) -> bool {
+        // The Settings dialog is a capture-all modal overlay that owns the
+        // keyboard above any panel. A bracketed paste must reach its focused
+        // text input (or be swallowed when no field is focused) rather than
+        // leaking into the buffer obscured behind it — the same class of bug
+        // the floating-panel routing below fixes (issue #2268).
+        if let Some(settings) = self.settings_state.as_mut() {
+            if settings.paste_into_focused_text(text) {
+                self.set_status_message(t!("clipboard.pasted").to_string());
+            }
+            return true;
+        }
+
         // Mirror the keyboard-dispatch precedence in `handle_key`: a
         // focused centered modal wins over a focused dock.
         let slot = if self
