@@ -615,7 +615,7 @@ impl Editor {
                             .cloned()
                         {
                             if let Ok(mut file) = self
-                                .authority
+                                .authority()
                                 .filesystem
                                 .open_file_for_append(&backing_path)
                             {

@@ -501,8 +501,8 @@ impl Editor {
     pub fn clear_authority(&mut self) {
         // Reuse the editor's live trust handle so the restored local authority
         // is gated by the same workspace-trust state.
-        let trust = std::sync::Arc::clone(&self.authority.workspace_trust);
-        let env = std::sync::Arc::clone(&self.authority.env_provider);
+        let trust = std::sync::Arc::clone(&self.authority().workspace_trust);
+        let env = std::sync::Arc::clone(&self.authority().env_provider);
         // Detaching returns this session to a plain local backend; clear its
         // persisted spec so a later restore doesn't try to reconnect a
         // backend the user explicitly left.
@@ -537,79 +537,64 @@ impl Editor {
     /// of the empty string the temporary `Authority::local()` carried
     /// during construction.
     pub fn set_boot_authority(&mut self, authority: crate::services::authority::Authority) {
-        self.authority = authority;
-        // The installed authority belongs to the *active/owning* session
-        // only — it is the backend for the working-dir project the attach
-        // (or `fresh user@host` launch) re-rooted at. Background windows are
-        // distinct projects and must NOT inherit it: a container/SSH/k8s
-        // backend leaking onto every restored session is exactly the bug
-        // where switching to another project via the Orchestrator dock kept
-        // acting through the devcontainer. Each background window therefore
-        // gets its own local authority (sharing the editor's trust + env
-        // handles); the active window runs under the real one.
-        //
-        // Per-window LSP backends are re-pointed alongside `resources.authority`
-        // so a window's `force_spawn` routes through the same backend its
-        // filesystem reads do — the active one under `authority`, background
-        // ones locally.
+        // The installed authority belongs to the *active/owning* session only
+        // — the backend for the working-dir project the attach (or
+        // `fresh user@host` launch) re-rooted at. Background windows are
+        // distinct projects and must NOT inherit it; each gets its **own**
+        // fresh local authority (its own trust + env scoped to its root), so
+        // trusting/activating in the active project never leaks into them. The
+        // active window owns `authority`; per-window LSP backends are
+        // re-pointed from whatever authority that window will own.
         let active_id = self.active_window;
-        let active_auth = self.authority.clone();
-        // Each background window gets its **own** local authority with its
-        // **own** per-session trust + env scoped to its root — so trusting or
-        // activating an env in the active project never leaks into a
-        // background one. Roots are collected first to avoid borrowing `self`
-        // while building the scopes.
         let bg_roots: Vec<(fresh_core::WindowId, std::path::PathBuf)> = self
             .windows
             .iter()
             .filter(|(id, _)| **id != active_id)
             .map(|(id, w)| (*id, w.root.clone()))
             .collect();
-        let mut bg_auths: HashMap<fresh_core::WindowId, crate::services::authority::Authority> =
-            HashMap::new();
-        for (id, root) in bg_roots {
-            bg_auths.insert(
-                id,
-                crate::services::authority::Authority::local_scoped(self.session_scope_for(&root)),
-            );
+        // (root → fresh local authority) for every background window.
+        let mut installs: Vec<(fresh_core::WindowId, crate::services::authority::Authority)> =
+            bg_roots
+                .into_iter()
+                .map(|(id, root)| {
+                    (
+                        id,
+                        crate::services::authority::Authority::local_scoped(
+                            self.session_scope_for(&root),
+                        ),
+                    )
+                })
+                .collect();
+        installs.push((active_id, authority));
+        // Re-point each window's LSP backend, then **move** the authority into
+        // the window (single owner — never cloned).
+        for (id, a) in installs {
+            if let Some(w) = self.windows.get_mut(&id) {
+                w.lsp
+                    .set_long_running_spawner(a.long_running_spawner.clone());
+                w.lsp.set_path_translation(a.path_translation.clone());
+                w.lsp.set_workspace_trust(a.workspace_trust.clone());
+                w.authority = a;
+            }
         }
-        for (id, w) in self.windows.iter_mut() {
-            let a = if *id == active_id {
-                &active_auth
-            } else {
-                bg_auths.get(id).expect("background authority built above")
-            };
-            w.lsp
-                .set_long_running_spawner(a.long_running_spawner.clone());
-            w.lsp.set_path_translation(a.path_translation.clone());
-            w.lsp.set_workspace_trust(a.workspace_trust.clone());
-            w.authority = a.clone();
-        }
-        // Re-point quick-open's file provider at the new backend. The provider
-        // captured the *previous* authority's filesystem + spawner; without
-        // this, quick-open's `git ls-files` keeps listing the old backend's
-        // files after an in-place authority swap (see
-        // `QuickOpenRegistry::set_file_backends`).
-        self.quick_open_registry.set_file_backends(
-            self.authority.filesystem.clone(),
-            self.authority.process_spawner.clone(),
-        );
+        // Re-point quick-open's file provider at the now-active backend (the
+        // provider captured the previous authority's filesystem + spawner).
+        let (fs, sp) = {
+            let a = &self.active_window().authority;
+            (a.filesystem.clone(), a.process_spawner.clone())
+        };
+        self.quick_open_registry.set_file_backends(fs, sp);
         #[cfg(feature = "plugins")]
         {
             self.update_plugin_state_snapshot();
-            // Notify plugins so they can re-register state-gated
-            // commands (e.g. devcontainer `Attach` only when not
-            // attached). Production transitions also trigger a full
-            // editor restart that re-runs plugin init, but firing
-            // here keeps in-process transitions and the test harness
-            // (which simulates the restart inline) consistent.
-            let label = self.authority.display_label.clone();
+            // Notify plugins so they can re-register state-gated commands
+            // (e.g. devcontainer `Attach` only when not attached).
+            let label = self.active_window().authority.display_label.clone();
             self.plugin_manager.read().unwrap().run_hook(
                 "authority_changed",
                 crate::services::plugins::hooks::HookArgs::AuthorityChanged { label },
             );
         }
-        self.debug_assert_sessions_unshared();
     }
 
     /// The active window's id. The active session under the (in-progress)
@@ -663,27 +648,26 @@ impl Editor {
     ) {
         let is_active = self.active_window == window_id;
         if let Some(w) = self.windows.get_mut(&window_id) {
-            w.authority = authority.clone();
-            // Each window owns its `LspManager` by construction (no longer an
-            // `Option`); re-point its backend handles, matching the active-
-            // window re-pointing `set_boot_authority` does for every window.
+            // Re-point this window's LSP backend, then **move** the authority
+            // into the window it owns (single owner — never cloned).
             let lsp = &mut w.lsp;
             lsp.set_long_running_spawner(authority.long_running_spawner.clone());
             lsp.set_path_translation(authority.path_translation.clone());
             lsp.set_workspace_trust(authority.workspace_trust.clone());
+            w.authority = authority;
         }
         if is_active {
-            self.authority = authority;
-            // Re-point quick-open's file provider at the now-active backend
-            // (see `set_boot_authority` — same stale-capture fix).
-            self.quick_open_registry.set_file_backends(
-                self.authority.filesystem.clone(),
-                self.authority.process_spawner.clone(),
-            );
+            // The active backend *is* this window's authority now — re-point
+            // quick-open's file provider at it (same stale-capture fix).
+            let (fs, sp) = {
+                let a = &self.active_window().authority;
+                (a.filesystem.clone(), a.process_spawner.clone())
+            };
+            self.quick_open_registry.set_file_backends(fs, sp);
             #[cfg(feature = "plugins")]
             {
                 self.update_plugin_state_snapshot();
-                let label = self.authority.display_label.clone();
+                let label = self.active_window().authority.display_label.clone();
                 self.plugin_manager.read().unwrap().run_hook(
                     "authority_changed",
                     crate::services::plugins::hooks::HookArgs::AuthorityChanged { label },
@@ -706,21 +690,23 @@ impl Editor {
     /// `authority_changed` hook + snapshot churn so window switching stays
     /// cheap and the status bar doesn't flicker.
     pub(crate) fn adopt_active_window_authority(&mut self, previous_label: &str) {
-        let new_authority = self.active_window().authority().clone();
-        let label_changed = new_authority.display_label != previous_label;
-        self.authority = new_authority;
-        // Re-point quick-open's file provider at the now-active backend (the
-        // same stale-capture fix `set_boot_authority` / `set_session_authority`
-        // apply). Cheap `Arc` clones, so it's fine to do on every switch.
-        self.quick_open_registry.set_file_backends(
-            self.authority.filesystem.clone(),
-            self.authority.process_spawner.clone(),
-        );
+        // No editor-wide copy to update — the active backend *is*
+        // `active_window().authority`. Re-point quick-open at it and fire the
+        // hook when the label actually changed.
+        let (label_changed, fs, sp) = {
+            let a = &self.active_window().authority;
+            (
+                a.display_label != previous_label,
+                a.filesystem.clone(),
+                a.process_spawner.clone(),
+            )
+        };
+        self.quick_open_registry.set_file_backends(fs, sp);
         if label_changed {
             #[cfg(feature = "plugins")]
             {
                 self.update_plugin_state_snapshot();
-                let label = self.authority.display_label.clone();
+                let label = self.active_window().authority.display_label.clone();
                 self.plugin_manager.read().unwrap().run_hook(
                     "authority_changed",
                     crate::services::plugins::hooks::HookArgs::AuthorityChanged { label },
@@ -731,7 +717,11 @@ impl Editor {
 
     /// Read-only access to the active authority.
     pub fn authority(&self) -> &crate::services::authority::Authority {
-        &self.authority
+        // The editor's active backend *is* the active window's authority —
+        // there is no separate editor-wide copy. Each window owns its
+        // authority outright (no `Clone`), so a session's backend/trust/env
+        // can never be shared into another window (issue #2280).
+        &self.active_window().authority
     }
 
     /// The editor's current working directory — the active window's
@@ -1129,7 +1119,7 @@ impl Editor {
     ///
     /// Returns `Some("user@host")` for remote editing, `None` for local.
     pub fn remote_connection_info(&self) -> Option<&str> {
-        self.authority.filesystem.remote_connection_info()
+        self.authority().filesystem.remote_connection_info()
     }
 
     /// Get connection string for display in status bar and file explorer.
@@ -1140,11 +1130,11 @@ impl Editor {
     /// filesystem's `remote_connection_info()`, which knows how to
     /// annotate disconnected SSH sessions.
     pub fn connection_display_string(&self) -> Option<String> {
-        if !self.authority.display_label.is_empty() {
-            return Some(self.authority.display_label.clone());
+        if !self.authority().display_label.is_empty() {
+            return Some(self.authority().display_label.clone());
         }
         self.remote_connection_info().map(|conn| {
-            if self.authority.filesystem.is_remote_connected() {
+            if self.authority().filesystem.is_remote_connected() {
                 conn.to_string()
             } else {
                 format!("{} (Disconnected)", conn)

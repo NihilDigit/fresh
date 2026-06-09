@@ -3800,6 +3800,25 @@ fn real_main() -> AnyhowResult<()> {
         // (plugin loading, session restore, the first event-loop tick) sees
         // the correct backend from construction. No post-construction swap.
         tracing::info!("Creating editor instance...");
+        // `Authority` is single-owner (non-`Clone`): move the current one into
+        // the editor, leaving a per-project local placeholder for the next
+        // restart. An authority transition (`take_pending_authority` below)
+        // overwrites `current_authority`; otherwise each window's own backend
+        // spec drives restore/reconnect, so the placeholder only governs the
+        // active window's initial backend.
+        let boot_authority = {
+            let placeholder_root = current_working_dir
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default();
+            let placeholder = fresh::services::authority::Authority::local_scoped(
+                fresh::services::authority::SessionScope::for_root(
+                    &placeholder_root,
+                    &dir_context.project_state_dir(&placeholder_root),
+                ),
+            );
+            std::mem::replace(&mut current_authority, placeholder)
+        };
         let mut editor = Editor::with_working_dir_opts(
             config.clone(),
             terminal_width,
@@ -3808,7 +3827,7 @@ fn real_main() -> AnyhowResult<()> {
             dir_context.clone(),
             !args.no_plugins,
             color_capability,
-            current_authority.clone(),
+            boot_authority,
             true, // defer_plugin_load: TUI startup; plugin loads run on the
                   // plugin thread and arrive via AsyncBridge each tick.
         )

@@ -120,7 +120,7 @@ impl Editor {
             v
         };
 
-        let fs = &self.authority.filesystem;
+        let fs = &self.authority().filesystem;
         candidates
             .into_iter()
             .find(|p| fs.is_file(p).unwrap_or(false))

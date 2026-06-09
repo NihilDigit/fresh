@@ -133,7 +133,6 @@ pub(super) struct EditorParts {
     // Async / IO
     pub(super) tokio_runtime: Option<Arc<tokio::runtime::Runtime>>,
     pub(super) async_bridge: AsyncBridge,
-    pub(super) authority: crate::services::authority::Authority,
     pub(super) local_filesystem: Arc<dyn FileSystem + Send + Sync>,
 
     // Chrome flags resolved from config
@@ -208,7 +207,6 @@ impl Editor {
             paste_pending: std::collections::HashMap::new(),
             paste_slow_path_just_armed: false,
             paste_render_suppress_until: None,
-            authority: parts.authority,
             local_filesystem: parts.local_filesystem,
             menu_state: crate::view::ui::MenuState::new(parts.dir_context.themes_dir()),
             windows: parts.windows,
@@ -1104,15 +1102,13 @@ impl Editor {
                 )
             });
 
-        // The active window owns the editor's boot authority outright. (A
-        // clone of `authority` is still parked in `self.authority` as the
-        // editor-wide active-backend mirror; that shares the *active*
-        // session's handles, never a background window's.)
+        // The active window owns the editor's boot authority outright — moved
+        // in, not cloned (there is no editor-wide copy).
         let mut active_win = crate::app::window::Window::new(
             active_window_id,
             active_label,
             active_root,
-            authority.clone(),
+            authority,
             base_resources,
         );
         // Seed the window's terminal dimensions from the editor's
@@ -1298,7 +1294,6 @@ impl Editor {
             color_capability,
             tokio_runtime,
             async_bridge,
-            authority,
             local_filesystem: Arc::clone(&local_filesystem),
             windows,
             active_window: active_window_id,

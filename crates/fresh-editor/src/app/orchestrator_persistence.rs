@@ -747,7 +747,7 @@ impl Editor {
     pub fn save_orchestrator_state(&self) {
         let data_dir = self.dir_context.data_dir.clone();
         let orch_dir = orchestrator_dir(&data_dir);
-        if let Err(e) = self.authority.filesystem.create_dir_all(&orch_dir) {
+        if let Err(e) = self.authority().filesystem.create_dir_all(&orch_dir) {
             tracing::warn!("orchestrator persistence: failed to create {orch_dir:?}: {e}");
             return;
         }
@@ -765,7 +765,7 @@ impl Editor {
         // still need atomic-rename safety.
         let state_dir = global_state_dir(&data_dir);
         if !self.plugin_global_state.is_empty() {
-            if let Err(e) = self.authority.filesystem.create_dir_all(&state_dir) {
+            if let Err(e) = self.authority().filesystem.create_dir_all(&state_dir) {
                 tracing::warn!("orchestrator persistence: failed to create {state_dir:?}: {e}");
                 return;
             }
@@ -784,11 +784,11 @@ impl Editor {
                 Ok(bytes) => {
                     let path = global_plugin_state_path(&data_dir, plugin);
                     let tmp = path.with_extension("json.tmp");
-                    if let Err(e) = self.authority.filesystem.write_file(&tmp, &bytes) {
+                    if let Err(e) = self.authority().filesystem.write_file(&tmp, &bytes) {
                         tracing::warn!("orchestrator persistence: failed to write {tmp:?}: {e}");
                         continue;
                     }
-                    if let Err(e) = self.authority.filesystem.rename(&tmp, &path) {
+                    if let Err(e) = self.authority().filesystem.rename(&tmp, &path) {
                         tracing::warn!(
                             "orchestrator persistence: failed to rename {tmp:?} → {path:?}: {e}"
                         );

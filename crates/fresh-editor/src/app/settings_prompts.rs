@@ -530,7 +530,7 @@ impl Editor {
     pub(super) fn save_theme_to_config(&mut self) {
         // Create the directory if it doesn't exist
         if let Err(e) = self
-            .authority
+            .authority()
             .filesystem
             .create_dir_all(&self.dir_context.config_dir)
         {
@@ -666,7 +666,7 @@ impl Editor {
     pub(super) fn save_keybinding_map_to_config(&mut self) {
         // Create the directory if it doesn't exist
         if let Err(e) = self
-            .authority
+            .authority()
             .filesystem
             .create_dir_all(&self.dir_context.config_dir)
         {
@@ -817,7 +817,7 @@ impl Editor {
     pub(super) fn save_cursor_style_to_config(&mut self) {
         // Create the directory if it doesn't exist
         if let Err(e) = self
-            .authority
+            .authority()
             .filesystem
             .create_dir_all(&self.dir_context.config_dir)
         {
@@ -934,7 +934,7 @@ impl Editor {
     pub(super) fn save_locale_to_config(&mut self) {
         // Create the directory if it doesn't exist
         if let Err(e) = self
-            .authority
+            .authority()
             .filesystem
             .create_dir_all(&self.dir_context.config_dir)
         {

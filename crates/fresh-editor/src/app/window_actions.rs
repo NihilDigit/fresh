@@ -137,59 +137,7 @@ impl crate::app::Editor {
             },
         );
 
-        self.debug_assert_sessions_unshared();
         id
-    }
-
-    /// Invariant guard (debug builds): **no two windows share any backend
-    /// handle** — not trust, not env, not the filesystem or either spawner.
-    /// Each session must own all three of {authority, trust, env} outright;
-    /// sharing is the leak class per-session backends exist to prevent (issue
-    /// #2280). Trust + env are the mutable handles whose sharing is a *live*
-    /// cross-project leak; the filesystem/spawner checks additionally catch
-    /// the remote case, where a shared handle means one live connection (and
-    /// per-window keepalive) backing two sessions — close one, lose both.
-    ///
-    /// Called after the window-construction paths so a future change that
-    /// clones one window's authority into another trips immediately in
-    /// tests/dev rather than shipping a silent leak. O(n²) over a handful of
-    /// windows, debug-only.
-    pub(crate) fn debug_assert_sessions_unshared(&self) {
-        #[cfg(debug_assertions)]
-        {
-            use std::sync::Arc;
-            let windows: Vec<&Window> = self.windows.values().collect();
-            for (i, a) in windows.iter().enumerate() {
-                let aa = &a.authority;
-                for b in &windows[i + 1..] {
-                    let ba = &b.authority;
-                    debug_assert!(
-                        !Arc::ptr_eq(&aa.workspace_trust, &ba.workspace_trust),
-                        "per-session invariant violated: two windows share a WorkspaceTrust \
-                         handle — a trust decision in one would leak into the other"
-                    );
-                    debug_assert!(
-                        !Arc::ptr_eq(&aa.env_provider, &ba.env_provider),
-                        "per-session invariant violated: two windows share an EnvProvider \
-                         handle — an env activation in one would leak into the other"
-                    );
-                    debug_assert!(
-                        !Arc::ptr_eq(&aa.filesystem, &ba.filesystem),
-                        "per-session invariant violated: two windows share a filesystem \
-                         handle — for a remote backend that is one connection behind two \
-                         sessions"
-                    );
-                    debug_assert!(
-                        !Arc::ptr_eq(&aa.process_spawner, &ba.process_spawner),
-                        "per-session invariant violated: two windows share a process spawner"
-                    );
-                    debug_assert!(
-                        !Arc::ptr_eq(&aa.long_running_spawner, &ba.long_running_spawner),
-                        "per-session invariant violated: two windows share an LSP spawner"
-                    );
-                }
-            }
-        }
     }
 
     /// A fresh per-session execution scope (trust + env) for `root` — the one
@@ -278,7 +226,7 @@ impl crate::app::Editor {
         // session — captured so `adopt_active_window_authority` can tell
         // whether the active authority actually changed and skip the
         // hook/snapshot churn when it didn't.
-        let previous_authority_label = self.authority.display_label.clone();
+        let previous_authority_label = self.authority().display_label.clone();
 
         let mut resources = self.window_resources();
         // Re-derive the window's `fs_manager` from *its* backend's filesystem
@@ -435,7 +383,6 @@ impl crate::app::Editor {
             crate::services::plugins::hooks::HookArgs::BufferActivated { buffer_id },
         );
 
-        self.debug_assert_sessions_unshared();
         Ok((id, terminal_id, buffer_id))
     }
 
@@ -501,7 +448,7 @@ impl crate::app::Editor {
         // window switches are between same-authority local sessions, where
         // it doesn't). Only then do we re-point editor-wide caches + fire
         // the `authority_changed` hook.
-        let previous_authority_label = self.authority.display_label.clone();
+        let previous_authority_label = self.authority().display_label.clone();
 
         // Clear any panel-scoped editor mode on the window we're leaving so
         // it can never outlive the switch (see
@@ -711,7 +658,7 @@ impl crate::app::Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         );
         state
             .margins

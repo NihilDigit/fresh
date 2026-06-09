@@ -558,7 +558,7 @@ impl EditorServer {
     /// Build a fresh `Editor` instance using the current configuration
     /// and stored authority.  Shared between first-boot initialization
     /// and post-restart rebuild.
-    fn build_editor_instance(&self) -> io::Result<(Editor, Terminal<CaptureBackend>)> {
+    fn build_editor_instance(&mut self) -> io::Result<(Editor, Terminal<CaptureBackend>)> {
         let backend = CaptureBackend::new(self.term_size.cols, self.term_size.rows);
         let terminal = Terminal::new(backend)
             .map_err(|e| io::Error::other(format!("Failed to create terminal: {}", e)))?;
@@ -577,7 +577,18 @@ impl EditorServer {
             self.config.dir_context.clone(),
             self.config.plugins_enabled,
             color_capability,
-            self.current_authority.clone(),
+            // `Authority` is single-owner (non-`Clone`): move the current one
+            // into the rebuilt editor, leaving a local placeholder behind. A
+            // real authority transition overwrites it just below; otherwise
+            // each window's own backend spec drives restore/reconnect, so the
+            // placeholder only governs the active window until it reconnects.
+            std::mem::replace(
+                &mut self.current_authority,
+                crate::services::authority::Authority::local(
+                    std::sync::Arc::clone(&self.workspace_trust),
+                    std::sync::Arc::clone(&self.env_provider),
+                ),
+            ),
             false,
         )
         .map_err(|e| io::Error::other(format!("Failed to create editor: {}", e)))?;

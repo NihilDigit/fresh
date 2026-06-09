@@ -257,7 +257,7 @@ impl Editor {
             }
             let file_uri = super::types::LspUri::from_host_path(
                 &new_path,
-                self.authority.path_translation.as_ref(),
+                self.authority().path_translation.as_ref(),
             );
             let display_name =
                 super::BufferMetadata::display_name_for_path(&new_path, self.working_dir());
@@ -531,7 +531,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
-            Arc::clone(&self.authority.filesystem),
+            Arc::clone(&self.authority().filesystem),
         );
         // Note: line_wrap_enabled is set on SplitViewState.viewport when the split is created
         state

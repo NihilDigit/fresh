@@ -71,7 +71,7 @@ impl Window {
     /// rules; this is just the per-window wiring that supplies the
     /// active config.
     pub(crate) fn resolved_terminal_wrapper(&self) -> TerminalWrapper {
-        self.authority
+        self.authority()
             .terminal_wrapper
             .clone()
             .with_user_shell_override(self.resources.config.terminal.shell.as_ref())
@@ -118,7 +118,7 @@ impl Window {
 
         let working_dir = cwd.unwrap_or_else(|| self.root.clone());
         let terminal_root = self.resources.dir_context.terminal_dir_for(&working_dir);
-        if let Err(e) = self.authority.filesystem.create_dir_all(&terminal_root) {
+        if let Err(e) = self.authority().filesystem.create_dir_all(&terminal_root) {
             tracing::warn!("Failed to create terminal directory: {}", e);
         }
 
@@ -149,7 +149,7 @@ impl Window {
         // container rather than on the host (see `Authority::terminal_command`).
         // Empty argv falls back to the interactive shell.
         let wrapper = match command_override {
-            Some(argv) if !argv.is_empty() => self.authority.terminal_command(&argv),
+            Some(argv) if !argv.is_empty() => self.authority().terminal_command(&argv),
             _ => self.resolved_terminal_wrapper(),
         };
         match self.terminal_manager.spawn(
@@ -207,7 +207,7 @@ impl Window {
             .cloned()
             .unwrap_or_else(|| {
                 let root = self.resources.dir_context.terminal_dir_for(&self.root);
-                if let Err(e) = self.authority.filesystem.create_dir_all(&root) {
+                if let Err(e) = self.authority().filesystem.create_dir_all(&root) {
                     tracing::warn!("Failed to create terminal directory: {}", e);
                 }
                 root.join(format!("fresh-terminal-{}.txt", terminal_id.0))
@@ -216,8 +216,8 @@ impl Window {
         // Ensure the file exists — but DON'T truncate if it already has
         // content. The PTY read loop may have already started writing
         // scrollback.
-        if !self.authority.filesystem.exists(&backing_file) {
-            if let Err(e) = self.authority.filesystem.write_file(&backing_file, &[]) {
+        if !self.authority().filesystem.exists(&backing_file) {
+            if let Err(e) = self.authority().filesystem.write_file(&backing_file, &[]) {
                 tracing::warn!("Failed to create terminal backing file: {}", e);
             }
         }
@@ -227,7 +227,7 @@ impl Window {
 
         let mut state = EditorState::new_with_path(
             large_file_threshold,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
             backing_file.clone(),
         );
         state.margins.configure_for_line_numbers(false);
@@ -667,21 +667,21 @@ impl Window {
             .cloned()
             .unwrap_or_else(|| {
                 let root = self.resources.dir_context.terminal_dir_for(&self.root);
-                if let Err(e) = self.authority.filesystem.create_dir_all(&root) {
+                if let Err(e) = self.authority().filesystem.create_dir_all(&root) {
                     tracing::warn!("Failed to create terminal directory: {}", e);
                 }
                 root.join(format!("fresh-terminal-{}.txt", terminal_id.0))
             });
 
-        if !self.authority.filesystem.exists(&backing_file) {
-            if let Err(e) = self.authority.filesystem.write_file(&backing_file, &[]) {
+        if !self.authority().filesystem.exists(&backing_file) {
+            if let Err(e) = self.authority().filesystem.write_file(&backing_file, &[]) {
                 tracing::warn!("Failed to create terminal backing file: {}", e);
             }
         }
 
         let mut state = EditorState::new_with_path(
             large_file_threshold,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
             backing_file.clone(),
         );
         state.margins.configure_for_line_numbers(false);
@@ -790,7 +790,7 @@ impl Editor {
             if let Some(ref path) = backing_file {
                 // Best-effort cleanup of temporary terminal files.
                 #[allow(clippy::let_underscore_must_use)]
-                let _ = self.authority.filesystem.remove_file(path);
+                let _ = self.authority().filesystem.remove_file(path);
             }
             // Clean up raw log file
             if let Some(log_file) = self
@@ -801,7 +801,7 @@ impl Editor {
                 if backing_file.as_ref() != Some(&log_file) {
                     // Best-effort cleanup of temporary terminal files.
                     #[allow(clippy::let_underscore_must_use)]
-                    let _ = self.authority.filesystem.remove_file(&log_file);
+                    let _ = self.authority().filesystem.remove_file(&log_file);
                 }
             }
 
@@ -914,7 +914,7 @@ impl Editor {
                             // Always truncate to remove appended visible screen
                             // (even if truncate_pos is 0, meaning no scrollback yet)
                             if let Err(e) = self
-                                .authority
+                                .authority()
                                 .filesystem
                                 .set_file_length(backing_path, truncate_pos)
                             {
@@ -1162,7 +1162,7 @@ impl Window {
                 // but an idle terminal that was only resized has pending lines;
                 // capturing them here guarantees the scroll-back view is complete.
                 if let Ok(mut file) = self
-                    .authority
+                    .authority()
                     .filesystem
                     .open_file_for_append(&backing_file)
                 {
@@ -1174,14 +1174,14 @@ impl Window {
 
                 // Record the current file size as the history end point
                 // (before appending visible screen) so we can truncate back to it
-                if let Ok(metadata) = self.authority.filesystem.metadata(&backing_file) {
+                if let Ok(metadata) = self.authority().filesystem.metadata(&backing_file) {
                     state.set_backing_file_history_end(metadata.size);
                     history_end_byte = Some(metadata.size);
                 }
 
                 // Open backing file in append mode to add visible screen
                 if let Ok(mut file) = self
-                    .authority
+                    .authority()
                     .filesystem
                     .open_file_for_append(&backing_file)
                 {
@@ -1202,7 +1202,7 @@ impl Window {
             large_file_threshold,
             &self.resources.grammar_registry,
             &self.resources.config.languages,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         ) {
             let total_bytes = new_state.buffer.total_bytes();
             if let Some(state) = self.buffers.get_mut(&buffer_id) {

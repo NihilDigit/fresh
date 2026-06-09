@@ -71,7 +71,7 @@ impl Editor {
         };
 
         // Get file size for status message before loading
-        let file_size = self.authority.filesystem.metadata(temp_path)?.size as usize;
+        let file_size = self.authority().filesystem.metadata(temp_path)?.size as usize;
 
         // Load from temp file using EditorState::from_file_with_languages
         // This enables lazy chunk loading for large inputs (>100MB by default)
@@ -82,7 +82,7 @@ impl Editor {
             self.config.editor.large_file_threshold_bytes as usize,
             &self.grammar_registry,
             &self.config.languages,
-            Arc::clone(&self.authority.filesystem),
+            Arc::clone(&self.authority().filesystem),
         )?;
 
         // Clear the file path so the buffer is "unnamed" for save purposes
@@ -182,7 +182,7 @@ impl Editor {
 
         // Check current file size
         let current_size = self
-            .authority
+            .authority()
             .filesystem
             .metadata(&temp_path)
             .map(|m| m.size as usize)
@@ -244,7 +244,7 @@ impl Editor {
 
         // Final poll to get any remaining data
         let final_size = self
-            .authority
+            .authority()
             .filesystem
             .metadata(&temp_path)
             .map(|m| m.size as usize)

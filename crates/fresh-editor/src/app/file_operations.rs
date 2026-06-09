@@ -27,10 +27,10 @@ impl Editor {
     /// Save the active buffer
     pub fn save(&mut self) -> anyhow::Result<()> {
         // Fail fast if remote connection is down
-        if !self.authority.filesystem.is_remote_connected() {
+        if !self.authority().filesystem.is_remote_connected() {
             anyhow::bail!(
                 "Cannot save: remote connection lost ({})",
-                self.authority
+                self.authority()
                     .filesystem
                     .remote_connection_info()
                     .unwrap_or("unknown host")
@@ -60,7 +60,7 @@ impl Editor {
                         .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::NotFound);
                     if is_not_found {
                         if let Some(parent) = path.parent() {
-                            if !self.authority.filesystem.exists(parent) {
+                            if !self.authority().filesystem.exists(parent) {
                                 let dir_name = parent
                                     .strip_prefix(self.working_dir())
                                     .unwrap_or(parent)
@@ -130,7 +130,7 @@ impl Editor {
 
         // Update file modification time after save
         if let Some(ref p) = path {
-            if let Ok(metadata) = self.authority.filesystem.metadata(p) {
+            if let Ok(metadata) = self.authority().filesystem.metadata(p) {
                 if let Some(mtime) = metadata.modified {
                     self.file_mod_times_mut().insert(p.clone(), mtime);
                 }
@@ -143,7 +143,7 @@ impl Editor {
             if p.file_name().and_then(|n| n.to_str()) == Some(".gitignore") {
                 if let Some(parent) = p.parent() {
                     let parent = parent.to_path_buf();
-                    let fs = self.authority.filesystem.clone();
+                    let fs = self.authority().filesystem.clone();
                     if let Some(explorer) = self.file_explorer_mut().as_mut() {
                         load_gitignore_via_fs(fs.as_ref(), explorer, &parent);
                     }
@@ -446,7 +446,7 @@ impl Editor {
             self.config.editor.large_file_threshold_bytes as usize,
             &self.grammar_registry,
             &self.config.languages,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         )?;
 
         // Restore cursor positions (clamped to valid range for new file size)
@@ -514,7 +514,7 @@ impl Editor {
         self.active_window_mut().seen_byte_ranges.remove(&buffer_id);
 
         // Update the file modification time
-        if let Ok(metadata) = self.authority.filesystem.metadata(&path) {
+        if let Ok(metadata) = self.authority().filesystem.metadata(&path) {
             if let Some(mtime) = metadata.modified {
                 self.file_mod_times_mut().insert(path.clone(), mtime);
             }
@@ -597,7 +597,7 @@ impl Editor {
 
         // Spawn background metadata checks
         let (tx, rx) = std::sync::mpsc::channel();
-        let fs = self.authority.filesystem.clone();
+        let fs = self.authority().filesystem.clone();
         std::thread::Builder::new()
             .name("poll-file-changes".to_string())
             .spawn(move || {
@@ -701,7 +701,7 @@ impl Editor {
         if !self.active_window_mut().git_index_resolved {
             self.active_window_mut().git_index_resolved = true;
             if let Some(path) = self.resolve_git_index() {
-                if let Ok(meta) = self.authority.filesystem.metadata(&path) {
+                if let Ok(meta) = self.authority().filesystem.metadata(&path) {
                     if let Some(mtime) = meta.modified {
                         self.active_window_mut().dir_mod_times.insert(path, mtime);
                     }
@@ -736,7 +736,7 @@ impl Editor {
 
         // Spawn background metadata checks (directories + git index)
         let (tx, rx) = std::sync::mpsc::channel();
-        let fs = self.authority.filesystem.clone();
+        let fs = self.authority().filesystem.clone();
         std::thread::Builder::new()
             .name("poll-dir-changes".to_string())
             .spawn(move || {
@@ -827,7 +827,7 @@ impl Editor {
         // rules — load_gitignore_via_fs handles the rules side.
         let refreshed_dirs: Vec<PathBuf> = dirs_to_refresh.iter().map(|(_, p)| p.clone()).collect();
         self.refresh_file_tree_dirs(&refreshed_dirs);
-        let fs = self.authority.filesystem.clone();
+        let fs = self.authority().filesystem.clone();
         if let Some(explorer) = self.file_explorer_mut().as_mut() {
             for dir in refreshed_dirs {
                 load_gitignore_via_fs(fs.as_ref(), explorer, &dir);
@@ -898,7 +898,7 @@ impl Editor {
     /// Re-stat every loaded .gitignore via the filesystem authority and
     /// reload or drop as needed. Returns true if anything changed.
     fn sync_gitignores_from_disk(&mut self) -> bool {
-        let fs = self.authority.filesystem.clone();
+        let fs = self.authority().filesystem.clone();
         let Some(explorer) = self.file_explorer_mut() else {
             return false;
         };
@@ -927,7 +927,7 @@ impl Editor {
     /// Uses the `ProcessSpawner` so it works transparently on both local
     /// and remote (SSH) filesystems.
     fn resolve_git_index(&self) -> Option<PathBuf> {
-        let spawner = &self.authority.process_spawner;
+        let spawner = &self.authority().process_spawner;
         let cwd = self.working_dir().to_string_lossy().to_string();
 
         // ProcessSpawner is async — run it on the tokio runtime if available,
@@ -990,7 +990,7 @@ impl Editor {
 
         let Some(lsp_uri) = super::types::file_path_to_lsp_uri_with_translation(
             path,
-            self.authority.path_translation.as_ref(),
+            self.authority().path_translation.as_ref(),
         ) else {
             return;
         };
@@ -1131,7 +1131,7 @@ impl Editor {
             self.config.editor.large_file_threshold_bytes as usize,
             &self.grammar_registry,
             &self.config.languages,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         )?;
 
         // Get the new file size for clamping
@@ -1181,7 +1181,7 @@ impl Editor {
         self.active_window_mut().seen_byte_ranges.remove(&buffer_id);
 
         // Update the file modification time
-        if let Ok(metadata) = self.authority.filesystem.metadata(path) {
+        if let Ok(metadata) = self.authority().filesystem.metadata(path) {
             if let Some(mtime) = metadata.modified {
                 self.file_mod_times_mut().insert(path.to_path_buf(), mtime);
             }
@@ -1247,7 +1247,7 @@ impl Editor {
             // We use optimistic concurrency: check mtime, and if we decide to revert,
             // re-check to handle the race where a save completed between our checks.
             let current_mtime = match self
-                .authority
+                .authority()
                 .filesystem
                 .metadata(&path)
                 .ok()
@@ -1324,7 +1324,7 @@ impl Editor {
 
         // Get current file modification time
         let current_mtime = self
-            .authority
+            .authority()
             .filesystem
             .metadata(path)
             .ok()
@@ -1390,7 +1390,7 @@ impl crate::app::window::Window {
 
         // Check file size
         let file_size = self
-            .authority
+            .authority()
             .filesystem
             .metadata(path)
             .ok()
@@ -1557,7 +1557,7 @@ impl crate::app::window::Window {
     /// Record a file's modification time (called when opening files).
     /// Window-local: records into this window's own `file_mod_times`.
     pub(crate) fn watch_file(&mut self, path: &Path) {
-        if let Ok(metadata) = self.authority.filesystem.metadata(path) {
+        if let Ok(metadata) = self.authority().filesystem.metadata(path) {
             if let Some(mtime) = metadata.modified {
                 self.file_mod_times.insert(path.to_path_buf(), mtime);
             }

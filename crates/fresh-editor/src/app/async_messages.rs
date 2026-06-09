@@ -1700,7 +1700,7 @@ impl Editor {
                 let uri: Option<lsp_types::Uri> =
                     super::types::file_path_to_lsp_uri_with_translation(
                         &path,
-                        self.authority.path_translation.as_ref(),
+                        self.authority().path_translation.as_ref(),
                     );
 
                 if let Some(uri) = uri {

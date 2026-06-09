@@ -2107,7 +2107,7 @@ impl Editor {
         // handing a host-path string to the references hook —
         // otherwise plugins (notably `find_references`) try to open
         // an in-container path on the host and fail.
-        let translation = self.authority.path_translation.clone();
+        let translation = self.authority().path_translation.clone();
         let lsp_locations: Vec<crate::services::plugins::hooks::LspLocation> = locations
             .iter()
             .map(|loc| {
@@ -2290,7 +2290,7 @@ impl Editor {
         // what we sent. A mismatch means the edit was computed against stale content.
         if let Some(expected_version) = text_doc_edit.text_document.version {
             if let Ok(path) =
-                super::lsp_uri_to_host_path(&uri, self.authority.path_translation.as_ref())
+                super::lsp_uri_to_host_path(&uri, self.authority().path_translation.as_ref())
             {
                 if let Some(lsp) = self.lsp() {
                     let language = self
@@ -2317,7 +2317,7 @@ impl Editor {
         }
 
         if let Ok(path) =
-            super::lsp_uri_to_host_path(&uri, self.authority.path_translation.as_ref())
+            super::lsp_uri_to_host_path(&uri, self.authority().path_translation.as_ref())
         {
             let buffer_id = match self.open_file(&path) {
                 Ok(id) => id,
@@ -2369,7 +2369,7 @@ impl Editor {
         // translated back to the host before we touch the host
         // filesystem. Wrapping in [`LspUri`] and calling
         // `to_host_path` is the type-checked path.
-        let translation = self.authority.path_translation.clone();
+        let translation = self.authority().path_translation.clone();
         let to_host = |uri: &lsp_types::Uri| -> std::path::PathBuf {
             crate::app::types::LspUri::from_wire(uri.clone())
                 .to_host_path(translation.as_ref())
@@ -2503,7 +2503,7 @@ impl Editor {
             for (uri, edits) in changes {
                 let uri = crate::app::types::LspUri::from_wire(uri);
                 if let Ok(path) =
-                    super::lsp_uri_to_host_path(&uri, self.authority.path_translation.as_ref())
+                    super::lsp_uri_to_host_path(&uri, self.authority().path_translation.as_ref())
                 {
                     let buffer_id = match self.open_file(&path) {
                         Ok(id) => id,

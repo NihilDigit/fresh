@@ -160,7 +160,7 @@ impl Editor {
 
             let Some(uri) = super::types::file_path_to_lsp_uri_with_translation(
                 &buf_path,
-                self.authority.path_translation.as_ref(),
+                self.authority().path_translation.as_ref(),
             ) else {
                 continue;
             };
@@ -1299,7 +1299,7 @@ impl Editor {
                 // Update buffer metadata to point at the temp file, enabling LSP
                 let plugin_file_uri = super::types::LspUri::from_host_path(
                     &plugin_file,
-                    self.authority.path_translation.as_ref(),
+                    self.authority().path_translation.as_ref(),
                 );
                 if let Some(uri) = plugin_file_uri {
                     if let Some(metadata) =
@@ -1361,7 +1361,7 @@ impl Editor {
                     if let Some(handle) = lsp.get_handle("typescript") {
                         if let Some(uri) = super::types::file_path_to_lsp_uri_with_translation(
                             &workspace_dir,
-                            self.authority.path_translation.as_ref(),
+                            self.authority().path_translation.as_ref(),
                         ) {
                             let name = workspace_dir
                                 .file_name()

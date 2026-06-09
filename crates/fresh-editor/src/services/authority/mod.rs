@@ -274,8 +274,11 @@ fn default_true() -> bool {
 
 /// The single backend slot. Replaces the old quartet of `filesystem`,
 /// `process_spawner`, `terminal_wrapper`, and `authority_display_string`
-/// fields on `Editor`. Cloned cheaply via `Arc`s.
-#[derive(Clone)]
+/// fields on `Editor`. **Not `Clone`**: an `Authority` is owned by exactly
+/// one `Window`, so a session's backend/trust/env cannot be shared into
+/// another window — that isolation is enforced by the type system, not a
+/// runtime check (issue #2280). It is *moved* between slots
+/// (`set_session_authority`, `set_boot_authority`, restore), never copied.
 pub struct Authority {
     pub filesystem: Arc<dyn FileSystem + Send + Sync>,
     pub process_spawner: Arc<dyn ProcessSpawner>,
@@ -325,11 +328,10 @@ pub struct Authority {
 /// This is the one blessed way to obtain per-session `trust` + `env`:
 /// [`SessionScope::for_root`] mints **fresh** handles owned by exactly one
 /// session, so trusting/activating in one window can never leak into another
-/// (issue #2280). Window construction goes through this — no path clones
-/// another window's live trust/env handles. (`Authority` still carries the two
-/// `Arc`s directly so its spawners can read them live; the scope is the
-/// construction-time guarantee, checked across windows by
-/// `Editor::debug_assert_sessions_unshared`.)
+/// (issue #2280). It is move-only (not `Clone`) and consumed by
+/// `Authority::local_scoped`, and the [`Authority`] it builds is itself
+/// non-`Clone` and owned by a single `Window` — so the isolation is enforced
+/// by the type system at construction, not a runtime check.
 pub struct SessionScope {
     pub trust: Arc<WorkspaceTrust>,
     pub env: Arc<crate::services::env_provider::EnvProvider>,

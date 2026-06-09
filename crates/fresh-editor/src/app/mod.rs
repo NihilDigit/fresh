@@ -585,17 +585,11 @@ pub struct Editor {
     // (`WindowResources::fs_manager`, derived from each window's authority), so
     // the editor no longer holds a global one that could go stale against the
     // active authority.
-    /// Single backend slot for "where does the editor act?".
-    ///
-    /// Bundles filesystem, process spawner, terminal wrapper, and
-    /// display label. Replaces the old quartet of `filesystem`,
-    /// `process_spawner`, `terminal_wrapper`, `authority_display_string`
-    /// fields. Always present; the editor boots with `Authority::local()`
-    /// and plugins (or the SSH startup flow) install a different one
-    /// later via `install_authority`. Pointer-equality on the inner
-    /// `Arc`s answers "still the same backend?".
-    authority: crate::services::authority::Authority,
-
+    // The editor's active backend is *not* a field here — it lives on the
+    // active `Window` (owned, non-`Clone`), read via `Editor::authority()`.
+    // Keeping it single-owned per window is what makes a session's
+    // backend/trust/env impossible to share into another window by
+    // construction (issue #2280).
     /// Authority queued by `install_authority`, picked up by `main.rs`
     /// right before dropping this editor on restart. `None` in the
     /// steady state. Not durable state — restarts from `main.rs`'s

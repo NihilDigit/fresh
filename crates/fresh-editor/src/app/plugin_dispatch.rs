@@ -151,13 +151,17 @@ impl Editor {
         // — the per-window resource clones still point at the previous
         // authority handle. Reading from `Editor` keeps the snapshot in
         // lockstep with the canonical seat.
-        snapshot.authority_label = self.authority.display_label.clone();
+        snapshot.authority_label = self.authority().display_label.clone();
 
         // Surface the active project's Workspace Trust level so plugins that
         // run repo-controlled work can gate on it.
-        snapshot.workspace_trust_level =
-            self.authority.workspace_trust.level().as_str().to_string();
-        snapshot.env_active = self.authority.env_provider.is_active();
+        snapshot.workspace_trust_level = self
+            .authority()
+            .workspace_trust
+            .level()
+            .as_str()
+            .to_string();
+        snapshot.env_active = self.authority().env_provider.is_active();
 
         // Publish the session list so plugins (Orchestrator, etc.)
         // see updates from createWindow/closeWindow without
@@ -1450,8 +1454,8 @@ impl Editor {
         // a Trusted workspace — defense in depth even though the plugin
         // already gates on `workspaceTrustLevel()`.
         use crate::services::workspace_trust::TrustLevel;
-        if self.authority.workspace_trust.level() == TrustLevel::Trusted {
-            self.authority
+        if self.authority().workspace_trust.level() == TrustLevel::Trusted {
+            self.authority()
                 .env_provider
                 .set(snippet, dir.map(std::path::PathBuf::from));
             // Re-evaluate already-running tooling under the new env.
@@ -1463,8 +1467,8 @@ impl Editor {
     }
 
     fn handle_clear_env(&mut self) {
-        let was_active = self.authority.env_provider.is_active();
-        self.authority.env_provider.clear();
+        let was_active = self.authority().env_provider.is_active();
+        self.authority().env_provider.clear();
         if was_active {
             self.request_restart(self.working_dir().to_path_buf());
         }
@@ -2112,7 +2116,7 @@ impl Editor {
     fn handle_open_file_streaming(&mut self, path: std::path::PathBuf, request_id: u64) {
         // Ensure the file exists at 0 bytes if missing, so the open
         // path has something to load.
-        if !self.authority.filesystem.exists(&path) {
+        if !self.authority().filesystem.exists(&path) {
             if let Some(parent) = path.parent() {
                 if !parent.as_os_str().is_empty() {
                     if let Err(e) = std::fs::create_dir_all(parent) {
@@ -2224,7 +2228,7 @@ impl Editor {
             return;
         };
 
-        let new_size = match self.authority.filesystem.metadata(&path) {
+        let new_size = match self.authority().filesystem.metadata(&path) {
             Ok(m) => m.size as usize,
             Err(_) => {
                 self.resolve_json_callback::<Option<usize>>(request_id, None);
@@ -2412,7 +2416,7 @@ impl Editor {
             // executables. Without this, Blocked wouldn't actually block
             // everything.
             if let crate::services::workspace_trust::SpawnDecision::Deny(reason) = self
-                .authority
+                .authority()
                 .workspace_trust
                 .decide(&command, effective_cwd.as_deref())
             {
@@ -3412,7 +3416,7 @@ impl Editor {
                     .ok()
             });
             let sender = bridge.sender();
-            let spawner = self.authority.process_spawner.clone();
+            let spawner = self.authority().process_spawner.clone();
 
             // Kill plumbing: register a oneshot keyed by process_id, same
             // pattern as handle_spawn_host_process. JS calls
@@ -3479,8 +3483,8 @@ impl Editor {
             Ok(parsed) => {
                 // The new authority shares the editor's live trust + env
                 // handles, so its spawners are gated and env'd identically.
-                let trust = std::sync::Arc::clone(&self.authority.workspace_trust);
-                let env = std::sync::Arc::clone(&self.authority.env_provider);
+                let trust = std::sync::Arc::clone(&self.authority().workspace_trust);
+                let env = std::sync::Arc::clone(&self.authority().env_provider);
                 // Record the spec on the active session *before* the restart
                 // so it persists (save-on-restart) and the rebuilt editor
                 // restores this session under the same backend instead of
@@ -3610,7 +3614,7 @@ impl Editor {
         // inactive (the remote's env rides the spawner's captured probe).
         let trust = std::sync::Arc::new(crate::services::workspace_trust::WorkspaceTrust::new(
             None,
-            self.authority.workspace_trust.level(),
+            self.authority().workspace_trust.level(),
         ));
         let env = std::sync::Arc::new(crate::services::env_provider::EnvProvider::inactive());
 

@@ -895,7 +895,7 @@ impl Editor {
         level: crate::services::workspace_trust::TrustLevel,
     ) {
         use crate::services::workspace_trust::TrustLevel;
-        let trust = &self.authority.workspace_trust;
+        let trust = &self.authority().workspace_trust;
         let changed = trust.level() != level;
         trust.set_level(level);
         let msg = match level {

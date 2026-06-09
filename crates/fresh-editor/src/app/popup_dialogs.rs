@@ -1032,7 +1032,7 @@ impl Editor {
             // a question that has no real downside. Persist this — it's
             // the same decision we'd record if the user had explicitly
             // confirmed.
-            self.authority
+            self.authority()
                 .workspace_trust
                 .set_level(crate::services::workspace_trust::TrustLevel::Trusted);
             return;
@@ -1047,7 +1047,7 @@ impl Editor {
         // choice (env-manager's "Trust & activate" / "Never here" or
         // the core modal's three radios) writes the decision through
         // via `set_level`.
-        self.authority
+        self.authority()
             .workspace_trust
             .set_level_transient(crate::services::workspace_trust::TrustLevel::Restricted);
 
@@ -1091,7 +1091,7 @@ impl Editor {
         // Seed the radio selection from the project's current level so a
         // command-palette invocation shows the active choice; at startup
         // (undecided) this is the safe Restricted default.
-        let selected = match self.authority.workspace_trust.level() {
+        let selected = match self.authority().workspace_trust.level() {
             crate::services::workspace_trust::TrustLevel::Trusted => 0,
             crate::services::workspace_trust::TrustLevel::Restricted => 1,
             crate::services::workspace_trust::TrustLevel::Blocked => 2,
@@ -1265,7 +1265,7 @@ impl Editor {
     /// rather than the local one.
     fn find_devcontainer_config(&self) -> Option<std::path::PathBuf> {
         let cwd = self.working_dir();
-        let fs = self.authority.filesystem.as_ref();
+        let fs = self.authority().filesystem.as_ref();
         let primary = cwd.join(".devcontainer").join("devcontainer.json");
         if fs.exists(&primary) {
             return Some(primary);

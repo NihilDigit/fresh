@@ -13,7 +13,7 @@
 //! could plausibly need is shared into `Window` as an `Arc<…>` clone (or
 //! `Clone`-by-value for handles that already carry their own `Arc`s,
 //! like `Authority`). A `Window` method now has direct access to
-//! `self.config.editor.line_wrap`, `self.authority.path_translation`,
+//! `self.config.editor.line_wrap`, `self.authority().path_translation`,
 //! etc., without any `Editor` reference. Methods that previously had to
 //! sit on `impl Editor` to read these can move to `impl Window`.
 //!
@@ -41,7 +41,6 @@ use crate::input::command_registry::CommandRegistry;
 use crate::input::keybindings::KeybindingResolver;
 use crate::model::filesystem::FileSystem;
 use crate::primitives::grammar::GrammarRegistry;
-use crate::services::authority::Authority;
 use crate::services::fs::FsManager;
 use crate::services::time_source::SharedTimeSource;
 use crate::view::theme::ThemeRegistry;
@@ -99,7 +98,7 @@ impl BufferIdAllocator {
 ///
 /// A `Window` handler that needs any of these reads it directly:
 /// `self.resources.config.editor.line_wrap`,
-/// `self.authority.path_translation`, etc. The
+/// `self.authority().path_translation`, etc. The
 /// [`Window::config()`] / `Window::authority()` accessors are the
 /// canonical reading API; the field itself stays `pub(crate)` so call
 /// sites can split-borrow disjoint sub-fields when the borrow checker

@@ -2335,14 +2335,15 @@ impl Editor {
         let cwd = self.working_dir().to_path_buf();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
-        if let Err(e) =
-            self.authority
-                .filesystem
-                .walk_files(&cwd, IGNORED_DIRS, &cancel, &mut |path, _rel| {
-                    file_paths.push(path.to_path_buf());
-                    true
-                })
-        {
+        if let Err(e) = self.authority().filesystem.walk_files(
+            &cwd,
+            IGNORED_DIRS,
+            &cancel,
+            &mut |path, _rel| {
+                file_paths.push(path.to_path_buf());
+                true
+            },
+        ) {
             tracing::warn!("walk_files failed: {}", e);
         }
 
@@ -2392,7 +2393,7 @@ impl Editor {
                 let mut cursor = crate::model::filesystem::FileSearchCursor::new();
                 let mut file_matches = Vec::new();
                 while !cursor.done && file_matches.len() < remaining {
-                    match self.authority.filesystem.search_file(
+                    match self.authority().filesystem.search_file(
                         file_path,
                         &pattern,
                         &fs_opts_file,
@@ -2580,8 +2581,8 @@ impl Editor {
             }
         }
 
-        let filesystem = self.authority.filesystem.clone();
-        let filesystem_walker = self.authority.filesystem.clone();
+        let filesystem = self.authority().filesystem.clone();
+        let filesystem_walker = self.authority().filesystem.clone();
         let cwd = self.working_dir().to_path_buf();
         let query_len = pattern.len();
 

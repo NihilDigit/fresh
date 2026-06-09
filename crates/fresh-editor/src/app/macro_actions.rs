@@ -203,7 +203,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         );
         state
             .margins
@@ -219,6 +219,8 @@ impl Editor {
             .insert(buffer_id, EventLog::new());
 
         // Set buffer content
+        let fs = std::sync::Arc::clone(&self.authority().filesystem);
+        let threshold = self.config.editor.large_file_threshold_bytes as usize;
         if let Some(state) = self
             .windows
             .get_mut(&self.active_window)
@@ -226,11 +228,7 @@ impl Editor {
             .expect("active window present")
             .get_mut(&buffer_id)
         {
-            state.buffer = crate::model::buffer::Buffer::from_str(
-                &content,
-                self.config.editor.large_file_threshold_bytes as usize,
-                std::sync::Arc::clone(&self.authority.filesystem),
-            );
+            state.buffer = crate::model::buffer::Buffer::from_str(&content, threshold, fs);
         }
 
         // Set metadata
@@ -291,7 +289,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         );
         state
             .margins
@@ -307,6 +305,8 @@ impl Editor {
             .insert(buffer_id, EventLog::new());
 
         // Set buffer content
+        let fs = std::sync::Arc::clone(&self.authority().filesystem);
+        let threshold = self.config.editor.large_file_threshold_bytes as usize;
         if let Some(state) = self
             .windows
             .get_mut(&self.active_window)
@@ -314,11 +314,7 @@ impl Editor {
             .expect("active window present")
             .get_mut(&buffer_id)
         {
-            state.buffer = crate::model::buffer::Buffer::from_str(
-                &content,
-                self.config.editor.large_file_threshold_bytes as usize,
-                std::sync::Arc::clone(&self.authority.filesystem),
-            );
+            state.buffer = crate::model::buffer::Buffer::from_str(&content, threshold, fs);
         }
 
         // Set metadata

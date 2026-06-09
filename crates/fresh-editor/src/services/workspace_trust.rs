@@ -152,7 +152,19 @@ impl WorkspaceTrust {
         let trust = Self::new(Some(root.to_path_buf()), TrustLevel::Restricted);
         // `set_store` adopts the project's persisted level (or the safe
         // Restricted default for an undecided project).
-        trust.set_store(Some(TrustStore::for_project_dir(project_state_dir)));
+        let store = TrustStore::for_project_dir(project_state_dir);
+        let decided = store.is_decided();
+        trust.set_store(Some(store));
+        // For an *undecided* project, match the boot session's
+        // `maybe_prompt_workspace_trust` default: a folder with no
+        // executable-content markers (no Cargo.toml/build.rs/package.json/…)
+        // is benign, so start Trusted rather than Restricted. Without this a
+        // freshly-opened session for an ordinary folder would silently block
+        // its own LSP / tooling. Folders *with* executable content stay
+        // Restricted until the user trusts them (via the status-bar pill).
+        if !decided && executable_content_markers(root).is_empty() {
+            trust.set_level_transient(TrustLevel::Trusted);
+        }
         Arc::new(trust)
     }
 

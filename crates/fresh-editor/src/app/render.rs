@@ -2368,7 +2368,7 @@ impl Editor {
         };
         // Canonicalize for buffer-dedup parity with open_file_no_focus.
         let abs_path = self
-            .authority
+            .authority()
             .filesystem
             .canonicalize(&abs_path)
             .unwrap_or(abs_path);
@@ -3916,7 +3916,7 @@ impl Editor {
     pub fn save_histories(&self) {
         // Ensure data directory exists
         if let Err(e) = self
-            .authority
+            .authority()
             .filesystem
             .create_dir_all(&self.dir_context.data_dir)
         {

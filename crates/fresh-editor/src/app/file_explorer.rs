@@ -286,10 +286,11 @@ impl Editor {
         self.set_status_message(status_msg);
 
         let active_id = self.active_window;
-        // Disjoint borrow: `self.windows.get_mut(...)` keeps the
-        // mutable explorer scoped to `self.windows`; the body still
-        // reads `self.tokio_runtime`, `self.authority.filesystem`,
-        // etc. on different fields.
+        // The active backend's filesystem, captured before the mutable
+        // window borrow below: `self.authority()` now reads the active
+        // window's owned authority, so it can't be read while
+        // `self.windows.get_mut(...)` holds a mutable borrow.
+        let fs = std::sync::Arc::clone(&self.authority().filesystem);
         if let (Some(runtime), Some(explorer)) = (
             self.tokio_runtime.as_ref(),
             self.windows
@@ -321,7 +322,7 @@ impl Editor {
 
                         if let Some((dir_path, is_symlink)) = node_info {
                             crate::app::file_operations::load_gitignore_via_fs(
-                                self.authority.filesystem.as_ref(),
+                                fs.as_ref(),
                                 explorer,
                                 &dir_path,
                             );
@@ -456,6 +457,10 @@ impl Editor {
 
     pub fn file_explorer_new_file(&mut self) {
         let active_id = self.active_window;
+        // Capture the active backend's filesystem before the mutable explorer
+        // borrow below (`self.authority()` reads the active window, so it
+        // can't be called while `self.windows` is borrowed mutably).
+        let fs = std::sync::Arc::clone(&self.authority().filesystem);
         if let Some(explorer) = self
             .windows
             .get_mut(&active_id)
@@ -470,11 +475,7 @@ impl Editor {
 
                     if let Some(runtime) = &self.tokio_runtime {
                         let path_clone = file_path.clone();
-                        let result = self
-                            .authority
-                            .filesystem
-                            .create_file(&path_clone)
-                            .map(|_| ());
+                        let result = fs.create_file(&path_clone).map(|_| ());
 
                         match result {
                             Ok(_) => {
@@ -524,6 +525,7 @@ impl Editor {
 
     pub fn file_explorer_new_directory(&mut self) {
         let active_id = self.active_window;
+        let fs = std::sync::Arc::clone(&self.authority().filesystem);
         if let Some(explorer) = self
             .windows
             .get_mut(&active_id)
@@ -539,7 +541,7 @@ impl Editor {
                     if let Some(runtime) = &self.tokio_runtime {
                         let path_clone = dir_path.clone();
                         let dirname_clone = dirname.clone();
-                        let result = self.authority.filesystem.create_dir(&path_clone);
+                        let result = fs.create_dir(&path_clone);
 
                         match result {
                             Ok(_) => {
@@ -648,7 +650,12 @@ impl Editor {
 
         // For remote files, move to remote trash directory
         // For local files, use system trash
-        let delete_result = if self.authority.filesystem.remote_connection_info().is_some() {
+        let delete_result = if self
+            .authority()
+            .filesystem
+            .remote_connection_info()
+            .is_some()
+        {
             self.move_to_remote_trash(&path)
         } else {
             trash::delete(&path).map_err(std::io::Error::other)
@@ -741,12 +748,12 @@ impl Editor {
     /// Move a file/directory to the remote trash directory (~/.local/share/fresh/trash/)
     fn move_to_remote_trash(&self, path: &std::path::Path) -> std::io::Result<()> {
         // Get remote home directory
-        let home = self.authority.filesystem.home_dir()?;
+        let home = self.authority().filesystem.home_dir()?;
         let trash_dir = home.join(".local/share/fresh/trash");
 
         // Create trash directory if it doesn't exist
-        if !self.authority.filesystem.exists(&trash_dir) {
-            self.authority.filesystem.create_dir_all(&trash_dir)?;
+        if !self.authority().filesystem.exists(&trash_dir) {
+            self.authority().filesystem.create_dir_all(&trash_dir)?;
         }
 
         // Generate unique name with timestamp to avoid collisions
@@ -761,7 +768,7 @@ impl Editor {
         let trash_path = trash_dir.join(trash_name);
 
         // Move to trash
-        self.authority.filesystem.rename(path, &trash_path)
+        self.authority().filesystem.rename(path, &trash_path)
     }
 
     pub fn file_explorer_rename(&mut self) {
@@ -829,7 +836,10 @@ impl Editor {
             .unwrap_or_else(|| original_path.clone());
 
         if self.tokio_runtime.is_some() {
-            let result = self.authority.filesystem.rename(&original_path, &new_path);
+            let result = self
+                .authority()
+                .filesystem
+                .rename(&original_path, &new_path);
 
             match result {
                 Ok(_) => {
@@ -997,7 +1007,7 @@ impl Editor {
                     return;
                 } else {
                     let unique = unique_paste_name(
-                        &*self.authority.filesystem,
+                        &*self.authority().filesystem,
                         &dst_dir,
                         &file_name.to_string_lossy(),
                     );
@@ -1006,7 +1016,7 @@ impl Editor {
                 }
             }
 
-            if self.authority.filesystem.exists(&dst_path) {
+            if self.authority().filesystem.exists(&dst_path) {
                 let name = truncate_name_for_prompt(&file_name.to_string_lossy(), 40);
                 self.start_prompt(
                     t!("explorer.paste_conflict", name = &name).to_string(),
@@ -1036,14 +1046,14 @@ impl Editor {
                     if !is_cut {
                         // Copy to same dir: auto-rename so it lands in safe
                         let unique = unique_paste_name(
-                            &*self.authority.filesystem,
+                            &*self.authority().filesystem,
                             &dst_dir,
                             &file_name.to_string_lossy(),
                         );
                         safe.push((src.clone(), unique));
                     }
                     // Cut to same dir: skip — nothing to do
-                } else if self.authority.filesystem.exists(&dst_path) {
+                } else if self.authority().filesystem.exists(&dst_path) {
                     conflicts.push((src.clone(), dst_path));
                 } else {
                     safe.push((src.clone(), dst_path));
@@ -1219,7 +1229,7 @@ impl Editor {
     /// state is touched — callers are responsible for refreshing the
     /// explorer afterwards.
     fn paste_one_fs_op(&self, src: &Path, dst: &Path, is_cut: bool) -> PasteOpOutcome {
-        let src_is_dir = self.authority.filesystem.is_dir(src).unwrap_or(false);
+        let src_is_dir = self.authority().filesystem.is_dir(src).unwrap_or(false);
 
         // Guard against pasting a directory into itself or into one of its
         // own descendants. Without this, `copy_dir_all(/d, /d/d)` would
@@ -1240,13 +1250,13 @@ impl Editor {
             // copy+delete for cross-device errors — any other rename failure
             // (permission denied, etc.) must surface as-is so we don't
             // silently succeed via a different codepath.
-            match self.authority.filesystem.rename(src, dst) {
+            match self.authority().filesystem.rename(src, dst) {
                 Ok(()) => PasteOpOutcome::Ok,
                 Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
                     let copy_result = if src_is_dir {
-                        self.authority.filesystem.copy_dir_all(src, dst)
+                        self.authority().filesystem.copy_dir_all(src, dst)
                     } else {
-                        self.authority.filesystem.copy(src, dst).map(|_| ())
+                        self.authority().filesystem.copy(src, dst).map(|_| ())
                     };
                     match copy_result {
                         Ok(()) => {
@@ -1256,9 +1266,9 @@ impl Editor {
                             // copy is at `dst` AND the original is still at
                             // `src`, so they can decide what to do.
                             let remove_result = if src_is_dir {
-                                self.authority.filesystem.remove_dir_all(src)
+                                self.authority().filesystem.remove_dir_all(src)
                             } else {
-                                self.authority.filesystem.remove_file(src)
+                                self.authority().filesystem.remove_file(src)
                             };
                             match remove_result {
                                 Ok(()) => PasteOpOutcome::Ok,
@@ -1275,9 +1285,9 @@ impl Editor {
                             // swallowed — the copy error is the interesting
                             // one to surface — but logged.
                             let cleanup = if src_is_dir {
-                                self.authority.filesystem.remove_dir_all(dst)
+                                self.authority().filesystem.remove_dir_all(dst)
                             } else {
-                                self.authority.filesystem.remove_file(dst)
+                                self.authority().filesystem.remove_file(dst)
                             };
                             if let Err(cleanup_err) = cleanup {
                                 tracing::warn!(
@@ -1294,12 +1304,12 @@ impl Editor {
                 Err(e) => PasteOpOutcome::Failed(e),
             }
         } else if src_is_dir {
-            match self.authority.filesystem.copy_dir_all(src, dst) {
+            match self.authority().filesystem.copy_dir_all(src, dst) {
                 Ok(()) => PasteOpOutcome::Ok,
                 Err(e) => PasteOpOutcome::Failed(e),
             }
         } else {
-            match self.authority.filesystem.copy(src, dst) {
+            match self.authority().filesystem.copy(src, dst) {
                 Ok(_) => PasteOpOutcome::Ok,
                 Err(e) => PasteOpOutcome::Failed(e),
             }
@@ -1476,7 +1486,7 @@ impl Editor {
                 continue;
             };
             let dst = unique_paste_name(
-                &*self.authority.filesystem,
+                &*self.authority().filesystem,
                 parent,
                 &file_name.to_string_lossy(),
             );
@@ -1581,14 +1591,18 @@ impl crate::app::window::Window {
     /// `self.resources`. For remote mode, fall back to the remote home
     /// dir only when `root` doesn't exist on the remote filesystem.
     pub(crate) fn init_file_explorer(&mut self) {
-        let is_remote = self.authority.filesystem.remote_connection_info().is_some();
+        let is_remote = self
+            .authority()
+            .filesystem
+            .remote_connection_info()
+            .is_some();
         let root_exists = self
-            .authority
+            .authority()
             .filesystem
             .is_dir(&self.root)
             .unwrap_or(false);
         let root_path = if is_remote && !root_exists {
-            match self.authority.filesystem.home_dir() {
+            match self.authority().filesystem.home_dir() {
                 Ok(home) => home,
                 Err(e) => {
                     tracing::error!("Failed to get remote home directory: {}", e);
@@ -1644,7 +1658,7 @@ impl crate::app::window::Window {
         let root_id = view.tree().root_id();
         if let Some(root_path) = view.tree().get_node(root_id).map(|n| n.entry.path.clone()) {
             crate::app::file_operations::load_gitignore_via_fs(
-                self.authority.filesystem.as_ref(),
+                self.authority().filesystem.as_ref(),
                 &mut view,
                 &root_path,
             );

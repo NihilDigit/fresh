@@ -729,7 +729,7 @@ impl crate::app::window::Window {
 
         // Best-effort directory creation for terminal backing files
         #[allow(clippy::let_underscore_must_use)]
-        let _ = self.authority.filesystem.create_dir_all(
+        let _ = self.authority().filesystem.create_dir_all(
             log_path
                 .parent()
                 .or_else(|| backing_path.parent())
@@ -765,7 +765,7 @@ impl crate::app::window::Window {
         // reconnect — `terminal_command` composes with whatever backend is
         // live, so the reconnect-on-activate step re-runs it in the real one.
         let wrapper_for_spawn = match spawn_argv {
-            Some(argv) => self.authority.terminal_command(argv),
+            Some(argv) => self.authority().terminal_command(argv),
             None => self.resolved_terminal_wrapper(),
         };
         let terminal_id = match self.terminal_manager.spawn(
@@ -838,7 +838,7 @@ impl crate::app::window::Window {
             large_file_threshold,
             &self.resources.grammar_registry,
             &self.resources.config.languages,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         ) {
             self.install_terminal_buffer_state(buffer_id, new_state);
         }
@@ -1622,7 +1622,7 @@ impl crate::app::window::Window {
                     // never viewed before quitting) so a restored session keeps
                     // the full scrollback.
                     if let Ok(mut file) = self
-                        .authority
+                        .authority()
                         .filesystem
                         .open_file_for_append(&backing_path)
                     {
@@ -1637,7 +1637,7 @@ impl crate::app::window::Window {
                     }
 
                     if let Ok(mut file) = self
-                        .authority
+                        .authority()
                         .filesystem
                         .open_file_for_append(&backing_path)
                     {
@@ -1669,7 +1669,7 @@ impl crate::app::window::Window {
             self.terminal_width,
             self.terminal_height,
             self.resources.config.editor.large_file_threshold_bytes as usize,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         );
         state
             .margins
@@ -1710,7 +1710,7 @@ impl crate::app::window::Window {
             self.terminal_width,
             self.terminal_height,
             self.resources.config.editor.large_file_threshold_bytes as usize,
-            std::sync::Arc::clone(&self.authority.filesystem),
+            std::sync::Arc::clone(&self.authority().filesystem),
         );
         state
             .margins
