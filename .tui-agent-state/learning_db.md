@@ -625,3 +625,26 @@ Learning_db.md previously documented only 7 commands. The plugin v0.1.0 has MORE
 - **Line numbers:** HIDDEN in compose mode (no `N │` prefix in display)
 - **Editing inside code blocks works in compose mode** — new lines added correctly; display updates immediately
 - **Toggle workflow quirk:** First Ctrl+P → "Toggle" activation shows a "Compose width" prompt. Second activation (same command) DIRECTLY toggles ON (no prompt). Third activation toggles OFF.
+
+## Workspace Trust (Run #22 — NEW in v0.3.12)
+- **Enforcement is ON** in v0.3.12 (was "groundwork, off by default" in 0.3.10 CHANGELOG). A folder with tooling markers (e.g. `compile_commands.json`) triggers a "⚠ SECURITY WARNING" dialog on launch.
+- **Dialog options:** `(*)` radio list — "Trust folder & Allow Tooling (T)", "Keep Restricted (Default) (K)", "Block All Execution (B)". Letter selects the radio, **Enter confirms**. **Esc does NOT dismiss the dialog.**
+- **Persistence:** `~/.local/share/fresh/workspaces/<percent-encoded-path>/trust.json` → `{"level": "trusted"}`. Delete the dir to reset for re-testing.
+- **LSP is gated on trust:** log shows `LSP for 'cpp' not auto-started: workspace is not trusted`. After trusting, `auto_start: true` works.
+- **Trust confirm = FULL EDITOR RESTART** (log: `Restart requested with new working directory`). Session restore rebuilds buffers in default mode; with `--no-restore` the CLI file + unsaved edits are silently lost → BUG #2291.
+- "Keep Restricted" + Enter does NOT restart; file stays open; status: "Workspace restricted — repo-controlled execution is blocked".
+- Palette command to reopen dialog: **"Workspace Trust…"** (type `Trust` — searching `Trust Lev` finds nothing; old "Set Workspace Trust Level" command is gone).
+
+## SSH Loopback Test Recipe (Run #22)
+- `apt-get update && apt-get install -y openssh-server` (404s without update first)
+- `ssh-keygen -A; ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -q; cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; mkdir -p /run/sshd; /usr/sbin/sshd -p 22`
+- scp-style works END-TO-END (v0.3.12): `fresh --no-restore root@localhost:/tmp/file.txt` → status-bar origin segment becomes `root@localhost`, content loads, Ctrl+S writes through ("Saved").
+- ssh:// URL form still broken (#2221) — status stays `Local`, empty buffer.
+
+## Keybinding Editor: Add/Delete/Record (Run #22 — v0.3.12)
+- Footer: `Enter:Edit  a:Add  d:Delete  /:Search  r:Record Key  c:Context  s:Source  ?:Help  Ctrl+S:Save  Esc:Close`
+- **Add dialog focus path:** Key field → Enter (start capture) → press key → Tab → type action (autocomplete popup; Enter accepts) → **Tab lands on Context** (←/→ to change) → **Tab again lands on [Save]** → Enter. Pressing Enter while on Context CLOSES the dialog WITHOUT saving (silent — caused a lost add in Run #22).
+- After the Add dialog closes there can be a transient state where r//, Esc are ignored until an arrow key is pressed (similar to #2143 item 5 "invisible dialog steals input"). Buffer does NOT receive the keys.
+- **Delete:** select custom row (Source column = `custom`) → `d` → "Custom binding removed" + [modified] → Ctrl+S → "Keybinding changes saved"; the `keybindings` key is removed from config.json entirely when last custom binding deleted.
+- **Record Key Search:** `r` → "Record Key: Press a key..." → pressing any key filters (e.g. Ctrl+S → 3/866 across normal/merge/theme contexts). CAVEAT: arrows/Esc are CAPTURED as search keys — you cannot navigate results in record mode. To act on a result use `/` text search → Enter (keeps filter, returns focus to list) → arrows → d/Enter.
+- Quirk to re-observe: total binding count differed between two opens in one session (866 vs 548).

@@ -159,3 +159,17 @@ change would make it self-evident without requiring users to read docs.
 - **Suggested fix:** Add a 4th toggle to the search bar: `[ ] In Selection (Alt+S)`. When enabled, matches and replacements are constrained to the pre-existing selection. VS Code, Sublime Text, and Vim all support this.
 - **Effort:** Medium — requires passing the selection range to the search engine and only highlighting/replacing within it.
 - **Discovered:** Run #21, 2026-06-03
+
+---
+
+### IMP-015 — Workspace Trust dialog: Esc does not dismiss; File Explorer force-opens after trust restart
+- **Observed (Run #22, v0.3.12):** (a) The SECURITY WARNING dialog ignores Escape — the only ways out are choosing an option + Enter. Users habitually press Esc to defer a decision; here it silently does nothing. (b) After confirming Trust, the post-restart session always opens the File Explorer, even if it was closed before the restart (default-mode restore otherwise preserves buffers + unsaved edits).
+- **Suggested fix:** Esc should act as "decide later" (= Keep Restricted for this session, no persistence). Preserve sidebar visibility across the trust restart.
+- **Severity:** Low (UX polish). The data-loss aspect of the trust restart is tracked separately as bug #2291.
+- **Discovered:** Run #22, 2026-06-09
+
+### IMP-016 — Keybinding editor Add dialog: Enter on Context field silently cancels
+- **Observed (Run #22, v0.3.12):** In the Add Keybinding dialog, after typing the action name, Tab lands on the Context field. Pressing Enter there closes the dialog WITHOUT adding the binding — no error, no status message. The user believes the binding was added (it wasn't). Correct path is Tab once more to reach [Save].
+- **Suggested fix:** Enter anywhere in the form (except while capturing a key) should submit, per standard form conventions; or show "binding not saved" feedback on cancel-close.
+- **Severity:** Low-Medium (silent no-op; cost one full add cycle during testing).
+- **Discovered:** Run #22, 2026-06-09

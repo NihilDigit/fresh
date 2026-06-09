@@ -2,6 +2,58 @@
 
 ---
 
+## Run #22 — 2026-06-09
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state; built release binary from **origin/master @ b022a7fc** (**v0.3.12**, ~5 min). NOTE: state branch builds only v0.3.8 — always build from origin/master now.
+- Created tmux session `fresh-test-run22` (220×50)
+- **Preflight:** GitHub MCP auth OK. Playbook integrity OK. Discovered #2165, #2212 closed by maintainer (completed) and #2113 closed (not_planned) since Run #21.
+- **#2165 recheck** — CONFIRMED FIXED in v0.3.12: 'q' in *Keyboard Shortcuts* closes the buffer ("Tab closed"). Comment added.
+- **#2212 recheck** — CONFIRMED FIXED in v0.3.12: clangd repro project → Alt+. at unused-include diagnostic shows "remove #include directive quickfix"; applying it edits the buffer ("Applied: remove #include directive (1 change(s))"). Comment added.
+- **NEW FEATURE discovered: Workspace Trust prompt** (enforcement now ON; was "groundwork, off by default" in 0.3.10 CHANGELOG). Dialog: Trust(T)/Keep Restricted(K)/Block(B), Enter confirms, Esc does NOT dismiss. Persisted in `~/.local/share/fresh/workspaces/<encoded-path>/trust.json`.
+- **NEW BUG FOUND + FILED #2291**: choosing "Trust folder & Allow Tooling" triggers a full editor restart (`Restart requested with new working directory` in log). With `--no-restore`, the CLI-opened file AND unsaved edits are silently discarded (no save prompt; recovery chunk written but never offered). Default mode survives via session restore (File Explorer auto-opens though). 3/3 reproducible.
+- **SSH scp-style END-TO-END** — Installed openssh-server, ran sshd on localhost:22 with key auth. `fresh --no-restore root@localhost:/tmp/file.txt` → **FULL PASS**: status bar shows `root@localhost`, remote content loads, edit + Ctrl+S writes through ("Saved", on-disk file updated).
+- **#2221 recheck (ssh:// URL form)** — STILL BROKEN in v0.3.12 even with working sshd: opens empty buffer, "Local | ssh://...". Comment added with the ssh-binary-present data point.
+- **Keybinding editor: Delete binding** — PASS. Added F9→save (verified working), then 'd' on the row → "Custom binding removed" → Ctrl+S → `keybindings` key cleanly removed from config.json → F9 verified inert again.
+- **Keybinding editor: Record Key Search** — PASS. 'r' → press key → filters list (Ctrl+S → 3/866 across contexts; F9 → 1/866). CAVEAT: record mode captures arrows too, so you cannot navigate results while in it; use '/' text search + Enter to act on results.
+- **#2122 recheck** — STILL OPEN in v0.3.12: move_to_paragraph_down/up have empty Key column; select_to_paragraph_* still Ctrl+Shift+↓/↑.
+- **#2113** — closed by maintainer as not_planned → monitoring item retired.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| #2165 *Keyboard Shortcuts* 'q' | **CONFIRMED FIXED** (v0.3.12) | "Tab closed"; comment added |
+| #2212 Code Actions diagnostics | **CONFIRMED FIXED** (v0.3.12) | Fix popup + apply work end-to-end; comment added |
+| Workspace Trust prompt | **NEW FEATURE** | T/K/B radio + Enter; trust.json persistence; LSP gated on trust |
+| Trust → file/edits dropped (--no-restore) | **BUG (#2291 filed)** | Editor restart discards CLI file + unsaved edits, silently |
+| SSH scp-style end-to-end | **PASS** | Real sshd; open/edit/save round-trip verified |
+| #2221 ssh:// URL form | **STILL BROKEN** | Treated as local path even with working sshd; comment added |
+| Keybinding editor: Add (F9→save) | **PASS** | Tab×2 from Action needed to reach [Save] button |
+| Keybinding editor: Delete binding | **PASS** | 'd' + Ctrl+S; config.json key removed; F9 inert |
+| Keybinding editor: Record Key Search | **PASS** | Filters by pressed key; arrows captured while active |
+| #2122 move_to_paragraph binding | **STILL OPEN** | No binding in v0.3.12 |
+
+### Issues Filed / Comments
+- **#2291** (new): "Workspace Trust: choosing 'Trust folder & Allow Tooling' restarts the editor and silently discards the opened file and unsaved edits (with --no-restore)"
+- Comments: #2165 (confirmed fixed), #2212 (confirmed fixed), #2221 (still broken with working sshd)
+
+### Key Findings
+1. **Workspace Trust enforcement is live in v0.3.12** and gates LSP auto-start ("LSP for 'cpp' not auto-started: workspace is not trusted"). compile_commands.json is a trust trigger.
+2. **Trust confirm = full editor restart.** Relies on session persistence to rebuild the session; with --no-restore that means silent data loss (#2291).
+3. **SSH remote editing via scp-style works end-to-end** against a real sshd (status-bar origin, content, write-back all correct).
+4. **Keybinding editor add/delete/record all functional**; quirks noted in potential_improvements (focus path to Save button, transient unresponsiveness after Add dialog, record-mode arrow capture).
+5. **Observation (unconfirmed, low priority):** keybinding editor total count differed between opens in one session (866 vs 548 bindings) — possibly plugin lazy registration; re-observe before treating as a bug.
+
+### Version
+- Binary: v0.3.12 built from origin/master @ b022a7fc (2026-06-09)
+
+### Cleanup
+- tmux session `fresh-test-run22` killed; sshd stopped; /tmp test dirs removed; config.json reset to `{}`; trust.json + recovery chunks for test workspaces removed
+
+---
+
 ## Run #21 — 2026-06-03
 
 ### Status: COMPLETED

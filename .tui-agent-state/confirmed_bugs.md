@@ -14,6 +14,25 @@ Each bug entry:
 
 ---
 
+## BUG-007: Workspace Trust Confirm Restarts Editor, Discarding Open File + Unsaved Edits (--no-restore)
+- **ID:** BUG-007
+- **Title:** "Trust folder & Allow Tooling" → full editor restart → CLI file and unsaved edits silently lost when launched with `--no-restore`
+- **Severity:** High (silent data loss; no prompt, no recovery offer)
+- **Status:** Open — GitHub issue #2291 filed (Run #22)
+- **GitHub Issue:** [#2291](https://github.com/sinelaw/fresh/issues/2291)
+- **Reproduction:**
+  1. Folder with `compile_commands.json` (trust trigger); ensure no trust.json recorded
+  2. `fresh --no-restore main.cpp` → SECURITY WARNING dialog
+  3. (Variant) Keep Restricted → type into buffer (modified) → palette "Workspace Trust…"
+  4. Select "Trust folder & Allow Tooling (T)", press Enter
+- **Expected:** Open editors and unsaved content preserved (VS Code behavior)
+- **Actual:** Editor restarts; main.cpp tab replaced by empty [No Name] + File Explorer; unsaved edits destroyed with no prompt. Recovery chunk written but never offered on reopen.
+- **Log:** `INFO fresh::app::lifecycle: Restart requested with new working directory: <same cwd>`
+- **Notes:** Default mode (session restore) rebuilds buffers incl. unsaved edits — bug is --no-restore specific. "Keep Restricted" does NOT restart.
+- **First Seen:** Run #22, 2026-06-09 (v0.3.12); 3/3 reproducible
+
+---
+
 ## BUG-006: SSH URL-style URI (`ssh://host/path`) Treated as Local File Path
 - **ID:** BUG-006
 - **Title:** `ssh://host/path` CLI argument silently opens empty local file instead of SSH connection
@@ -31,11 +50,11 @@ Each bug entry:
 
 ---
 
-## BUG-001: *Keyboard Shortcuts* Buffer 'q' Does Not Close
+## BUG-001 (FIXED): *Keyboard Shortcuts* Buffer 'q' Does Not Close
 - **ID:** BUG-001
 - **Title:** `*Keyboard Shortcuts*` buffer 'q' does not close despite in-buffer documentation
 - **Severity:** Low (Documentation/UX)
-- **Status:** Open — new dedicated issue #2165 filed (parent #2125 was closed by maintainer)
+- **Status:** **FIXED** in v0.3.12 — confirmed via UI Run #22 ("Tab closed"); #2165 closed by maintainer 2026-06-07
 - **GitHub Issue:** [#2165](https://github.com/sinelaw/fresh/issues/2165) — filed Run #16 (2026-05-31)
 - **Reproduction:**
   1. Launch Fresh with `--no-restore`
@@ -79,11 +98,11 @@ Each bug entry:
 
 ---
 
-## BUG-005: LSP Code Actions (Alt+.) Always Report "No Code Actions Available" for Diagnostic-Based Fixes
+## BUG-005 (FIXED): LSP Code Actions (Alt+.) Always Report "No Code Actions Available" for Diagnostic-Based Fixes
 - **ID:** BUG-005
 - **Title:** Alt+. code actions silently fail for clangd-reported "fix available" diagnostics due to empty `context.diagnostics`
 - **Severity:** High (feature non-functional for all diagnostic-based fixes)
-- **Status:** Open
+- **Status:** **FIXED** in v0.3.12 — confirmed via UI Run #22 (fix popup appears and applies); #2212 closed by maintainer 2026-06-08
 - **GitHub Issue:** [#2212](https://github.com/sinelaw/fresh/issues/2212) — filed Run #19 (2026-06-03)
 - **Reproduction:**
   1. Install clangd; configure `{"lsp": {"cpp": {"command": "clangd", "enabled": true}}}`

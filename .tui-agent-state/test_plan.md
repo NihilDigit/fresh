@@ -13,16 +13,22 @@
 
 ---
 
-## RUN #22+ PRIORITY ORDER (coverage-first; work top-down)
+## RUN #23+ PRIORITY ORDER (coverage-first; work top-down)
 
 > **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
+> **Build directive (Run #22):** Always build from **origin/master** — the state branch is frozen at v0.3.8.
 
-1. **SSH scp-style verification** — install `openssh-client` or verify scp-style form end-to-end when SSH is available; #2221 tracks the URL-style bug
-2. **#2113 race condition** — continue monitoring; not reproduced in 16 total attempts (Run #19-21)
-3. **Keybinding editor: Delete binding** — test deleting a custom binding, verifying config.json is updated
-4. **Keybinding editor: Record Key Search** — test 'r' record-key search mode in keybinding editor
-5. **Tour feature** — ALREADY TESTED in Run #6 (TC-TOUR: PASS). Mark done; no need to re-test.
-6. **LSP keybinding (missing)** — #2122 `move_to_paragraph` still has no binding; verify in new build
+1. **Workspace Trust deep-dive** — NEW feature (enforcement live in 0.3.12). Untested: "Block All Execution (B)" option behavior; restricted-mode limits (which tools actually blocked); `workspace_trust_block` action; trust + git/ripgrep interplay; #2291 recheck when fixed
+2. **Orchestrator Dock (0.3.12)** — Alt+O toggle, arrow live-switch, right-click menu, New Session dialog (Local type at least)
+3. **Go to LSP Symbol (0.3.12)** — symbol finder with live preview (use clangd; `apt-get install clangd` works after `apt-get update`)
+4. **#2197 pyright recheck** — still open; labeled in-progress. Re-test when a fix lands (pip install pyright)
+5. **Rainbow bracket colorization (0.3.12)** — verify with ANSI capture on nested brackets
+6. **Open file from diff (0.3.12)** — Enter in side-by-side/review-diff views opens working-tree/HEAD file
+7. **Terminal tab auto-naming (0.3.12)** — `editor.terminal_auto_title`
+8. **Keybinding editor count anomaly** — re-observe: total bindings differed between opens (866 vs 548) in Run #22; if reproducible with steps, file
+9. ~~SSH scp-style~~ DONE (Run #22, PASS). ~~#2113~~ CLOSED not_planned. ~~Keybinding Delete/Record~~ DONE (Run #22, PASS). ~~Tour~~ DONE (Run #6).
+
+Note: Run #22 COMPLETE. #2165 + #2212 CONFIRMED FIXED in v0.3.12 (comments added). NEW BUG #2291 filed (Workspace Trust restart discards open file + unsaved edits with --no-restore). SSH scp-style END-TO-END PASS (real sshd). #2221 still broken. Keybinding Delete + Record Key Search PASS. #2122 still open. #2113 closed not_planned (retired).
 
 Note: Run #21 COMPLETE. SSH URL-style BUG FOUND (#2221 filed): `ssh://` URI treated as local path; scp-style works correctly. Keybinding editor PASS (add/edit/save/verify all work). Search in selection: NOT IMPLEMENTED (no such toggle in search bar). Multi-root workspaces PASS (workspace scoping correct; cross-workspace files included in search when open). #2165 CONFIRMED STILL OPEN. #2113 NOT REPRODUCED (8 more attempts).
 

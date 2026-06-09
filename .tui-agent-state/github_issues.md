@@ -4,7 +4,7 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #21, 2026-06-03
+Last updated: Run #22, 2026-06-09
 
 ---
 
@@ -15,14 +15,15 @@ Last updated: Run #21, 2026-06-03
 | [#2109](https://github.com/sinelaw/fresh/issues/2109) | Ctrl+H doesn't open Find & Replace in terminals (Ctrl+H = Backspace) | Run #1 | **Open** | Terminal sends `0x08`. Verify whether Calibrate Keyboard wizard detects it. Do NOT re-file. |
 | [#2111](https://github.com/sinelaw/fresh/issues/2111) | Search: F3 does not navigate to next match while search bar is open | Run #1 | **Open** | Confirmed usability bug: F3 silently ignored while search bar is open. Contradicts VS Code/Sublime/browser behavior. Issue updated with clear expected vs actual. Do NOT re-file. |
 | [#2112](https://github.com/sinelaw/fresh/issues/2112) | Search/Replace panel: "No matches found" for files opened outside project workspace | Run #2 | **FIXED** (Run #14) | Fixed by commit b7e7e64. Confirmed fixed in Run #14: /tmp files now appear in Search/Replace panel results. Comment added. |
-| [#2113](https://github.com/sinelaw/fresh/issues/2113) | Command palette: keystrokes typed in fuzzy file mode can leak into editor buffer | Run #2 | **Open** | Race condition during `>command` → file mode transition via BSpace. Timing-sensitive. Reproduced once. Do NOT re-file. |
+| [#2113](https://github.com/sinelaw/fresh/issues/2113) | Command palette: keystrokes typed in fuzzy file mode can leak into editor buffer | Run #2 | **CLOSED not_planned** (Run #22) | Closed by maintainer 2026-06-03. Monitoring retired. Do NOT re-file. |
 | [#2117](https://github.com/sinelaw/fresh/issues/2117) | Review Diff: "Discard hunk" fails with "patch does not apply" even when patch is valid | Run #5 | **FIXED** (Run #16) | Closed by maintainer. Confirmed fixed in 0.3.10 (Run #16): review_diff_test16.txt +4 lines → discard → "Review Diff: 0 hunks". File reverted to original. Do NOT re-file. |
 | [#2125](https://github.com/sinelaw/fresh/issues/2125) | Diagnostics panel keyboard shortcuts (q: close, a: toggle filter, RET: goto) do not work | Run #9 | **CLOSED** (Run #16) | Closed by maintainer. Diagnostics panel 'q' confirmed still fixed in 0.3.10. *Keyboard Shortcuts* 'q' still broken → filed new #2165. Do NOT re-file. |
 | [#2135](https://github.com/sinelaw/fresh/issues/2135) | Edit menu "Replace..." label maps to Ctrl+Alt+R (Query Replace), not basic Replace (Ctrl+R) | Run #13 | **Open** | Filed Run #13. Do NOT re-file. |
-| [#2165](https://github.com/sinelaw/fresh/issues/2165) | *Keyboard Shortcuts* buffer: pressing 'q' shows 'Editing disabled' | Run #16 | **Open** | Re-filed since #2125 closed. Do NOT re-file. |
+| [#2165](https://github.com/sinelaw/fresh/issues/2165) | *Keyboard Shortcuts* buffer: pressing 'q' shows 'Editing disabled' | Run #16 | **FIXED** (Run #22) | Closed by maintainer 2026-06-07. CONFIRMED FIXED in v0.3.12 via UI ("Tab closed"). Comment added. Do NOT re-file. |
 | [#2197](https://github.com/sinelaw/fresh/issues/2197) | Pyright LSP: all request-based features (hover, definition, completions) timeout after 30s | Run #17 | **Open** | Real pyright on small Python project. Initialize succeeds, all requests timeout. Position encoding mismatch suspected. Do NOT re-file. |
-| [#2212](https://github.com/sinelaw/fresh/issues/2212) | Alt+. shows "No code actions available" for diagnostic-based fixes even when clangd reports "(fix available)" | Run #19 | **Open** | Fresh always sends `"context":{"diagnostics":[]}` in codeAction requests. clangd needs populated diagnostics to return fix-based actions. CONFIRMED in v0.3.10 (Run #20) — comment added. Do NOT re-file. |
-| [#2221](https://github.com/sinelaw/fresh/issues/2221) | SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection | Run #21 | **Open** | Fresh treats `ssh://` URI as relative local path (CWD + URI). scp-style (`user@host:/path`) correctly detects SSH. No error shown. Do NOT re-file. |
+| [#2212](https://github.com/sinelaw/fresh/issues/2212) | Alt+. shows "No code actions available" for diagnostic-based fixes even when clangd reports "(fix available)" | Run #19 | **FIXED** (Run #22) | Closed by maintainer 2026-06-08. CONFIRMED FIXED in v0.3.12 via UI: fix popup appears and applies. Comment added. Do NOT re-file. |
+| [#2221](https://github.com/sinelaw/fresh/issues/2221) | SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection | Run #21 | **Open** | STILL BROKEN in v0.3.12 even with working sshd (Run #22 comment). scp-style works end-to-end. Do NOT re-file. |
+| [#2291](https://github.com/sinelaw/fresh/issues/2291) | Workspace Trust: "Trust folder & Allow Tooling" restarts the editor and silently discards opened file + unsaved edits (with --no-restore) | Run #22 | **Open** | Trust confirm = full editor restart; relies on session restore to rebuild buffers. With --no-restore: silent data loss (recovery chunk written but never offered). Default mode OK. Do NOT re-file. |
 
 ---
 
@@ -60,6 +61,14 @@ Even if the symptom looks fresh, these have already been fully investigated:
 3. Scan the open issues table — if your topic is there, add a comment to the existing issue rather than opening a new one.
 4. Search GitHub with at least 3 different query variations.
 5. Only then open a new issue and add a row to this file.
+
+## Issue #2291 — Workspace Trust restart discards opened file + unsaved edits
+- **Filed:** Run #22, 2026-06-09
+- **URL:** https://github.com/sinelaw/fresh/issues/2291
+- **Label:** bug, tui-agent-auto-bug
+- **Status:** Open
+- **Summary:** Confirming "Trust folder & Allow Tooling" in the Workspace Trust dialog performs a full editor restart (`Restart requested with new working directory` in log, even when cwd is unchanged). With `--no-restore`, the CLI-opened file and any unsaved edits are silently discarded — no save prompt, no recovery offer (a recovery chunk IS written under `~/.local/share/fresh/recovery/` but never surfaced). In default mode session restore rebuilds the buffers (incl. unsaved edits), so only the File Explorer auto-open quirk is visible. "Keep Restricted" does not restart. Reference: VS Code keeps open editors and unsaved content when trusting a workspace.
+- **Search queries used:** `workspace trust restart` (only #2280, different), `trust folder file closed unsaved`, `security warning dialog buffer lost`, `trust prompt no-restore data loss`, `"Trust folder" OR "Allow Tooling" editor restart`
 
 ## Issue #2221 — SSH URL-style URI (`ssh://host/path`) treated as local file path
 - **Filed:** Run #21, 2026-06-03
