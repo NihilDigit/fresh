@@ -125,23 +125,29 @@ impl Editor {
         let theme = &*self.theme.read().unwrap();
 
         // Resolve actual colors from theme keys
-        let fg_color = cell.fg_key.and_then(|k| theme.resolve_theme_key(k));
-        let bg_color = cell.bg_key.and_then(|k| theme.resolve_theme_key(k));
+        let fg_color = cell
+            .fg_key
+            .as_ref()
+            .and_then(|k| theme.resolve_theme_key(k));
+        let bg_color = cell
+            .bg_key
+            .as_ref()
+            .and_then(|k| theme.resolve_theme_key(k));
 
         // Build region string, incorporating syntax category if present
-        let region = if let Some(cat) = cell.syntax_category {
+        let region = if let Some(cat) = cell.syntax_category.as_ref() {
             format!("Syntax: {}", cat)
         } else {
             cell.region.to_string()
         };
 
         Some(ThemeKeyInfo {
-            fg_key: cell.fg_key.map(String::from),
-            bg_key: cell.bg_key.map(String::from),
+            fg_key: cell.fg_key.as_ref().map(|k| k.to_string()),
+            bg_key: cell.bg_key.as_ref().map(|k| k.to_string()),
             region,
             fg_color,
             bg_color,
-            syntax_category: cell.syntax_category.map(String::from),
+            syntax_category: cell.syntax_category.as_ref().map(|c| c.to_string()),
         })
     }
 
@@ -155,9 +161,9 @@ impl Editor {
         // Status bar
         if let Some((row, x, width)) = self.active_chrome().status_bar_area {
             let info = CellThemeInfo {
-                fg_key: Some("ui.status_bar_fg"),
-                bg_key: Some("ui.status_bar_bg"),
-                region: "Status Bar",
+                fg_key: Some("ui.status_bar_fg".into()),
+                bg_key: Some("ui.status_bar_bg".into()),
+                region: "Status Bar".into(),
                 syntax_category: None,
             };
             for col in x..x + width {
@@ -176,9 +182,9 @@ impl Editor {
             .map(|m| m.bar_area)
         {
             let info = CellThemeInfo {
-                fg_key: Some("ui.menu_fg"),
-                bg_key: Some("ui.menu_bg"),
-                region: "Menu Bar",
+                fg_key: Some("ui.menu_fg".into()),
+                bg_key: Some("ui.menu_bg".into()),
+                region: "Menu Bar".into(),
                 syntax_category: None,
             };
             for row in bar_area.y..bar_area.y + bar_area.height {
@@ -194,9 +200,9 @@ impl Editor {
         // File explorer
         if let Some(area) = self.active_layout().file_explorer_area {
             let info = CellThemeInfo {
-                fg_key: Some("editor.fg"),
-                bg_key: Some("editor.bg"),
-                region: "File Explorer",
+                fg_key: Some("editor.fg".into()),
+                bg_key: Some("editor.bg".into()),
+                region: "File Explorer".into(),
                 syntax_category: None,
             };
             for row in area.y..area.y + area.height {
@@ -216,16 +222,19 @@ impl Editor {
                 let rel_row = (row - scrollbar_rect.y) as usize;
                 let is_thumb = rel_row >= *thumb_start && rel_row < *thumb_end;
                 let info = CellThemeInfo {
-                    fg_key: Some(if is_thumb {
-                        "ui.scrollbar_thumb_fg"
-                    } else {
-                        "ui.scrollbar_track_fg"
-                    }),
-                    bg_key: Some("editor.bg"),
+                    fg_key: Some(
+                        if is_thumb {
+                            "ui.scrollbar_thumb_fg"
+                        } else {
+                            "ui.scrollbar_track_fg"
+                        }
+                        .into(),
+                    ),
+                    bg_key: Some("editor.bg".into()),
                     region: if is_thumb {
-                        "Scrollbar Thumb"
+                        "Scrollbar Thumb".into()
                     } else {
-                        "Scrollbar Track"
+                        "Scrollbar Track".into()
                     },
                     syntax_category: None,
                 };
@@ -244,9 +253,9 @@ impl Editor {
             {
                 let area = tab_layout.bar_area;
                 let info = CellThemeInfo {
-                    fg_key: Some("ui.tab_inactive_fg"),
-                    bg_key: Some("ui.tab_separator_bg"),
-                    region: "Tab Bar",
+                    fg_key: Some("ui.tab_inactive_fg".into()),
+                    bg_key: Some("ui.tab_separator_bg".into()),
+                    region: "Tab Bar".into(),
                     syntax_category: None,
                 };
                 for row in area.y..area.y + area.height {

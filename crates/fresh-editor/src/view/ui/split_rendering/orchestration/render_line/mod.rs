@@ -593,15 +593,15 @@ fn prefill_cell_theme_map(
         return;
     }
     let gutter_info = crate::app::types::CellThemeInfo {
-        fg_key: Some("editor.line_number_fg"),
-        bg_key: Some("editor.line_number_bg"),
-        region: "Line Numbers",
+        fg_key: Some("editor.line_number_fg".into()),
+        bg_key: Some("editor.line_number_bg".into()),
+        region: "Line Numbers".into(),
         syntax_category: None,
     };
     let content_info = crate::app::types::CellThemeInfo {
-        fg_key: Some("editor.fg"),
-        bg_key: Some("editor.bg"),
-        region: "Editor Content",
+        fg_key: Some("editor.fg".into()),
+        bg_key: Some("editor.bg".into()),
+        region: "Editor Content".into(),
         syntax_category: None,
     };
     let sw = screen_width as usize;
