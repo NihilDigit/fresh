@@ -3194,8 +3194,15 @@ impl Editor {
         // passes its connected authority. `resume` is the agent-resume argv
         // carried through to the new session's terminal.
         let new_authority = self.local_session_authority();
-        match self.create_window_with_terminal(root, label, cwd_buf, command, title, new_authority, resume)
-        {
+        match self.create_window_with_terminal(
+            root,
+            label,
+            cwd_buf,
+            command,
+            title,
+            new_authority,
+            resume,
+        ) {
             Ok((window_id, terminal_id, buffer_id)) => {
                 let api_result = fresh_core::api::SessionWithTerminalResult {
                     window_id: window_id.0,

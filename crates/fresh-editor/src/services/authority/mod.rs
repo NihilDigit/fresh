@@ -308,9 +308,51 @@ pub struct Authority {
     /// `setEnv`/`clearEnv` plugin ops, never a stored snapshot. Same `Arc` the
     /// server owns; born in `main.rs` alongside trust.
     pub env_provider: Arc<crate::services::env_provider::EnvProvider>,
+    /// Argv **prefix** that runs an arbitrary *interactive* command inside
+    /// this backend, used by [`Self::terminal_command`]. Empty for a local
+    /// authority (the command is the PTY child directly); for a container it
+    /// is `docker exec -it … <id>`, so an agent argv (`claude --resume <id>`)
+    /// runs *in the container* rather than on the host. This is the seam
+    /// where the per-session backend and the agent-resume terminal command
+    /// compose — see `docs/internal/PER_SESSION_BACKENDS_DESIGN.md`.
+    pub command_prefix: Vec<String>,
 }
 
 impl Authority {
+    /// Build a [`TerminalWrapper`] that runs `argv` as an interactive PTY
+    /// child **inside this authority's backend**. Local runs it directly;
+    /// container/remote authorities prepend their exec prefix
+    /// ([`Self::command_prefix`]) so the command runs in the backend with its
+    /// argv intact (no shell-string interpolation). An empty `argv` falls
+    /// back to the authority's interactive shell wrapper.
+    ///
+    /// This is what the Orchestrator agent-resume path spawns through, so a
+    /// `claude --resume <id>` restored in a devcontainer session runs as
+    /// `docker exec -it … <id> claude --resume <id>` rather than on the host.
+    pub fn terminal_command(&self, argv: &[String]) -> TerminalWrapper {
+        let Some((cmd, rest)) = argv.split_first() else {
+            return self.terminal_wrapper.clone();
+        };
+        if self.command_prefix.is_empty() {
+            // Local: the command is the PTY child; cwd is the terminal's.
+            TerminalWrapper {
+                command: cmd.clone(),
+                args: rest.to_vec(),
+                manages_cwd: false,
+            }
+        } else {
+            // Remote: `<exec-prefix> <argv>`. The prefix pins the backend
+            // (and its cwd), so cwd is managed by the wrapper's own args.
+            let mut args = self.command_prefix[1..].to_vec();
+            args.extend(argv.iter().cloned());
+            TerminalWrapper {
+                command: self.command_prefix[0].clone(),
+                args,
+                manages_cwd: true,
+            }
+        }
+    }
+
     /// Default boot-time authority: host filesystem, host process
     /// spawner, host shell wrapper, gated by `trust`. The editor starts
     /// here on every startup; SSH or plugin-installed authorities replace
@@ -334,6 +376,8 @@ impl Authority {
             path_translation: None,
             workspace_trust: trust,
             env_provider: env,
+            // Local: commands run directly as the PTY child, no exec prefix.
+            command_prefix: Vec::new(),
         }
     }
 
@@ -370,6 +414,11 @@ impl Authority {
             path_translation: None,
             workspace_trust: trust,
             env_provider: env,
+            // TODO(per-session): build an `ssh -t … <target> --` exec prefix
+            // so a restored agent runs on the remote host. Empty for now —
+            // an agent command falls back to running on the host (today's
+            // behaviour), no regression.
+            command_prefix: Vec::new(),
         }
     }
 
@@ -401,6 +450,10 @@ impl Authority {
             path_translation: None,
             workspace_trust: trust,
             env_provider: env,
+            // TODO(per-session): build a `kubectl exec -it … -- ` exec prefix
+            // (argv-pure via `kubectl_exec_argv`) so a restored agent runs in
+            // the pod. Empty for now — falls back to host, no regression.
+            command_prefix: Vec::new(),
         }
     }
 
@@ -462,9 +515,10 @@ impl Authority {
 
         // Both spawner traits need the docker-exec params when the
         // payload is a container, so destructure once and reuse.
-        let (process_spawner, long_running_spawner): (
+        let (process_spawner, long_running_spawner, command_prefix): (
             Arc<dyn ProcessSpawner>,
             Arc<dyn LongRunningSpawner>,
+            Vec<String>,
         ) = match payload.spawner {
             SpawnerSpec::Local => (
                 Arc::new(LocalProcessSpawner::new(
@@ -475,32 +529,48 @@ impl Authority {
                     Arc::clone(&env),
                     Arc::clone(&trust),
                 )),
+                // Host-local spawner: commands run directly, no exec prefix.
+                Vec::new(),
             ),
             SpawnerSpec::DockerExec {
                 container_id,
                 user,
                 workspace,
-                env,
-            } => (
-                Arc::new(
-                    crate::services::authority::docker_spawner::DockerExecSpawner::with_env(
-                        container_id.clone(),
-                        user.clone(),
-                        workspace.clone(),
-                        env.clone(),
-                        Arc::clone(&trust),
+                env: docker_env,
+            } => {
+                // The interactive exec prefix so an agent terminal runs
+                // *inside* the container (`docker exec -it … <id> <argv>`),
+                // mirroring the spawner's one-shot `docker exec` invocation
+                // (and the captured `userEnvProbe` env so the agent's PATH
+                // resolves the same binaries).
+                let command_prefix = build_docker_exec_prefix(
+                    &container_id,
+                    user.as_deref(),
+                    workspace.as_deref(),
+                    &docker_env,
+                );
+                (
+                    Arc::new(
+                        crate::services::authority::docker_spawner::DockerExecSpawner::with_env(
+                            container_id.clone(),
+                            user.clone(),
+                            workspace.clone(),
+                            docker_env.clone(),
+                            Arc::clone(&trust),
+                        ),
                     ),
-                ),
-                Arc::new(
-                    crate::services::authority::docker_spawner::DockerLongRunningSpawner::with_env(
-                        container_id,
-                        user,
-                        workspace,
-                        env,
-                        Arc::clone(&trust),
+                    Arc::new(
+                        crate::services::authority::docker_spawner::DockerLongRunningSpawner::with_env(
+                            container_id,
+                            user,
+                            workspace,
+                            docker_env,
+                            Arc::clone(&trust),
+                        ),
                     ),
-                ),
-            ),
+                    command_prefix,
+                )
+            }
         };
 
         let terminal_wrapper = match payload.terminal_wrapper {
@@ -530,8 +600,37 @@ impl Authority {
             path_translation,
             workspace_trust: trust,
             env_provider: env,
+            command_prefix,
         })
     }
+}
+
+/// Build the `docker exec -it …` argv prefix that runs an interactive command
+/// inside a container, mirroring [`DockerExecSpawner`]'s one-shot exec args.
+/// A following agent argv is appended verbatim (argv-pure — no shell string).
+/// `-t` (added here, alongside the spawner's `-i`) allocates the PTY the
+/// integrated terminal needs.
+fn build_docker_exec_prefix(
+    container_id: &str,
+    user: Option<&str>,
+    workspace: Option<&str>,
+    env: &[(String, String)],
+) -> Vec<String> {
+    let mut prefix: Vec<String> = vec!["docker".into(), "exec".into(), "-it".into()];
+    if let Some(user) = user {
+        prefix.push("-u".into());
+        prefix.push(user.to_string());
+    }
+    if let Some(ws) = workspace {
+        prefix.push("-w".into());
+        prefix.push(ws.to_string());
+    }
+    for (k, v) in env {
+        prefix.push("-e".into());
+        prefix.push(format!("{k}={v}"));
+    }
+    prefix.push(container_id.to_string());
+    prefix
 }
 
 /// Declarative description of *how to rebuild* a session's backend — the
@@ -1225,6 +1324,73 @@ mod tests {
         assert_eq!(auth.terminal_wrapper.command, "docker");
         assert!(auth.terminal_wrapper.manages_cwd);
         assert_eq!(auth.display_label, "Container:abc123");
+    }
+
+    #[test]
+    fn terminal_command_runs_local_argv_directly() {
+        let auth = Authority::local(
+            Arc::new(WorkspaceTrust::permissive()),
+            Arc::new(crate::services::env_provider::EnvProvider::inactive()),
+        );
+        // Local backend: the command is the PTY child, no exec prefix, cwd
+        // managed by the terminal (not the wrapper).
+        let w = auth.terminal_command(&["claude".into(), "--resume".into(), "u-1".into()]);
+        assert_eq!(w.command, "claude");
+        assert_eq!(w.args, vec!["--resume".to_string(), "u-1".to_string()]);
+        assert!(!w.manages_cwd);
+        // Empty argv falls back to the interactive shell wrapper.
+        let shell = auth.terminal_command(&[]);
+        assert_eq!(shell.command, auth.terminal_wrapper.command);
+    }
+
+    #[test]
+    fn terminal_command_wraps_argv_into_container_exec() {
+        // A container authority must run an agent argv *inside* the container
+        // (`docker exec -it … <id> <argv>`) with the argv intact — never on
+        // the host, never as a shell string. This is the seam where the
+        // per-session backend and the agent-resume command compose.
+        let payload = AuthorityPayload {
+            filesystem: FilesystemSpec::Local,
+            spawner: SpawnerSpec::DockerExec {
+                container_id: "abc123".into(),
+                user: Some("vscode".into()),
+                workspace: Some("/workspaces/proj".into()),
+                env: vec![("PATH".into(), "/home/vscode/.local/bin:/usr/bin".into())],
+            },
+            terminal_wrapper: TerminalWrapperSpec::HostShell,
+            display_label: "Container:abc123".into(),
+            path_translation: None,
+        };
+        let auth = Authority::from_plugin_payload(
+            payload,
+            Arc::new(WorkspaceTrust::permissive()),
+            Arc::new(crate::services::env_provider::EnvProvider::inactive()),
+        )
+        .expect("docker payload is valid");
+
+        let w = auth.terminal_command(&["claude".into(), "--resume".into(), "u-1".into()]);
+        assert_eq!(w.command, "docker");
+        // Re-parented into the container, so cwd is pinned by the wrapper.
+        assert!(w.manages_cwd);
+        // The exec prefix (with -u/-w/-e env and the container id) precedes
+        // the agent argv, which appears verbatim as the trailing elements.
+        assert_eq!(
+            w.args,
+            vec![
+                "exec",
+                "-it",
+                "-u",
+                "vscode",
+                "-w",
+                "/workspaces/proj",
+                "-e",
+                "PATH=/home/vscode/.local/bin:/usr/bin",
+                "abc123",
+                "claude",
+                "--resume",
+                "u-1",
+            ]
+        );
     }
 
     #[test]

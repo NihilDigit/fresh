@@ -753,15 +753,14 @@ impl crate::app::window::Window {
             .filter(|argv| !argv.is_empty() && self.resources.config.terminal.resume_agents);
         let spawn_argv =
             resume_argv.or_else(|| terminal.command.as_ref().filter(|argv| !argv.is_empty()));
+        // Run the resume/launch argv through the session's backend (local →
+        // directly; container → `docker exec … <argv>`) so a restored agent
+        // rejoins *inside* its backend, not on the host. For a dormant remote
+        // session the live authority is still the local placeholder until
+        // reconnect — `terminal_command` composes with whatever backend is
+        // live, so the reconnect-on-activate step re-runs it in the real one.
         let wrapper_for_spawn = match spawn_argv {
-            Some(argv) => {
-                let (command, args) = argv.split_first().expect("non-empty argv");
-                crate::services::authority::TerminalWrapper {
-                    command: command.clone(),
-                    args: args.to_vec(),
-                    manages_cwd: false,
-                }
-            }
+            Some(argv) => self.resources.authority.terminal_command(argv),
             None => self.resolved_terminal_wrapper(),
         };
         let terminal_id = match self.terminal_manager.spawn(

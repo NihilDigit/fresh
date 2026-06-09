@@ -149,21 +149,13 @@ impl Window {
             .insert(predicted_terminal_id, backing_path.clone());
 
         // When the caller supplies an explicit argv, build a wrapper
-        // that runs it directly instead of the authority's shell. We
-        // keep `manages_cwd: false` so the PTY's cwd is honoured by
-        // the spawn (the authority's `manages_cwd` flag only applies
-        // when the wrapper itself re-roots cwd, like the docker /
-        // ssh paths). Empty argv falls back to the shell — there's
-        // nothing for the host to run.
+        // that runs it *inside this session's backend* via the authority:
+        // local runs it directly as the PTY child; a container authority
+        // prepends `docker exec -it … <id>` so an agent terminal runs in the
+        // container rather than on the host (see `Authority::terminal_command`).
+        // Empty argv falls back to the interactive shell.
         let wrapper = match command_override {
-            Some(argv) if !argv.is_empty() => {
-                let (command, args) = argv.split_first().expect("non-empty argv");
-                crate::services::authority::TerminalWrapper {
-                    command: command.clone(),
-                    args: args.to_vec(),
-                    manages_cwd: false,
-                }
-            }
+            Some(argv) if !argv.is_empty() => self.resources.authority.terminal_command(&argv),
             _ => self.resolved_terminal_wrapper(),
         };
         match self.terminal_manager.spawn(
