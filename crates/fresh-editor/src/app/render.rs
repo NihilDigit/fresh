@@ -3094,7 +3094,7 @@ impl Editor {
                 if y >= inner.y + inner.height {
                     break;
                 }
-                paint_text_property_entry(frame, entry, inner.x, y, inner.width, &theme);
+                paint_text_property_entry(frame, entry, inner.x, y, inner.width, &theme, None);
             }
             for hit in &out.hits {
                 if hit.widget_key.is_empty() {
@@ -4172,8 +4172,16 @@ impl Editor {
             return;
         }
 
+        let dock_sw = self.active_chrome().last_frame_width;
         let max_rows = inner.height as usize;
         for (i, entry) in entries.iter().take(max_rows).enumerate() {
+            let recorder = is_dock.then(|| {
+                (
+                    &mut self.active_chrome_mut().cell_theme_map,
+                    dock_sw,
+                    "Orchestrator Dock",
+                )
+            });
             paint_text_property_entry(
                 frame,
                 entry,
@@ -4181,6 +4189,7 @@ impl Editor {
                 inner.y + i as u16,
                 inner.width,
                 &theme,
+                recorder,
             );
         }
 
@@ -4339,6 +4348,7 @@ impl Editor {
         // borders).
         let panel_bg = theme.popup_bg;
         let panel_bg_style = ratatui::style::Style::default().bg(panel_bg);
+        let overlay_sw = self.active_chrome().last_frame_width;
         for o in &overlays {
             let row_y = inner.y.saturating_add(o.buffer_row as u16);
             if row_y >= inner.y.saturating_add(inner.height) {
@@ -4352,7 +4362,22 @@ impl Editor {
             };
             frame.render_widget(Clear, row_rect);
             frame.render_widget(Block::default().style(panel_bg_style), row_rect);
-            paint_text_property_entry(frame, &o.entry, inner.x, row_y, inner.width, &theme);
+            let recorder = is_dock.then(|| {
+                (
+                    &mut self.active_chrome_mut().cell_theme_map,
+                    overlay_sw,
+                    "Orchestrator Dock",
+                )
+            });
+            paint_text_property_entry(
+                frame,
+                &o.entry,
+                inner.x,
+                row_y,
+                inner.width,
+                &theme,
+                recorder,
+            );
         }
 
         if let Some(fc) = focus_cursor {
@@ -4550,16 +4575,54 @@ fn paint_text_property_entry(
     y: u16,
     width: u16,
     theme: &crate::view::theme::Theme,
+    // When `Some`, record per-cell theme-key provenance into the
+    // `cell_theme_map` (indexed by `screen_width`) under `region`, as each
+    // span is laid out. Used by the orchestrator dock so Ctrl+Right-Click
+    // resolves the actual key the plugin's text properties carry instead of
+    // an empty cell. `None` for the completion / prompt-toolbar callers,
+    // whose surfaces aren't theme-inspectable.
+    mut recorder: Option<(
+        &mut Vec<crate::app::types::CellThemeInfo>,
+        u16,
+        &'static str,
+    )>,
 ) {
+    use fresh_core::api::OverlayColorSpec;
     use ratatui::style::Style;
     use ratatui::text::{Line, Span};
     use ratatui::widgets::Paragraph;
+    use std::borrow::Cow;
 
     let mut normalized = entry.clone();
     normalized.normalize_widths();
     let mut text = normalized.text.clone();
     while text.ends_with('\n') {
         text.pop();
+    }
+
+    // A ThemeKey overlay carries the key string we want to record; an Rgb
+    // overlay is an explicit colour with no key. Named colours (no `.`) are
+    // also keyless so "Open in Theme Editor" never targets a non-key.
+    let key_of = |spec: &OverlayColorSpec| -> Option<Cow<'static, str>> {
+        match spec {
+            OverlayColorSpec::ThemeKey(k) if k.contains('.') => Some(Cow::Owned(k.clone())),
+            _ => None,
+        }
+    };
+    // Row-level base keys: the panel surface keys unless the row's own
+    // style overrides fg/bg. Mirrors the `base_style` colour resolution
+    // below, but tracks the key instead of the resolved colour.
+    let (mut base_fg_key, mut base_bg_key) = (
+        Some(Cow::Borrowed("ui.suggestion_fg")),
+        Some(Cow::Borrowed("ui.suggestion_bg")),
+    );
+    if let Some(opts) = normalized.style.as_ref() {
+        if let Some(fg) = opts.fg.as_ref() {
+            base_fg_key = key_of(fg);
+        }
+        if let Some(bg) = opts.bg.as_ref() {
+            base_bg_key = key_of(bg);
+        }
     }
 
     let base_bg = theme.suggestion_bg;
@@ -4620,6 +4683,10 @@ fn paint_text_property_entry(
     let bounds: Vec<usize> = boundaries.into_iter().collect();
 
     let mut spans: Vec<Span<'_>> = Vec::new();
+    // Screen column of the next span's first cell, advanced by each span's
+    // display width so per-cell recording lands on the right columns
+    // (wide glyphs included).
+    let mut col_cursor = x;
     for win in bounds.windows(2) {
         let (a, b) = (win[0], win[1]);
         if a >= b {
@@ -4636,6 +4703,10 @@ fn paint_text_property_entry(
         // placeholder's italic-dim styling, making placeholder
         // text indistinguishable from a typed value under focus.
         let mut style = base_style;
+        // Track this span's effective theme keys alongside the colour,
+        // applying the same overlay precedence (last writer wins).
+        let mut fg_key = base_fg_key.clone();
+        let mut bg_key = base_bg_key.clone();
         for o in &normalized.inline_overlays {
             let os = o.start.min(text.len());
             let oe = o.end.min(text.len());
@@ -4646,6 +4717,12 @@ fn paint_text_property_entry(
                 }
                 if let Some(bg) = resolved.bg {
                     style = style.bg(bg);
+                }
+                if let Some(fg) = o.style.fg.as_ref() {
+                    fg_key = key_of(fg);
+                }
+                if let Some(bg) = o.style.bg.as_ref() {
+                    bg_key = key_of(bg);
                 }
                 // Ratatui `Style` carries add/sub modifier sets;
                 // OR the additions in so subsequent overlays can
@@ -4661,7 +4738,36 @@ fn paint_text_property_entry(
         if style.bg.is_none() {
             style = style.bg(base_bg);
         }
+        // Record this span's cells as they're laid out (same column walk
+        // the Paragraph will use), before moving the slice into the Span.
+        let span_w = crate::primitives::display_width::str_width(&slice) as u16;
+        if let Some((map, sw, region)) = recorder.as_mut() {
+            record_entry_span_cells(
+                map, *sw, *region, y, col_cursor, span_w, x, width, &fg_key, &bg_key,
+            );
+        }
+        col_cursor = col_cursor.saturating_add(span_w);
         spans.push(Span::styled(slice, style));
+    }
+    // Pad the row's trailing cells with the surface keys so right-clicking
+    // the blank tail of a dock row still resolves the panel surface rather
+    // than an empty cell.
+    if let Some((map, sw, region)) = recorder.as_mut() {
+        let row_end = x.saturating_add(width);
+        if col_cursor < row_end {
+            record_entry_span_cells(
+                map,
+                *sw,
+                *region,
+                y,
+                col_cursor,
+                row_end - col_cursor,
+                x,
+                width,
+                &base_fg_key,
+                &base_bg_key,
+            );
+        }
     }
 
     let line = Line::from(spans);
@@ -4672,6 +4778,43 @@ fn paint_text_property_entry(
         height: 1,
     };
     frame.render_widget(Paragraph::new(line).style(base_style), rect);
+}
+
+/// Record `[start_col, start_col+span_w)` of screen row `row` into the
+/// per-cell theme map under `region`, clipped to the entry's
+/// `[clip_x, clip_x+clip_width)` band. Called as each span of a widget
+/// entry is laid out so the theme inspector resolves the same keys that
+/// were painted.
+#[allow(clippy::too_many_arguments)]
+fn record_entry_span_cells(
+    map: &mut [crate::app::types::CellThemeInfo],
+    sw: u16,
+    region: &'static str,
+    row: u16,
+    start_col: u16,
+    span_w: u16,
+    clip_x: u16,
+    clip_width: u16,
+    fg_key: &Option<std::borrow::Cow<'static, str>>,
+    bg_key: &Option<std::borrow::Cow<'static, str>>,
+) {
+    if sw == 0 || span_w == 0 {
+        return;
+    }
+    let row_end = clip_x.saturating_add(clip_width);
+    let end_col = start_col.saturating_add(span_w).min(row_end);
+    let sw_us = sw as usize;
+    for col in start_col..end_col {
+        let idx = row as usize * sw_us + col as usize;
+        if let Some(cell) = map.get_mut(idx) {
+            *cell = crate::app::types::CellThemeInfo {
+                fg_key: fg_key.clone(),
+                bg_key: bg_key.clone(),
+                region: std::borrow::Cow::Borrowed(region),
+                syntax_category: None,
+            };
+        }
+    }
 }
 
 /// Translate a UTF-8 byte offset within a rendered line into a

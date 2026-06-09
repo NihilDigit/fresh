@@ -427,10 +427,10 @@ impl CellPass<'_, '_> {
         let idx = screen_row as usize * self.input.screen_width as usize + screen_col as usize;
         if let Some(cell) = self.cell_theme_map.get_mut(idx) {
             *cell = CellThemeInfo {
-                fg_key: resolved.fg_theme_key,
-                bg_key: resolved.bg_theme_key,
-                region: resolved.region,
-                syntax_category: resolved.syntax_category,
+                fg_key: resolved.fg_theme_key.map(std::borrow::Cow::Borrowed),
+                bg_key: resolved.bg_theme_key.map(std::borrow::Cow::Borrowed),
+                region: std::borrow::Cow::Borrowed(resolved.region),
+                syntax_category: resolved.syntax_category.map(std::borrow::Cow::Borrowed),
             };
         }
     }
