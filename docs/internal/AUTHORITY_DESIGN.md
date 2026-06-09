@@ -237,6 +237,10 @@ independently.
 > Cloud Workspaces (`K8S_WORKSPACE_UX_DESIGN.md`) take it. It is recorded
 > here so the foundational principles above are read with the evolution
 > in view.
+>
+> The concrete target design (per-session backend spec + trust + env,
+> Live/Dormant restore, reconnect-on-activate) lives in
+> [`PER_SESSION_BACKENDS_DESIGN.md`](PER_SESSION_BACKENDS_DESIGN.md).
 
 ### What forces the change
 
