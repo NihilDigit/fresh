@@ -174,11 +174,26 @@ session**, each window's authority carrying its own:
   separate UX decision.) Auto-reconnect on restore should consult the
   session's trust (don't silently re-establish a remote backend for an
   untrusted folder).
-- **Env** — *still shared* (follow-up): each session should restore its own
-  activation; activating in one should not affect another.
+  A new session for an *undecided benign* folder (no executable-content
+  markers) defaults Trusted, matching the boot session's prompt default, so
+  it doesn't silently block its own LSP/tooling.
+- **Env — shipped.** Each session owns its own `EnvProvider` (fresh + inactive
+  per session), so activating a venv/direnv/mise in one project never
+  activates it for another open session.
 
-Switching sessions therefore never changes another session's backend or trust
-(env is the remaining shared handle).
+### Isolation is enforced by construction, not a runtime check
+
+`Authority` is **not `Clone`** and is **owned by exactly one `Window`** — there
+is no editor-wide copy (`Editor::authority()` returns
+`active_window().authority`). Trust + env are minted as a **move-only
+`SessionScope`** (`SessionScope::for_root`) and consumed into the authority.
+So a session's backend/trust/env *cannot* be shared into another window: the
+type system rejects it at construction, rather than a runtime assertion
+catching it after the fact. Authorities are **moved** between slots (restore,
+`set_session_authority`, `set_boot_authority`), never copied.
+
+Switching sessions therefore never changes another session's backend, trust,
+or env.
 
 ## Invariants
 
