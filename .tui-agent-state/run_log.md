@@ -2,6 +2,47 @@
 
 ---
 
+## Run #27 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** playbook integrity OK (all four mandated sections present); lessons continuity OK; GitHub MCP auth LIVE (`list_issues` labeled `tui-agent-auto-bug` → 8 open returned). Binary version **unchanged** since Run #26 (origin/master @ `a9069ca6` = v0.3.12), so per **R1** did NOT re-verify passing items / open-issue rechecks (no behavior change possible).
+- Rebuilt v0.3.12 from a fresh `/tmp/fresh-build` worktree of **origin/master @ a9069ca6** (`cargo build --release --bin fresh`, ~7m).
+- One NEW-coverage backlog item advanced (per Run #17 directive): **PRIORITY #6 — Open file from a diff (0.3.12).** tmux `fresh-difftest-r27` (220×50). Real git repo `/tmp/difftest` (committed `calc.py`, then working-tree edits → +5/-1 hunk). Cleaned up after.
+
+### PRIORITY #6 — Open file from a diff — COMPREHENSIVE PASS (one related display glitch)
+Feature path discovered black-box: **Review Diff** (unified) → Enter on a hunk opens a **side-by-side `*Diff: <file>*` view** (`OLD (HEAD)` left / `NEW (Working)` right). In side-by-side:
+- **OLD pane → Enter** → opens read-only `*HEAD:<file>*` buffer, status `Opened HEAD version (read-only) at line N`. **Cursor lands on the correct HEAD line** (verified via highlighted row `48;5;233` + `tmux display-message cursor_y`). ✓
+- **Alt+o** (NEW/Working action) → opens the **working-tree file** (`calc.py`), status `Opened calc.py`, cursor at the line. ✓
+- Header legend confirms: OLD `[Enter] open this version`, NEW `[Enter/Alt+o] open file`. Alt+o is the universal "open working file" shortcut; NEW-pane focus + Enter is equivalent.
+
+### Finding (NOT a new issue — commented on existing #2301)
+The status-bar **line/col is stale (`Ln 1, Col 1`) immediately after the diff→open-file jump**, despite the cursor being physically on the correct line; it self-corrects on the next cursor-movement keypress. Reproduced **2/2**. This is the SAME root-cause family as **#2301** (which I'd assumed was Go-to-LSP-Symbol-specific). Since #2301 is open and this is the same status-bar-refresh path, I added a comment to #2301 broadening its scope (no LSP involved here) rather than filing a duplicate (R3). The feature under test itself is correct — cursor navigation works; only the status readout lags one keypress.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Review Diff → Enter opens side-by-side view | **PASS** | `*Diff: calc.py*`, OLD(HEAD)/NEW(Working) panes, word-level aligned |
+| OLD pane Enter → read-only HEAD version at line | **PASS** | New `*HEAD:<file>*` [RO] tab; cursor on correct line (verified physically) |
+| Alt+o → working-tree file at line | **PASS** | Opens `calc.py`, status `Opened calc.py` |
+| Status bar line/col after diff-open jump | **GLITCH** | Stale `Ln 1, Col 1` until next keypress — #2301 family; commented, not re-filed |
+
+### Anti-drift compliance
+- R1: no idle re-verification (binary unchanged → skipped open-issue rechecks).
+- R2: advanced a `[ ]` backlog item to `[x]` (priority #6).
+- R3: low-sev display glitch → comment on existing issue, not a new one.
+
+### Cleanup
+- Killed tmux `fresh-difftest-r27`; removed `/tmp/difftest`; removed `/tmp/fresh-build` worktree.
+
+### NEXT
+- Priority #8 **Keybinding editor count anomaly** (re-observe 866 vs 548 total bindings across opens; file only if reproducible with steps).
+- Then priority #4 **#2197 pyright recheck** (only if a fix landed — still open/in-progress).
+- Note for next run: when in side-by-side diff, the **NEW-pane focus via Tab is unreliable over tmux** (Tab pushed cursor_x to far-right/COMMENTS column); use **Alt+o** for the working-file path instead.
+
+---
+
 ## Run #26 — 2026-06-10
 
 ### Status: COMPLETED
