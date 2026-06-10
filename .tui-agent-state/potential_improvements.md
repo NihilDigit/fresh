@@ -180,3 +180,10 @@ change would make it self-evident without requiring users to read docs.
 - **Severity:** Low (UX clarity). Enforcement itself is correct; only the messaging is misleading.
 - **Reference:** VS Code shows a "Restricted Mode" banner and explains which features are disabled rather than letting them silently no-op.
 - **Discovered:** Run #23, 2026-06-10
+
+### IMP-018 — "Send Selection to Terminal" steals focus, blocking rapid repeated sends
+- **Observed (Run #31, v0.4.0):** The new "Send Selection to Terminal" command (#1871) moves keyboard focus to the terminal after every send (deliberate, commit 4b4d14946). Side effect: to send a SECOND selection the user must first manually refocus the editor (Alt+J / click). A common workflow — stepping through a script line-by-line, sending each line to the REPL/shell — therefore requires an extra refocus keystroke between every send.
+- **Reference:** VS Code's "Terminal: Run Selected Text in Active Terminal" keeps focus in the editor, so you can select → run → select-next → run without leaving the editor. IntelliJ's "Send to console" behaves the same.
+- **Suggested fix:** Either keep focus in the editor by default (matching VS Code), or add a config flag (e.g. `terminal.focus_on_send`, default to taste) so power users can disable the auto-focus for line-by-line workflows.
+- **Severity:** Low (UX/workflow friction; feature itself works correctly). Buffer is never modified.
+- **Discovered:** Run #31, 2026-06-10

@@ -2,6 +2,47 @@
 
 ---
 
+## Run #31 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** playbook integrity OK (all four mandated AGENT_INSTRUCTIONS sections present); GitHub MCP auth LIVE (github tools loaded); lessons continuity OK (learning_db topic-organized, intact through Run #30, NOT clobbered).
+- **Build directive:** master advanced past Run #30's `232eceed7` → **forced update to `1b5d7f8c8` = "Bump version to 0.4.0"**. Built release binary from a fresh `/tmp/fresh-master` worktree of **origin/master @ 1b5d7f8c8** (`cargo build --release --bin fresh`, 6m19s, `fresh 0.4.0`).
+- NEW 0.4.0 commits since Run #30: wave-animation idle screensaver (e39a5ccd3, 543e54502), **send-selection-to-terminal (6ac61f927, 4b4d14946)**, terminal Ctrl+Click path opening, OSC 7 cwd tracking, plus the full 0.4.0 feature set in CHANGELOG.
+- Per anti-drift R2 advanced ONE new-coverage item: the brand-new **"Send Selection to Terminal"** feature (#1871, requested by @aquasync; freshest user-facing command). Read CHANGELOG 0.4.0 + `docs/features/terminal.md` (feature not yet documented there) + `crates/.../locales/en.json` i18n keys FIRST.
+
+### NEW COVERAGE — Send Selection to Terminal (#1871) — COMPREHENSIVE PASS, no bug
+tmux `qa-sendterm-r31` (200×50), clean dir `/tmp/sendterm-test`, real bash terminal in utility dock (Alt+`). Command palette: **"Send Selection to Terminal"** (builtin, no default keybinding) — desc "Run the selected text (or current line) in the most recently used terminal". i18n: `cmd.send_selection_to_terminal`, status `terminal.sent_selection` = "Sent to terminal %{id}". Cases verified:
+1. **No terminal open** → graceful status "No open terminal — open a terminal first" (no crash, no auto-open). ✓
+2. **No selection** → sends CURRENT LINE, appended with newline and EXECUTED (`first line text` → `bash: first: command not found`). ✓
+3. **Single-line selection** → sends exactly that line, executed (`second line ABC` → command not found). ✓
+4. **Multi-line selection (3 lines)** → sends ALL selected lines, each run individually (3 separate prompts/errors). ✓
+5. **Partial sub-line selection** → sends exactly the selected substring; clean positive test: selected `pwd` → terminal output `/tmp/sendterm-test`. ✓
+6. **Positive echo test** → selected `echo "LINE-ONE-MARKER"` → terminal printed `LINE-ONE-MARKER`. ✓ (unambiguous send+execute proof)
+7. **Status message** "Sent to terminal 0" shown after every send. ✓
+8. **Focus moves to terminal after send** (commit 4b4d14946) — VERIFIED: a printable key typed right after a send landed at the terminal prompt, not the editor buffer. ✓ Deliberate design.
+9. **Targets most-recently-used terminal** (terminal 0). ✓
+10. **Buffer never modified / no corruption** — tabs never showed `*`, content intact throughout. ✓
+- **Pending terminal input is NOT cleared before sending** (leftover prompt text `CCC` + sent `pwd` → ran as `CCCpwd`). This matches VS Code "Run Selected Text in Active Terminal" — NOT a bug.
+- **Could NOT drive the right-click context menu** `menu.terminal.send_selection` (Terminal submenu: Open/Close/Send Selection/Toggle Keyboard Capture) — SGR mouse right-click via tmux not passed through (harness limitation; relates IMP-009). Primary command-palette path fully covered.
+
+### Observations (no issue filed, per R3)
+- After send, focus is on the terminal but the **status bar still shows the editor pane's `Ln/Col` + filetype** (e.g. `Ln 1, Col 1 ... ASCII Text`) rather than terminal-mode hint. Cosmetic; same status-bar-staleness family as open **#2301**. Not re-filed.
+- The auto-focus-to-terminal means sending a SECOND selection requires manually refocusing the editor first (Alt+J). VS Code keeps focus in the editor for rapid repeated sends. Borderline friction → logged to potential_improvements (IMP-018), not an issue.
+
+### Open-issue recheck (v0.4.0)
+- CHANGELOG 0.4.0 explicitly lists fixes already confirmed by this agent: #2212 (code-action diagnostics), #2165 (`q` closes Keyboard Shortcuts viewer), and "trust-level change resets only the active session" (= our #2291 fix). No re-test needed — all already marked FIXED in github_issues.md.
+- No 0.4.0 commit touches the other OPEN agent-filed issues (#2111, #2135, #2197, #2221, #2301, #2307, #2309) → not fixed, skipped per R1. #2197 pyright: no fix in changelog.
+
+### tmux gotchas (logged to learning_db)
+- **CRITICAL for this feature:** "Send Selection to Terminal" moves keyboard focus to the TERMINAL. The next editor operation MUST be preceded by Alt+J (Toggle Utility Dock focus) / "Focus Terminal"+Alt+J — otherwise editor keystrokes leak into the terminal. (Cost me one bad partial-selection capture.)
+- Verify editor focus before selecting by checking the status bar filetype (`Bourne Again Shell (bash)` for script.sh) AND the selection highlight `48;5;17m` after Shift+End.
+- **Alt+J** = "Toggle Utility Dock" focus (editor ↔ bottom dock terminal); **Alt+`** opens terminal in the shared bottom dock so editor + terminal are visible together.
+
+### Next run
+- NEXT new-coverage candidates (0.4.0, prefer freshest top-down): (a) **wave-animation idle screensaver** — set a short idle config and verify Wave auto-triggers after idle + dismisses on input (builds on Run #30 Wave coverage; commits e39a5ccd3/543e54502; note "read idle time from injected time source" → may need config knob); (b) **terminal Ctrl+Click / Ctrl+hover opens file paths from output incl. scrollback** (6ac61f927 area) — needs mouse, may hit same tmux passthrough wall; (c) **'+' new-tab button popup (New Terminal / New File)**; (d) **Occurrence highlighting toggle** (#2154) + current-line highlight hides while selecting (#2153); (e) **Clear Search action** (#2152); (f) **Review Diff reworked** (file sidebar, comments, watch mode `W`, stash review). Then #2197 only if a fix lands.
+
 ## Run #28 — 2026-06-10
 
 ### Status: COMPLETED

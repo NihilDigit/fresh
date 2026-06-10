@@ -764,3 +764,27 @@ The dock is a persistent, non-modal LEFT-column session switcher (CHANGELOG head
 **Testing tip:** It runs until input, so you have ample time to `capture-pane` many frames after triggering. Capture ~0.25–0.4s apart to catch distinct animation states (crest near bottom vs. content airborne near top). The status message is legible once stopped; mid-flight it's scrambled because the status bar is itself displaced.
 
 **Verdict:** Comprehensive PASS, no bug. A purely cosmetic effect that correctly restores state and never touches buffer contents.
+
+## Send Selection to Terminal (Run #31)
+
+**Feature:** v0.4.0 (#1871, requested by @aquasync). CHANGELOG: "Terminal: send the selection (or current line) to the terminal". Two commits: `6ac61f927` (core) + `4b4d14946` (focus terminal after send). NOT yet documented in `docs/features/terminal.md`.
+
+**Access:** Command palette `Ctrl+P` → "Send Selection to Terminal" (**builtin**, **no default keybinding**). i18n: `cmd.send_selection_to_terminal` / `cmd.send_selection_to_terminal_desc` = "Run the selected text (or current line) in the most recently used terminal"; `action.send_selection_to_terminal`; status `terminal.sent_selection` = "Sent to terminal %{id}". There is also a **right-click context "Terminal" submenu** (`menu.terminal.*`: Open / Close / Send Selection / Toggle Keyboard Capture) — NOT in the F10 menu bar (bar is File/Edit/View/Selection/Go/LSP/Help). Could NOT drive it via tmux (SGR mouse right-click not passed through — harness limitation; relates IMP-009).
+
+**Behavior (verified black-box, v0.4.0 @ 1b5d7f8c8):**
+- **No terminal open** → status "No open terminal — open a terminal first". No crash, does NOT auto-open a terminal.
+- **No selection** → sends the CURRENT LINE. Text is sent WITH a trailing newline, so the shell EXECUTES it immediately (`first line text` → `bash: first: command not found`).
+- **Selection (single line)** → sends exactly the selected line, executed.
+- **Selection (multi-line)** → sends ALL selected lines; each is run individually (one prompt per line).
+- **Selection (partial / sub-line)** → sends exactly the selected substring. Clean proof: select just `pwd` → terminal prints `/tmp/...`. Positive proof: select `echo "LINE-ONE-MARKER"` → terminal prints `LINE-ONE-MARKER`.
+- **Targets the MOST-RECENTLY-USED terminal** ("terminal 0" here).
+- **Focus moves to the terminal after send** (commit 4b4d14946) — VERIFIED definitively: a printable key pressed right after a send lands at the terminal prompt, not in the editor buffer.
+- **Buffer is never modified** (no `*` on the tab, content intact) — sending is read-only w.r.t. the source buffer.
+- **Pending terminal input is NOT cleared before sending.** Leftover unentered prompt text concatenates with the sent text (e.g. stray `CCC` + sent `pwd` ran as `CCCpwd`). This matches VS Code "Run Selected Text in Active Terminal" — **NOT a bug**.
+
+**Verdict:** COMPREHENSIVE PASS, no bug, no false positive. One workflow-friction note (IMP-018): auto-focus-to-terminal forces a manual editor refocus before each subsequent send, unlike VS Code which keeps editor focus for rapid line-by-line sending.
+
+**tmux gotchas (IMPORTANT — cost a bad capture this run):**
+- After "Send Selection to Terminal", **keyboard focus is on the TERMINAL**. Any subsequent editor keystrokes (Ctrl+Home, Shift+arrows, etc.) leak into the terminal. ALWAYS re-focus the editor with **Alt+J** ("Toggle Utility Dock" focus) before the next editor operation.
+- Verify editor focus BEFORE selecting: check the status-bar filetype (e.g. `Bourne Again Shell (bash)` for a .sh file) and confirm the selection highlight `48;5;17m` (blue bg) appears after Shift+End.
+- **Alt+`** = "Open Terminal in Utility Dock" (bottom dock — editor + terminal both visible, ideal for this test). **Alt+J** toggles focus editor ↔ dock. **Ctrl+Space** toggles terminal input ↔ scrollback (but does NOT move focus to the editor — use Alt+J for that). "Focus Terminal" (palette) jumps into terminal input mode.
