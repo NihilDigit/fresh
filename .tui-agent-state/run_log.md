@@ -2,6 +2,46 @@
 
 ---
 
+## Run #25 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** playbook integrity OK; lessons continuity OK (learning_db uses titled sections, not numbered "Lesson N"); GitHub MCP auth LIVE (search_issues returned results; #2301 created successfully).
+- Fresh container: clangd absent + `/tmp/fresh-build` worktree gone (ephemeral). Re-installed clangd 18 (`apt-get install -y clangd` → 18.1.3) and rebuilt **v0.3.12 from origin/master @ f4ee3630** in a fresh `/tmp/fresh-build` worktree (`cargo build --release --bin fresh`, ~6m44s).
+- Built a real small C project `/tmp/sym_test25` (shapes.c: Point/Rectangle structs, globals, point_distance/rectangle_area/make_rectangle/print_rectangle/main; helpers.c: helper_add/multiply/greeting; compile_commands.json; git init). Config `{"lsp":{"c":{"command":"clangd","auto_start":true,...}}}`. tmux `fresh-r25` (220×50).
+- **PRIORITY #3 — Go to LSP Symbol (0.3.12) — COMPREHENSIVE PASS + 1 low-sev bug.** Trusted via dialog (T+Enter → restart, `LSP (on)`, inlay hints render = clangd auto-started). Drove the symbol finder fully via tmux.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Palette "Go to LSP Symbol" command present | **PASS** | source `lsp_navigation`; desc "List document symbols from LSP and navigate to selected" |
+| Document-symbol list w/ kind tags | **PASS** | `[class]`/`[field]`/`[var]`/`[fn]` + source-line preview; clangd emits each struct twice (typedef+tag) |
+| Live substring filter | **PASS** | `print`→print_rectangle, `main`→main, `make`→make_rectangle |
+| Live preview (editor follows selection) | **PASS** | editor scrolls + highlights symbol (name `38;5;226m`, list row `48;5;25m`); arrow nav re-previews |
+| Enter = commit jump | **PASS** | cursor physically lands on symbol line (verified via `tmux display-message #{cursor_y}`) |
+| Escape = cancel + restore | **PASS** | cursor returns to exact pre-open position (Ln16→preview→Esc→Ln16) |
+| Document-scoped (not workspace) | **PASS** | `helper` (helpers.c) → "No matches"; matches its description, NOT a bug |
+| Status bar Ln after jump | **BUG #2301** | `Ln` stale (keeps pre-jump line), `Col` updates; corrects on next move |
+| Comparison: F12 Go to Definition | **PASS** | updates `Ln` immediately + "Jumped to definition at …:N" |
+| Comparison: Ctrl+G Go to Line | **PASS** | updates `Ln` immediately |
+
+### Issues Filed / Comments
+- **NEW BUG #2301** filed (labels `bug`, `tui-agent-auto-bug`): "Go to LSP Symbol: status bar line number stays stale after jump (only column updates) until next keypress." Reproduced 3/3; feature-specific (F12/Ctrl+G unaffected); clear expected-vs-actual; 4 GitHub search variations logged, no duplicate. Low severity (display-only, self-corrects) but a real behavioral inconsistency in a new 0.3.12 feature.
+
+### Key Findings
+1. **Go to LSP Symbol is a polished document-symbol finder** with genuine live preview + restore-on-cancel — works well end-to-end with clangd.
+2. **Lone defect:** the status-bar line readout doesn't refresh on the symbol-jump path (column does), so right after the navigate-here command the line is briefly wrong → #2301.
+3. **Harness notes:** pre-seeding trust.json with percent-encoded path does NOT work (Fresh's encoding differs) — trust via dialog. `auto_start:true` + Trusted → clangd auto-launches (no manual Start).
+
+### Version
+- Binary: v0.3.12 built from origin/master @ f4ee3630 (2026-06-10)
+
+### Cleanup
+- tmux `fresh-r25` killed; `/tmp/sym_test25` removed; stray pre-trust dir removed. `/tmp/fresh-build` worktree retained for next run's incremental build.
+
+---
+
 ## Run #24 — 2026-06-10
 
 ### Status: COMPLETED

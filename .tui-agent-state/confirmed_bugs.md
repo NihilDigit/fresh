@@ -14,6 +14,24 @@ Each bug entry:
 
 ---
 
+## BUG-008: Go to LSP Symbol — Status Bar Line Number Stale After Jump
+- **ID:** BUG-008
+- **Title:** After "Go to LSP Symbol" Enter-jump, status bar `Ln` keeps the pre-jump line; only `Col` updates. Self-corrects on next cursor move.
+- **Severity:** Low (cursor/editing correct; status-bar display glitch that clears on any keystroke)
+- **Status:** Open — GitHub #2301 filed (Run #25)
+- **GitHub Issue:** [#2301](https://github.com/sinelaw/fresh/issues/2301)
+- **Reproduction:**
+  1. C file + clangd running (Trusted, `LSP (on)`), e.g. `main` on line 44
+  2. `Ctrl+G` → `30` → Enter (status `Ln 30, Col 1`)
+  3. `Ctrl+P` → "Go to LSP Symbol" → Enter → type `main` → Enter
+  4. Read status bar immediately vs actual cursor (`tmux display-message -p '#{cursor_y}'`)
+- **Expected:** `Ln 44, Col 5` (VS Code/Sublime update status immediately; Fresh's own F12 & Ctrl+G do too)
+- **Actual:** `Ln 30, Col 5` — line stale (pre-jump value), column correct; corrects to `Ln 44` on next `→`/`End`
+- **Scope:** Feature-specific — F12 Go to Definition and Ctrl+G Go to Line both refresh `Ln` immediately
+- **First Seen:** Run #25, 2026-06-10 (v0.3.12 @ f4ee3630); 3/3 reproducible
+
+---
+
 ## BUG-007: Workspace Trust Confirm Restarts Editor, Discarding Open File + Unsaved Edits (--no-restore)
 - **ID:** BUG-007
 - **Title:** "Trust folder & Allow Tooling" → full editor restart → CLI file and unsaved edits silently lost when launched with `--no-restore`
