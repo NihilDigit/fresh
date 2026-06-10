@@ -697,3 +697,21 @@ The dock is a persistent, non-modal LEFT-column session switcher (CHANGELOG head
 ## Workspace Trust pre-seed: encoding does NOT match (Run #25)
 - Tried pre-seeding `~/.local/share/fresh/workspaces/<urlencoded path>/trust.json` with `%2Ftmp%2F...` (Python `urllib.parse.quote`). Fresh did NOT recognize it — trust dialog still appeared on launch. Fresh's workspace-dir encoding scheme differs from straight percent-encoding. **Just trust via the dialog (`T` then Enter)** — simpler and reliable. (Trust confirm triggers a restart but in default mode session-restore brings the file back; File Explorer auto-opens — IMP-015.)
 - **clangd auto-start DID work this run:** config `{"lsp":{"c":{"command":"clangd","args":["--background-index","--log=verbose"],"enabled":true,"auto_start":true}}}` + trusting the workspace → on restart, status bar shows `LSP (on)` and inlay hints render (`make_rectangle(x1: 0.0, …)`, `{.x= 0.0}`) with no manual "Start clangd". Confirms IMP-013/Run#19: `auto_start:true` + Trusted = clangd launches automatically.
+
+## Rainbow Brackets (Run #26) — 0.3.12, on by default, PASS
+- **Feature:** "Rainbow bracket colorization for matching brackets across the viewport" (CHANGELOG 0.3.12, #1088). Built-in, **on by default — no config needed**; no `docs/configuration` entry (only `docs/internal/*` mention a `rainbow_brackets: bool` theme field).
+- **How it colors:** by **nesting depth**, not bracket type. Verified `tmux capture-pane -p -e` foreground SGR codes:
+  - Depth→color cycle (6 colors, then repeats): `0=38;5;6`(cyan) `1=38;5;2`(green) `2=38;5;3`(yellow) `3=38;5;126/127`(magenta) `4=38;5;15`(white) `5=38;5;27`(blue).
+  - **Matching open/close pairs share the same color** (e.g. `((((( deep )))))` opens 6,2,3,126,15 → closes mirror 15,126,3,2,6).
+  - **Works across bracket types:** `[ { ( [ ( { } ) ] ) } ]` colored 6,2,3,126,15,27 then exact mirror — `(`/`[`/`{` at the same depth get the same color.
+  - **Across the whole viewport** (all visible lines colored regardless of cursor position), not just near the cursor.
+- **Deep nesting:** 11-level `(((((((((((` cycles `[6,2,3,126,15,27]` and repeats (depth6→6 …), and all 11 closers mirror their openers precisely. No clamp/breakage.
+- **Unbalanced handling (robust):** unmatched open `( [ { a } ] ;` → the stray `(` stays its depth color, inner matched pairs unaffected (no cascade). Stray closers `a ) b ] c } ;` → all rendered at depth-0 color (6), no crash, no negative-depth glitch.
+- Minor: depth-3 magenta is sometimes `126` vs `127` between lines — both indistinguishable magenta; NOT a fileable bug.
+
+## Terminal Auto-Naming (Run #26) — 0.3.12, on by default, PASS
+- **Feature:** "Terminal tab auto-naming: tabs follow the foreground process and OSC title. Setting `editor.terminal_auto_title` (on by default)" (CHANGELOG 0.3.12).
+- **Tab name format:** `<foreground process> — <OSC title>`. On opening "Open Terminal" (palette; opens in current split as a buffer tab), the tab read `bash — root@vm: /home/user/fresh` (the `root@vm: /home/user/fresh` part is bash's own `\u@\h: \w` OSC title from PROMPT_COMMAND).
+- **Follows foreground process:** ran `python3` → tab became `python3 — root@vm: /home/user/fresh`; `exit()` → reverted to `bash — root@vm: /home/user/fresh`.
+- **Follows OSC title:** setting a manual `printf '\033]0;HELLO-FROM-OSC\007'` initially appeared to "not stick" — that was bash's PROMPT_COMMAND overwriting the title on the very next prompt (standard shell behavior, reproducible in any terminal emulator). After `PROMPT_COMMAND=""; PS1="\$ "` then the printf, the tab correctly read `bash — HELLO-FROM-OSC`. So OSC title IS followed; the apparent failure was a bash-side overwrite, NOT a Fresh bug.
+- **tmux gotcha (re-confirmed):** `M-grave` is NOT parsed by `tmux send-keys` for Alt+backtick — it inserts the literal text "M-grave" into the buffer. Use the command palette ("Open Terminal" / "Open Terminal in Utility Dock") instead of the Alt+` accelerator when driving via tmux.

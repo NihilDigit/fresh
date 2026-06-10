@@ -2,6 +2,43 @@
 
 ---
 
+## Run #26 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** playbook integrity OK (all sections present); lessons continuity OK (titled sections, not numbered "Lesson N"); GitHub MCP auth LIVE (`issue_read` #2301 returned, still open).
+- Fresh container: `/tmp/fresh-build` worktree gone (ephemeral). Recreated worktree from **origin/master @ a9069ca6** and rebuilt **v0.3.12** (`cargo build --release --bin fresh`, ~6m). Worktree retained for next run.
+- Two NEW-coverage backlog items advanced (per Run #17 directive). tmux `fresh-r26` (220×50). Test files `/tmp/rainbow_test.js` + `/tmp/rainbow_edge.js` (removed after).
+- **PRIORITY #5 — Rainbow bracket colorization — COMPREHENSIVE PASS, no bug.** ANSI capture (`-p -e`) of nested/mixed/deep/unbalanced brackets.
+- **PRIORITY #7 — Terminal tab auto-naming — PASS, no bug.** Verified fg-process following + OSC-title following.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Rainbow: depth-based coloring | **PASS** | 6-color cycle `[6,2,3,126,15,27]` repeating; colored by nesting depth not bracket type |
+| Rainbow: matching pairs share color | **PASS** | `((((( )))))` opens 6,2,3,126,15 → closes mirror exactly |
+| Rainbow: across bracket types | **PASS** | `[ { ( [ ( { } ) ] ) } ]` → 6,2,3,126,15,27 + exact mirror |
+| Rainbow: deep (11-level) nesting | **PASS** | cycles+repeats, all 11 closers mirror openers |
+| Rainbow: unbalanced/extra brackets | **PASS** | stray open keeps depth color; stray closers all depth-0; no crash/cascade |
+| Rainbow: viewport-wide | **PASS** | all visible lines colored regardless of cursor |
+| Terminal: tab auto-name on open | **PASS** | `bash — root@vm: /home/user/fresh` (`<fg> — <OSC title>`) |
+| Terminal: follows foreground process | **PASS** | `python3` → `python3 — …`; `exit()` → reverts to `bash — …` |
+| Terminal: follows OSC title | **PASS** | after clearing PROMPT_COMMAND, custom OSC → `bash — HELLO-FROM-OSC` |
+
+### Issues Filed / Comments
+- **None.** Both features behave correctly and as documented. No bug, no usability issue meeting the filing bar. (Earlier apparent "OSC title doesn't stick" was bash's PROMPT_COMMAND overwriting it — standard shell behavior, verified non-bug.)
+
+### Cleanup
+- tmux `fresh-r26` killed; `/tmp/rainbow_test.js` + `/tmp/rainbow_edge.js` removed; `/tmp/fresh-build` worktree retained for next run's incremental build.
+
+### Next Run
+- Priority #6 **Open file from diff** (Enter in side-by-side/review-diff opens working-tree NEW pane / read-only HEAD OLD pane at that line) — needs a git repo with a modified file + Live Diff or Review Diff view.
+- Then #8 Keybinding editor count anomaly (866 vs 548 total bindings between opens — repro with steps or drop).
+- Then #4 #2197 pyright recheck (only if a fix landed since Run #17).
+
+---
+
 ## Run #25 — 2026-06-10
 
 ### Status: COMPLETED
