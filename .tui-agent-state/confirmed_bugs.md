@@ -14,6 +14,26 @@ Each bug entry:
 
 ---
 
+## BUG-009: Keybinding Editor — switching keymap and back hides ALL plugin bindings (count 866 → 547)
+- **ID:** BUG-009
+- **Title:** After "Select Keybinding Map" round-trips back to the same map, the Keybinding Editor drops every plugin-contributed binding (count falls from 866 to 547); persists until app restart.
+- **Severity:** Medium (the editor — whose whole job is to list bindings — under-reports by ~319; plugin shortcuts still FUNCTION, but they vanish from the list so a user thinks they're gone)
+- **Status:** Open — GitHub #2307 filed (Run #28). **Resolves the long-standing "866 vs 548" anomaly from Run #22 (priority #8).**
+- **GitHub Issue:** [#2307](https://github.com/sinelaw/fresh/issues/2307)
+- **Reproduction:**
+  1. `rm -f ~/.config/fresh/config.json` then `fresh --no-restore` (clean → `default` map active)
+  2. Open Keybinding Editor (Edit menu → "Keybinding Editor..." or palette "Open Keybinding Editor"): header `Source: [All]  866 bindings`; press `s` to cycle Source → `[Plugin]` = `391/866 shown`, `[Keymap]` = `260/866`. Esc.
+  3. Palette → "Select Keybinding Map" → `emacs` ("Switched to 'emacs' keybindings")
+  4. Palette (emacs palette = `M-x`) → "Select Keybinding Map" → `default` ("Switched to 'default' keybindings")
+  5. Reopen Keybinding Editor.
+- **Expected:** Returning to `default` shows the full 866 again (incl. all 391 plugin bindings) — switching maps is reversible/non-destructive (VS Code Keyboard Shortcuts editor always reflects the full current set).
+- **Actual:** Editor now shows `547 bindings`; Source `[Plugin]` = `0/547 shown` (all 391 plugin bindings gone); `[Keymap]` still 260. 100% reproducible with a SINGLE round-trip; persists across reopens + multi-second wait. Per-map first-load totals are each stable/correct (default 866, emacs 519, macos 600) — bug is only on *return* to an already-loaded map.
+- **Functional check:** Plugin bindings still WORK after the round-trip — Alt+O (Toggle Orchestrator Dock Focus, a plugin binding) still opens the dock. So this is a Keybinding-Editor listing/reporting defect, not loss of functionality.
+- **Workaround:** Restart Fresh (fresh launch on `default` lists 866 again). Don't switch keymaps mid-session if you need the editor to show plugin bindings.
+- **First Seen:** Run #28, 2026-06-10 (v0.3.12 @ 67d0c6e6c from master); minimal repro 100%.
+
+---
+
 ## BUG-008: Go to LSP Symbol — Status Bar Line Number Stale After Jump
 - **ID:** BUG-008
 - **Title:** After "Go to LSP Symbol" Enter-jump, status bar `Ln` keeps the pre-jump line; only `Col` updates. Self-corrects on next cursor move.

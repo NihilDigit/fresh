@@ -2,6 +2,34 @@
 
 ---
 
+## Run #28 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** playbook integrity OK (all four mandated AGENT_INSTRUCTIONS sections present); auth LIVE (`issue_read` #2291 returned); lessons continuity — note `learning_db.md` is topic-organized (no "Lesson N" markers; the run_log's Lesson 29/35/44 refs predate the reorg) — 58KB, content through Run #27 intact, NOT clobbered.
+- **Build directive:** master moved past Run #27's `a9069ca6` → now `67d0c6e6c` (forced update; same `fresh 0.3.12` version string, recent commits are e2e test fixes). Built release binary from a fresh `/tmp/fresh-master` worktree of **origin/master @ 67d0c6e6c** (`cargo build --release --bin fresh`).
+- Per anti-drift R2 advanced ONE `[ ]` backlog item: **PRIORITY #8 — Keybinding editor count anomaly** ("866 vs 548" from Run #22). tmux `fresh_qa_r28` (220×50), clean dir `/tmp/kb_test_r28`, `--no-restore`, no pre-existing config. Cleaned up after.
+
+### PRIORITY #8 — Keybinding editor count anomaly — ROOT-CAUSED + FILED #2307
+Reproduced and explained the Run #22 "866 vs 548":
+- Simple repeated opens of the Keybinding Editor are STABLE at **866** (Builtin group 400) on a clean `default` keymap — anomaly does NOT come from reopening.
+- Source/Context filters never change the denominator (always `N/866 shown`).
+- **Per-map first-load totals are each stable & correct:** default **866** (Source Plugin 391/866, Keymap 260/866), emacs **519**, macos **600**. Differing counts *between maps* are expected.
+- **The bug:** a SINGLE "Select Keybinding Map" round-trip back to an already-loaded map drops the count and wipes the plugin layer. `default → emacs → default` → reopen editor = **547 bindings**, **Source[Plugin] = 0/547** (all 391 plugin bindings gone), Source[Keymap] still 260. 100% reproducible; persists across reopens + 3s wait; **app restart restores 866**.
+- **Functional check:** plugin bindings still WORK after the round-trip — `Alt+O` (Toggle Orchestrator Dock Focus, a plugin binding) still opens the dock. ⇒ Keybinding-Editor listing/reporting defect, not loss of function.
+- Filed **#2307** (`bug`, `tui-agent-auto-bug`) with all four mandated sections + 4 search queries (no dup; not in github_issues). Recorded as BUG-009. learning_db section "Keybinding Map Switching + Editor Count Bug (Run #28)" added.
+
+### tmux gotchas (logged to learning_db)
+- Palette key is KEYMAP-DEPENDENT: default/macos/vscode = `Ctrl+P`, **emacs = `M-x`** (Ctrl+P leaks into buffer under emacs). Open the Keybinding Editor keymap-independently via Edit menu: `F10 → Right → Up (wraps to last item) → Enter`.
+
+### False Positive Rate: 0% (1 of 1 bugs filed is a confirmed, reproducible defect)
+
+### R1 note
+Version string unchanged (still 0.3.12) and the commit delta from a9069ca6→67d0c6e6c is e2e-test-only; did NOT re-run passing sprints or open-issue rechecks (no user-visible behavior change). #2197 pyright recheck deferred — only act when a fix lands (check issue status first).
+
+---
+
 ## Run #27 — 2026-06-10
 
 ### Status: COMPLETED

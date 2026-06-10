@@ -4,7 +4,7 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #27, 2026-06-10
+Last updated: Run #28, 2026-06-10
 
 ---
 
@@ -24,6 +24,7 @@ Last updated: Run #27, 2026-06-10
 | [#2212](https://github.com/sinelaw/fresh/issues/2212) | Alt+. shows "No code actions available" for diagnostic-based fixes even when clangd reports "(fix available)" | Run #19 | **FIXED** (Run #22) | Closed by maintainer 2026-06-08. CONFIRMED FIXED in v0.3.12 via UI: fix popup appears and applies. Comment added. Do NOT re-file. |
 | [#2221](https://github.com/sinelaw/fresh/issues/2221) | SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection | Run #21 | **Open** | STILL BROKEN in v0.3.12 even with working sshd (Run #22 comment). scp-style works end-to-end. Do NOT re-file. |
 | [#2291](https://github.com/sinelaw/fresh/issues/2291) | Workspace Trust: "Trust folder & Allow Tooling" restarts the editor and silently discards opened file + unsaved edits (with --no-restore) | Run #22 | **FIXED** (Run #23) | CONFIRMED FIXED in master @ f4ee3630 (v0.3.12): restart path now restores unsaved buffers from hot-exit recovery (`preserved N unnamed buffer(s)` / `Restored unsaved changes ... from hot exit recovery`). Verified via UI — file survives both Trust and Block-All restarts. Prior Run #23 (08:25Z) already commented; do NOT re-comment. Awaiting maintainer close. Do NOT re-file. |
+| [#2307](https://github.com/sinelaw/fresh/issues/2307) | Keybinding Editor: switching keybinding map and back hides all plugin bindings (count drops 866 → 547) until restart | Run #28 | **Open** | Resolves the Run #22 "866 vs 548" anomaly (priority #8). Single round-trip `default→emacs→default` drops Source[Plugin] from 391/866 to 0/547; Keymap 260 unchanged. Bindings still FUNCTION (Alt+O works) — editor listing/reporting defect only. Restart restores 866. Per-map first-load totals correct (emacs 519, macos 600). Do NOT re-file. |
 | [#2301](https://github.com/sinelaw/fresh/issues/2301) | Go to LSP Symbol: status bar line number stays stale after jump (only column updates) until next keypress | Run #25 | **Open** | Low-sev display bug in 0.3.12. **Run #27: confirmed NOT LSP-specific** — same staleness affects "Open file from a diff" (OLD-pane Enter → HEAD version: status shows `Ln 1,Col 1` while cursor is on the real line, self-corrects on keypress, 2/2). Comment added to #2301 broadening scope to a shared status-bar-refresh path. Cursor jumps correctly in all cases; only the status readout lags one keypress. Do NOT re-file. |
 
 ---
@@ -62,6 +63,14 @@ Even if the symptom looks fresh, these have already been fully investigated:
 3. Scan the open issues table — if your topic is there, add a comment to the existing issue rather than opening a new one.
 4. Search GitHub with at least 3 different query variations.
 5. Only then open a new issue and add a row to this file.
+
+## Issue #2307 — Keybinding Editor hides all plugin bindings after keymap round-trip
+- **Filed:** Run #28, 2026-06-10
+- **URL:** https://github.com/sinelaw/fresh/issues/2307
+- **Label:** bug, tui-agent-auto-bug
+- **Status:** Open
+- **Summary:** Resolves the long-standing "866 vs 548" Keybinding Editor count anomaly first noted in Run #22 (test_plan priority #8). On a clean `default` keymap the editor lists 866 bindings (Source[Plugin]=391/866, Source[Keymap]=260/866). A SINGLE "Select Keybinding Map" round-trip — `default → emacs → default` — drops the editor to 547 bindings with Source[Plugin]=0/547 (all 391 plugin bindings vanish); Keymap stays 260. 100% reproducible, persists across editor reopens + multi-second wait. Per-map first-load totals are each stable/correct (default 866, emacs 519, macos 600) — bug is only on *return* to an already-loaded map. **Plugin bindings still FUNCTION** (Alt+O = Toggle Orchestrator Dock Focus still opens dock after round-trip), so it is a listing/reporting defect, not loss of functionality. Workaround: restart Fresh.
+- **Search queries used:** `keybinding editor binding count`, `Select Keybinding Map plugin bindings disappear`, `keybinding editor 866 547 count drops`, `active_keybinding_map switch plugin` (no duplicate)
 
 ## Issue #2291 — Workspace Trust restart discards opened file + unsaved edits
 - **Filed:** Run #22, 2026-06-09
