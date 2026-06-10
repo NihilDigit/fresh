@@ -2,6 +2,50 @@
 
 ---
 
+## Run #24 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean). **Preflight:** GitHub MCP auth OK (read #2291, still open/awaiting close); playbook integrity OK; lessons continuity OK.
+- Reused `/tmp/fresh-build` worktree, refreshed to **origin/master @ f4ee3630 (v0.3.12)** and rebuilt (`cargo build --release --bin fresh`, ~6.5 min).
+- tmux `fresh-r24` (220×50) on a real throwaway git project (`/tmp/orch_test24`, 1 commit, main.rs/README; `-c commit.gpgsign=false` to dodge this env's signing enforcement).
+- **PRIORITY #2 — Orchestrator Dock (0.3.12) — COMPREHENSIVE PASS. No bugs.** Drove every documented surface via tmux (incl. SGR mouse injection for right-click/click).
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Alt+O toggle/focus dock | **PASS** | Persistent non-modal left column; underlined "Orchestrator" mnemonic |
+| Session card (status/project/branch/git) | **PASS** | `· orch_test24 / ▸ master / clean`; `·` idle vs `*` active glyph |
+| Arrow live-switch (Up/Down) | **PASS** | Editor pane retargets session ↔ session with NO restart; bidirectional |
+| View toggle card ↔ compact | **PASS** | Enter on `[ view: card ]` → compact 1-line rows |
+| Project dropdown `[ All ▾ ]` | **PASS** | `● All projects` + per-project rows |
+| Filter (`/`) | **PASS** | "test24-1" narrows list to that row live |
+| Manage → full Orchestrator dialog | **PASS** | Sessions panel + detail panel (Visit/Details/Stop/Archive/Delete) |
+| Right-click context menu | **PASS** | Cursor-anchored popup: Visit…/Archive/Delete + "Esc to close" |
+| Archive confirmation | **PASS** | Centered "Confirm Archive" (SIGKILL/close/move to .archived/, reversible); cancelled |
+| New Session dialog — 4 types | **PASS** | Local/SSH/Kubernetes/Devcontainer each reflow type-specific fields; ←/→ live-switch |
+| New Session auto-detect | **PASS** | Path=cwd, Name=`<proj>-N`, Branch=HEAD; worktree checkbox auto-disables on non-git |
+| Devcontainer create (no config) | **PASS** | Graceful error: "run 'Dev Containers: Reopen in Container'" |
+| Create Local worktree session | **PASS** | Worktree under `~/.local/share/fresh/orchestrator/...`; editor switches to it |
+| Keyboard Create Session activation | **PASS** (no bug) | Tab→blue-bg focus→Enter creates; earlier "fail" was measurement error (was on Branch field) |
+
+### Issues Filed / Comments
+- **None.** Orchestrator Dock matches its documented behavior end-to-end. **Avoided a false positive:** initially suspected keyboard activation of `[ Create Session ]` was broken (button shows no focus highlight when unfocused), but verified it DOES take blue-bg focus on Tab and Enter then creates the session — a measurement error, not a defect. Verified before filing per the playbook.
+
+### Key Findings
+1. **Orchestrator Dock fully functional** — Alt+O dock with arrow live-switching (no restart) is the marquee 0.3.12 feature and it works; Manage opens the legacy full dialog; right-click + Archive/Delete confirmations all present.
+2. **New Session dialog is a polished multi-type form** (Local/SSH/k8s/Devcontainer) with sensible auto-detection and per-type field reflow.
+3. **tmux harness gotcha:** `S-Tab` is inserted as literal text "S-Tab" into focused fields in this tmux build — must use `BTab` for Shift+Tab. (Logged to learning_db; relevant to every future dialog test.)
+
+### Version
+- Binary: v0.3.12 built from origin/master @ f4ee3630 (2026-06-10)
+
+### Cleanup
+- tmux `fresh-r24` killed; `/tmp/orch_test24` removed; 2 orchestrator worktrees (`orch_test24-1`, `orch_test24-2`) removed via `git worktree remove --force` + prune; `~/.local/share/fresh/orchestrator/tmp_orch_test24` removed. `/tmp/fresh-build` worktree retained for next run's incremental build.
+
+---
+
 ## Run #23 — 2026-06-10
 
 ### Status: COMPLETED

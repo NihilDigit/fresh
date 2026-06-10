@@ -19,7 +19,7 @@
 > **Build directive (Run #22):** Always build from **origin/master** — the state branch is frozen at v0.3.8.
 
 1. ~~**Workspace Trust deep-dive**~~ — **DONE (Run #23).** Full 3-state matrix mapped: Restricted (git+ripgrep allowed, LSP gated off) / Block All (all processes denied: "workspace trust is set to Blocked — no processes may run"; git blame + live grep both blocked) / Trusted (clangd-lsp plugin ungated; actual start still governed by `auto_start`). Block All also restarts editor but preserves file. Only one palette command ("Workspace Trust…"); no direct block/restrict commands. #2291 CONFIRMED FIXED (file survives restart). UX note → IMP-015.
-2. **Orchestrator Dock (0.3.12)** — Alt+O toggle, arrow live-switch, right-click menu, New Session dialog (Local type at least)
+2. ~~**Orchestrator Dock (0.3.12)**~~ — **DONE (Run #24, PASS).** Alt+O dock; arrow live-switch (no restart, bidirectional); view card↔compact; project dropdown; `/` filter; Manage→full dialog; right-click menu (Visit/Archive/Delete) + Archive confirmation; New Session dialog ALL 4 types (Local/SSH/k8s/Devcontainer) with auto-detect + per-type reflow; Local worktree session created. No bugs. Avoided a false positive on keyboard Create-Session (works; was measurement error). Details → learning_db "Orchestrator Dock (Run #24)".
 3. **Go to LSP Symbol (0.3.12)** — symbol finder with live preview (use clangd; `apt-get install clangd` works after `apt-get update`)
 4. **#2197 pyright recheck** — still open; labeled in-progress. Re-test when a fix lands (pip install pyright)
 5. **Rainbow bracket colorization (0.3.12)** — verify with ANSI capture on nested brackets
@@ -27,6 +27,8 @@
 7. **Terminal tab auto-naming (0.3.12)** — `editor.terminal_auto_title`
 8. **Keybinding editor count anomaly** — re-observe: total bindings differed between opens (866 vs 548) in Run #22; if reproducible with steps, file
 9. ~~SSH scp-style~~ DONE (Run #22, PASS). ~~#2113~~ CLOSED not_planned. ~~Keybinding Delete/Record~~ DONE (Run #22, PASS). ~~Tour~~ DONE (Run #6).
+
+Note: Run #24 COMPLETE. Orchestrator Dock (priority #2) COMPREHENSIVE PASS — Alt+O dock, arrow live-switch (no restart), view toggle, project dropdown, `/` filter, Manage→full dialog, right-click menu + Archive confirm, New Session dialog all 4 types, Local worktree session created. NO bugs filed; avoided a false positive on keyboard Create-Session button (verified it works before filing). tmux gotcha logged: use `BTab` not `S-Tab`. NEXT: priority #3 Go to LSP Symbol (clangd 18; `apt-get install clangd` then start via LSP menu, symbol finder w/ live preview), then #5 Rainbow brackets (ANSI capture on nested brackets), then #6 Open file from diff.
 
 Note: Run #23 COMPLETE. Workspace Trust DEEP-DIVE done — 3-state enforcement matrix (Restricted/Block All/Trusted) fully mapped; enforcement works correctly per the dialog's own documented contract. #2291 CONFIRMED FIXED via UI (file survives trust restart; prior interrupted Run #23 already commented). Dialog now has explicit [OK]/[Quit] buttons + per-option enforcement descriptions. No new bug. IMP-015 logged (Blocked-mode tools fail with generic messages, not "blocked by trust"). NEXT: priority #2 Orchestrator Dock (Alt+O), then #3 Go to LSP Symbol (clangd 18 now installed), then #5 Rainbow brackets.
 
