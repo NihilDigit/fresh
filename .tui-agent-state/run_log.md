@@ -1107,3 +1107,36 @@ New-coverage testing of the brand-new `editor.auto_read_only` config option (com
 
 ### State updates
 - github_issues.md (+#2309 row + detail), confirmed_bugs.md (+BUG-010), test_plan.md (priority 4b DONE + Run #29 note), learning_db.md (+Run #29 section), run_log.md (this entry).
+
+---
+
+## Run #30 — 2026-06-10
+
+### Status: COMPLETED
+
+### Objective
+New-coverage testing of the brand-new **"Wave Animation" command palette effect** — the freshest commits on origin/master (66e1bcf06 "Add Wave Animation command palette effect" → 232eceed7 "Add wave-animation i18n keys to all locales", 5 commits, not in CHANGELOG). Black-box driven via tmux.
+
+### Build
+- Built v0.3.12 from **origin/master @ 232eceed7** in worktree `/home/user/fresh-build`, 6m53s. Master advanced past Run #29's 2dee83697 with the Wave Animation effect series (66e1bcf06, c757980cb, e3df33f6c, 9176f773d, 232eceed7) and a few earlier commits. Version string unchanged (0.3.12).
+
+### What Was Done (black-box, tmux session `wave-run30-12532`, 200x50, `--no-restore wavedemo.txt`)
+Read user-facing docs first: `docs/wave-animation-wireframe.txt` (expected behavior) + en.json i18n keys (`cmd.wave_animation`="Wave Animation"; desc="Send a wave through the editor — bounce all content up, down, and sideways"; `wave.triggered`="🌊 Wave! — press any key or move the mouse to stop").
+
+Tested:
+1. Palette presence — "Wave Animation" listed, source **builtin**, correct description. PASS.
+2. Trigger (Enter) — full-screen particle animation: every painted cell (menu/tab chrome, gutter, text, status bar) snapshotted into "ink" particles; wave crest glyphs (`~ ≈ ∿`) rise from bottom; letters fan out (tight words become loose), drift up + sideways (L/R), bounce. ANSI/plain capture across 9 frames confirmed multiple distinct animation states. PASS.
+3. Status message "🌊 Wave! — press any key or move the mouse to stop" rendered (status bar itself displaced as particles mid-flight, then legible once settled). PASS.
+4. **Runs until input** — confirmed still animating >3s in; does NOT auto-stop (matches commit 9176f773d "run until input"; the wireframe's older 2.5s-cap note is superseded). PASS.
+5. **Settle/restore** — pressing a key stops it and content settles back **exactly** to original: all 5 lines, gutter, chrome restored; cursor Ln 1 Col 1 unchanged; no leftover crest/particle artifacts. PASS (the core correctness claim).
+6. **Stop-key consumption** — stop key is consumed, not leaked: stopping with printable `Z` did NOT insert `Z`; stopping with `Ctrl+P` stopped the wave WITHOUT opening the palette. Buffer never marked modified (no `*` on tab). No corruption. PASS.
+7. **Empty buffer** ([No Name] via Ctrl+N) — wave runs + restores cleanly, no crash. PASS.
+
+### Result
+- 1 NEW backlog item advanced (Wave Animation → DONE, comprehensive PASS).
+- **No bugs filed; no false positives.** Feature is correct and robust.
+- Minor non-bug note: the "🌊 Wave!…" status message persists until the next status update (normal transient-message behavior, consistent with other Fresh statuses) — not worth filing.
+- Open-issue rechecks skipped this run: none of the new commits touch the open agent-filed issues (#2301/#2309 display, #2197 pyright — no fix since 2026-06-07, #2221 ssh, #2307 keybinding, #2135/#2122/#2109/#2111). Per R1, re-verification deferred until a related fix lands. Run #29 already rechecked.
+
+### State updates
+- run_log.md (this entry), test_plan.md (new DONE item + Run #30 note), learning_db.md (+"Wave Animation (Run #30)" section), github_issues.md (Last updated bump only — no new issue).

@@ -747,3 +747,20 @@ The dock is a persistent, non-modal LEFT-column session switcher (CHANGELOG head
 - **Status-bar segment layout (220w):** `[trust]  [Local]  [Ln X, Col Y]  [transient message area]  [EOL: LF]  [encoding: UTF-8/ASCII]  [filetype: C/Text/Diff]  [LSP (off/on)]  [Palette: Ctrl+P]`. There is NO read-only segment.
 - **tmux gotcha (palette double-`>`):** the command palette opens already in `>` command mode. Typing another `>` yields `>>…` and returns no results. Just type the command name directly (or BSpace once into file mode). Also `Shift+F1` to open *Keyboard Shortcuts* did not register over tmux send-keys (`S-F1`) — buffer stayed `[No Name]`.
 - **git in this container:** commits require `-c commit.gpgsign=false` for local test repos (a signing wrapper otherwise fails with "signing server returned status 400"). pyright + pyright-langserver are on PATH; clangd is NOT installed.
+
+---
+
+## Wave Animation (Run #30)
+
+**Command:** "Wave Animation" (command palette `Ctrl+P` → type `Wave` → Enter). Source: **builtin**. Description: "Send a wave through the editor — bounce all content up, down, and sideways". i18n keys: `cmd.wave_animation`, `cmd.wave_animation_desc`, `action.trigger_wave_animation`, `wave.triggered`. No default keybinding. Added on origin/master in 5 commits (66e1bcf06 → 232eceed7); NOT in CHANGELOG as of v0.3.12 @ 232eceed7. Docs: `docs/wave-animation-wireframe.txt` (user-facing ASCII wireframe — safe to read).
+
+**Behavior (verified black-box):**
+- Snapshots EVERY painted cell (menu bar, tab bar, gutter, text, status bar) into "ink" particles. A wave crest of glyphs `~ ≈ ∿` rises from the bottom edge; as it sweeps a row it kicks particles up + sideways (per-column L/R), which then spring back to home. Letters in tight words visibly spread apart mid-flight.
+- **Runs until input** (commit "run until input") — does NOT auto-stop. Confirmed still animating >3s. The wireframe's "hard 2.5s cap / settles on its own" note is superseded.
+- Status line shows `🌊 Wave! — press any key or move the mouse to stop` (the status bar itself jitters as particles during flight).
+- **Any keypress stops it and is CONSUMED** — it does not perform the key's normal action and does not leak into the buffer. Verified: stopping with printable `Z` inserted nothing; stopping with `Ctrl+P` did NOT open the palette. Buffer is never marked modified.
+- On stop, content settles back **exactly** to its original cells — no leftover artifacts, no corruption. Empty buffer handled gracefully (no crash).
+
+**Testing tip:** It runs until input, so you have ample time to `capture-pane` many frames after triggering. Capture ~0.25–0.4s apart to catch distinct animation states (crest near bottom vs. content airborne near top). The status message is legible once stopped; mid-flight it's scrambled because the status bar is itself displaced.
+
+**Verdict:** Comprehensive PASS, no bug. A purely cosmetic effect that correctly restores state and never touches buffer contents.
