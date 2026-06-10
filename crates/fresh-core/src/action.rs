@@ -151,6 +151,7 @@ pub enum Action {
     Save,
     SaveAs,
     Open,
+    OpenRecent,
     SwitchProject,
     New,
     Close,

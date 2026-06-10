@@ -904,6 +904,7 @@ impl Editor {
             } else if matches!(
                 prompt.prompt_type,
                 PromptType::OpenFile
+                    | PromptType::OpenRecent
                     | PromptType::SwitchProject
                     | PromptType::SaveFileAs
                     | PromptType::StopLspServer
@@ -1201,6 +1202,7 @@ impl Editor {
                 }
             }
             PromptType::SwitchToTab
+            | PromptType::OpenRecent
             | PromptType::SelectTheme { .. }
             | PromptType::StopLspServer
             | PromptType::RestartLspServer
