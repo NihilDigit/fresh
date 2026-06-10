@@ -69,6 +69,10 @@ pub enum Family {
     BashLike,
     /// Pascal — `begin…end`, `case…of…end`, `repeat…until`.
     PascalLike,
+    /// Smali (Dalvik bytecode assembly) — block-opening directives
+    /// (`.method`, `.annotation`, `.array-data`, `.packed-switch`, …) are
+    /// closed by a matching `.end <name>`.
+    SmaliLike,
 }
 
 /// String form of a rule set (what a family or user config provides).
@@ -292,6 +296,7 @@ fn family_for_id(id: &str) -> Option<Family> {
         "lua" => Family::LuaLike,
         "bash" | "sh" | "shell" | "shellscript" => Family::BashLike,
         "pascal" => Family::PascalLike,
+        "smali" => Family::SmaliLike,
         _ => return None,
     };
     Some(f)
@@ -307,6 +312,7 @@ fn def_for_family(family: Family) -> &'static IndentRulesDef {
         Family::LuaLike => &LUA_LIKE,
         Family::BashLike => &BASH_LIKE,
         Family::PascalLike => &PASCAL_LIKE,
+        Family::SmaliLike => &SMALI_LIKE,
     }
 }
 
@@ -320,6 +326,7 @@ static FAMILY_RULES: Lazy<HashMap<Family, Arc<IndentRules>>> = Lazy::new(|| {
         Family::LuaLike,
         Family::BashLike,
         Family::PascalLike,
+        Family::SmaliLike,
     ] {
         m.insert(
             family,
@@ -441,6 +448,23 @@ const PASCAL_LIKE: IndentRulesDef = IndentRulesDef {
     indent_next_line: None,
     dedent_next_line: None,
     self_close: Some(r"\bend\b"),
+    indentation_significant: false,
+};
+
+const SMALI_LIKE: IndentRulesDef = IndentRulesDef {
+    // Block-opening directives. Each is always closed by a matching
+    // `.end <name>`, so — unlike `.field`, which is usually a one-liner —
+    // they reliably open an indented block. The `.end …` forms are excluded
+    // because `end` follows the dot, not the directive name.
+    increase: Some(
+        r"^\s*\.(method|annotation|subannotation|array-data|packed-switch|sparse-switch)\b",
+    ),
+    // Any `.end …` closes the current block and dedents its own line.
+    decrease: Some(r"^\s*\.end\b"),
+    indent_next_line: None,
+    dedent_next_line: None,
+    // Block directives never close on the same line, so no self-close guard.
+    self_close: None,
     indentation_significant: false,
 };
 
@@ -782,6 +806,57 @@ mod tests {
     #[test]
     fn pascal_one_liner_with_end_does_not_indent() {
         assert_eq!(indent("pascal", "begin end;\n", 4), 0);
+    }
+
+    // ---- SmaliLike --------------------------------------------------------
+
+    #[test]
+    fn smali_indents_method_body() {
+        // Pressing Enter after a `.method` header indents the body one level.
+        assert_eq!(indent("smali", ".method public foo()V\n", 4), 4);
+    }
+
+    #[test]
+    fn smali_indents_other_block_directives() {
+        assert_eq!(indent("smali", ".annotation runtime Lfoo;\n", 4), 4);
+        assert_eq!(indent("smali", "    .array-data 4\n", 4), 8);
+        assert_eq!(indent("smali", "    .packed-switch 0x0\n", 4), 8);
+    }
+
+    #[test]
+    fn smali_maintains_indent_inside_body() {
+        // A plain instruction line is not a block opener — keep its indent.
+        let content = ".method public foo()V\n    const/4 v0, 0x0\n";
+        assert_eq!(indent("smali", content, 4), 4);
+    }
+
+    #[test]
+    fn smali_end_directive_does_not_open_block() {
+        // `.end method` must not be mistaken for a `.method` opener: the line
+        // after it stays at the closer's column instead of indenting deeper.
+        assert_eq!(
+            indent("smali", ".method public foo()V\n.end method\n", 4),
+            0
+        );
+    }
+
+    #[test]
+    fn smali_dedents_typed_end_before_body() {
+        // Enter pressed with a trailing `.end method` on the new line dedents it
+        // back to the opener's column.
+        let content = ".method public foo()V\n    \n    .end method";
+        let pos = content.rfind(".end").unwrap();
+        let b = buf(content);
+        let got = rules_for_id("smali")
+            .unwrap()
+            .calculate_indent(&b, pos, 4, |_| true);
+        assert_eq!(got, 0);
+    }
+
+    #[test]
+    fn smali_resolves_from_syntect_name() {
+        // The no-tree-sitter Enter path keys off the syntect display name.
+        assert!(rules_for_syntax_name("Smali").is_some());
     }
 
     // ---- registry ---------------------------------------------------------
