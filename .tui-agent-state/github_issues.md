@@ -4,7 +4,7 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #22, 2026-06-09
+Last updated: Run #23, 2026-06-10
 
 ---
 
@@ -23,7 +23,7 @@ Last updated: Run #22, 2026-06-09
 | [#2197](https://github.com/sinelaw/fresh/issues/2197) | Pyright LSP: all request-based features (hover, definition, completions) timeout after 30s | Run #17 | **Open** | Real pyright on small Python project. Initialize succeeds, all requests timeout. Position encoding mismatch suspected. Do NOT re-file. |
 | [#2212](https://github.com/sinelaw/fresh/issues/2212) | Alt+. shows "No code actions available" for diagnostic-based fixes even when clangd reports "(fix available)" | Run #19 | **FIXED** (Run #22) | Closed by maintainer 2026-06-08. CONFIRMED FIXED in v0.3.12 via UI: fix popup appears and applies. Comment added. Do NOT re-file. |
 | [#2221](https://github.com/sinelaw/fresh/issues/2221) | SSH URL-style URI (`ssh://host/path`) treated as local file path instead of triggering SSH connection | Run #21 | **Open** | STILL BROKEN in v0.3.12 even with working sshd (Run #22 comment). scp-style works end-to-end. Do NOT re-file. |
-| [#2291](https://github.com/sinelaw/fresh/issues/2291) | Workspace Trust: "Trust folder & Allow Tooling" restarts the editor and silently discards opened file + unsaved edits (with --no-restore) | Run #22 | **Open** | Trust confirm = full editor restart; relies on session restore to rebuild buffers. With --no-restore: silent data loss (recovery chunk written but never offered). Default mode OK. Do NOT re-file. |
+| [#2291](https://github.com/sinelaw/fresh/issues/2291) | Workspace Trust: "Trust folder & Allow Tooling" restarts the editor and silently discards opened file + unsaved edits (with --no-restore) | Run #22 | **FIXED** (Run #23) | CONFIRMED FIXED in master @ f4ee3630 (v0.3.12): restart path now restores unsaved buffers from hot-exit recovery (`preserved N unnamed buffer(s)` / `Restored unsaved changes ... from hot exit recovery`). Verified via UI — file survives both Trust and Block-All restarts. Prior Run #23 (08:25Z) already commented; do NOT re-comment. Awaiting maintainer close. Do NOT re-file. |
 
 ---
 

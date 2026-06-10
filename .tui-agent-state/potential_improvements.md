@@ -173,3 +173,10 @@ change would make it self-evident without requiring users to read docs.
 - **Suggested fix:** Enter anywhere in the form (except while capturing a key) should submit, per standard form conventions; or show "binding not saved" feedback on cancel-close.
 - **Severity:** Low-Medium (silent no-op; cost one full add cycle during testing).
 - **Discovered:** Run #22, 2026-06-09
+
+### IMP-017 — Workspace Trust "Blocked": tools fail with generic messages that don't mention trust
+- **Observed (Run #23, v0.3.12):** In a folder set to **Block All Execution**, user-facing tools that depend on a subprocess fail with messages that give no hint that workspace trust is the cause. Git Blame shows "No blame information available (not a git file or error)" (it *is* a git file — the git subprocess was denied). Live Grep shows "No matches" (the rg/git-grep subprocess was denied — there ARE matches). The real reason is only in the log: `Process error: workspace trust is set to Blocked — no processes may run`. The status-bar word `Blocked` is the only on-screen hint, and it's easy to miss.
+- **Suggested fix:** When a tool's subprocess is denied by trust enforcement, surface a specific status/toast like "Blocked by workspace trust — choose Trust or Keep Restricted to enable git/search". At minimum distinguish "blocked by trust" from "no results / not a git file".
+- **Severity:** Low (UX clarity). Enforcement itself is correct; only the messaging is misleading.
+- **Reference:** VS Code shows a "Restricted Mode" banner and explains which features are disabled rather than letting them silently no-op.
+- **Discovered:** Run #23, 2026-06-10

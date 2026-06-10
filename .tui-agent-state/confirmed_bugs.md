@@ -18,7 +18,7 @@ Each bug entry:
 - **ID:** BUG-007
 - **Title:** "Trust folder & Allow Tooling" → full editor restart → CLI file and unsaved edits silently lost when launched with `--no-restore`
 - **Severity:** High (silent data loss; no prompt, no recovery offer)
-- **Status:** Open — GitHub issue #2291 filed (Run #22)
+- **Status:** FIXED (Run #23, confirmed in master @ f4ee3630 / v0.3.12) — restart path now restores unsaved buffers from hot-exit recovery; file survives Trust and Block-All restarts. GitHub #2291 awaiting maintainer close (prior Run #23 comment posted).
 - **GitHub Issue:** [#2291](https://github.com/sinelaw/fresh/issues/2291)
 - **Reproduction:**
   1. Folder with `compile_commands.json` (trust trigger); ensure no trust.json recorded

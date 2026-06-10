@@ -2,6 +2,54 @@
 
 ---
 
+## Run #23 — 2026-06-10
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state; built release binary from **origin/master @ f4ee3630** (**v0.3.12**, ~6 min) in a `/tmp/fresh-build` worktree (state branch stays checked out). master moved past Run #22's b022a7fc.
+- **Preflight:** GitHub MCP auth OK (read #2291). Playbook integrity OK; lessons continuity OK.
+- **Resumed an interrupted prior Run #23:** a previous invocation today (08:25Z, same f4ee3630 commit) already rechecked #2291 and commented "confirmed fixed" but never committed its state (run_log/github_issues still said Run #22). I completed the run without re-commenting on #2291.
+- Created tmux session `fresh-r23` (220×50) on a real git C project (`/tmp/trust_dive23`, 2 commits, `compile_commands.json` trust trigger, clangd 18 installed).
+- **WORKSPACE TRUST DEEP-DIVE (priority #1) — full 3-state enforcement matrix mapped:**
+  - **Dialog is richer than Run #22 documented:** now has explicit `[ OK ]` / `[ Quit (Ctrl+Q) ]` buttons and per-option descriptions that spell out the enforcement contract (Restricted = "Runs system tools on PATH (git, ripgrep, system python); Blocks: project-local executables ./gradlew/.venv/bin/python/node_modules/.bin/*, env activation .env/.envrc/mise, and language servers"; Block All = "Nothing runs"). Letter (T/K/B) selects radio; **Enter confirms** the selected radio (no need to Tab to OK).
+  - **Restricted (default):** LSP gated OFF (`not auto-started: workspace is not trusted`); **git ALLOWED** (git blame → 3 correct multi-commit blocks; git_explorer/git_gutter/merge_conflict spawn fine); **ripgrep ALLOWED** (Live Grep found "hello" with both `git-grep` and `rg` providers). Status bar: `Restricted`.
+  - **Block All Execution (B):** EVERYTHING blocked — process layer returns `Process error: workspace trust is set to Blocked — no processes may run` (exit -1) for every git spawn; git blame → "No blame information available"; Live Grep → "No matches"; LSP off. Status bar: `Blocked`. Confirming Block All triggers the same editor restart (File Explorer auto-opens) but **preserves the open file** (#2291 fix holds here too).
+  - **Trusted (T):** ungates tooling — `clangd-lsp` plugin loads & registers commands (clangdProjectSetup/SwitchSourceHeader) which it does NOT in Restricted/Blocked; "not trusted" gate messages stop. clangd binary stays dormant only because `auto_start` defaults false (IMP-013), so status still reads `LSP (off)`. Status bar: `Trusted`. trust.json → `{"level":"trusted"}`.
+  - **Palette surface:** only ONE command — "Workspace Trust…" (opens the dialog). No direct trust/restrict/block palette commands; the `workspace_trust_block` action is not palette-exposed.
+- **#2291 recheck (via UI):** CONFIRMED FIXED — directly observed main.c surviving TWO trust-triggered restarts (→Block All, →Trusted). Prior Run #23 already commented; did not duplicate. Marked resolved in state.
+
+### Test Results Summary
+| Test | Result | Notes |
+|------|--------|-------|
+| Trust dialog UI (buttons + option semantics) | **NEW DETAIL** | `[OK]`/`[Quit]` buttons; full enforcement contract in option descriptions |
+| Restricted: LSP gating | **PASS** (blocked) | `not auto-started: workspace is not trusted` |
+| Restricted: git blame | **PASS** (allowed) | 3 multi-commit blocks, correct attribution |
+| Restricted: Live Grep (git-grep + rg) | **PASS** (allowed) | both providers return matches |
+| Block All: git blame | **PASS** (blocked) | "No blame information available"; process denied in log |
+| Block All: Live Grep | **PASS** (blocked) | "No matches"; process denied in log |
+| Block All: process layer | **PASS** | `workspace trust is set to Blocked — no processes may run` |
+| Block All: file preservation across restart | **PASS** | main.c kept (#2291 fix) |
+| Trusted: tooling ungated | **PASS** | clangd-lsp plugin loads/registers; gate msgs stop |
+| #2291 restart data-loss | **CONFIRMED FIXED** (v0.3.12) | file survives restart; prior Run #23 comment stands |
+
+### Issues Filed / Comments
+- None this run. No new behavioral bug (enforcement matches the dialog's documented contract). One low-severity UX note → potential_improvements (IMP-015): Blocked-mode tool failures show generic messages ("not a git file or error", "No matches") instead of "blocked by workspace trust".
+
+### Key Findings
+1. **Workspace Trust is a 3-state, process-layer enforcement** (Trusted/Restricted/Blocked) and it works correctly. Restricted is the interesting middle: PATH tools (git, ripgrep) run, but project-local executables, env activation, and language servers are gated.
+2. **Block All denies at the spawn layer** for ALL processes with a clear log message; user-facing tools degrade gracefully but without telling the user WHY (the "Blocked" status bar is the only hint).
+3. **Trusting ungates the LSP plugin layer**, but actual LSP start is still governed by `auto_start` (so trusting alone doesn't start clangd in this config).
+4. **#2291 fix verified independently** by watching the open file survive two trust restarts.
+
+### Version
+- Binary: v0.3.12 built from origin/master @ f4ee3630 (2026-06-10)
+
+### Cleanup
+- tmux `fresh-r23` killed; `/tmp/trust_dive23` removed; `~/.local/share/fresh/workspaces/*` (trust.json) removed; `/tmp/fresh-build` worktree retained for next run's incremental build (optional cleanup).
+
+---
+
 ## Run #22 — 2026-06-09
 
 ### Status: COMPLETED

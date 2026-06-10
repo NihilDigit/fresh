@@ -18,7 +18,7 @@
 > **Run #17 directive (permanent):** Focus on NEW coverage. Increase % of product tested. Avoid re-testing old passing features unless a bug was just fixed.
 > **Build directive (Run #22):** Always build from **origin/master** — the state branch is frozen at v0.3.8.
 
-1. **Workspace Trust deep-dive** — NEW feature (enforcement live in 0.3.12). Untested: "Block All Execution (B)" option behavior; restricted-mode limits (which tools actually blocked); `workspace_trust_block` action; trust + git/ripgrep interplay; #2291 recheck when fixed
+1. ~~**Workspace Trust deep-dive**~~ — **DONE (Run #23).** Full 3-state matrix mapped: Restricted (git+ripgrep allowed, LSP gated off) / Block All (all processes denied: "workspace trust is set to Blocked — no processes may run"; git blame + live grep both blocked) / Trusted (clangd-lsp plugin ungated; actual start still governed by `auto_start`). Block All also restarts editor but preserves file. Only one palette command ("Workspace Trust…"); no direct block/restrict commands. #2291 CONFIRMED FIXED (file survives restart). UX note → IMP-015.
 2. **Orchestrator Dock (0.3.12)** — Alt+O toggle, arrow live-switch, right-click menu, New Session dialog (Local type at least)
 3. **Go to LSP Symbol (0.3.12)** — symbol finder with live preview (use clangd; `apt-get install clangd` works after `apt-get update`)
 4. **#2197 pyright recheck** — still open; labeled in-progress. Re-test when a fix lands (pip install pyright)
@@ -27,6 +27,8 @@
 7. **Terminal tab auto-naming (0.3.12)** — `editor.terminal_auto_title`
 8. **Keybinding editor count anomaly** — re-observe: total bindings differed between opens (866 vs 548) in Run #22; if reproducible with steps, file
 9. ~~SSH scp-style~~ DONE (Run #22, PASS). ~~#2113~~ CLOSED not_planned. ~~Keybinding Delete/Record~~ DONE (Run #22, PASS). ~~Tour~~ DONE (Run #6).
+
+Note: Run #23 COMPLETE. Workspace Trust DEEP-DIVE done — 3-state enforcement matrix (Restricted/Block All/Trusted) fully mapped; enforcement works correctly per the dialog's own documented contract. #2291 CONFIRMED FIXED via UI (file survives trust restart; prior interrupted Run #23 already commented). Dialog now has explicit [OK]/[Quit] buttons + per-option enforcement descriptions. No new bug. IMP-015 logged (Blocked-mode tools fail with generic messages, not "blocked by trust"). NEXT: priority #2 Orchestrator Dock (Alt+O), then #3 Go to LSP Symbol (clangd 18 now installed), then #5 Rainbow brackets.
 
 Note: Run #22 COMPLETE. #2165 + #2212 CONFIRMED FIXED in v0.3.12 (comments added). NEW BUG #2291 filed (Workspace Trust restart discards open file + unsaved edits with --no-restore). SSH scp-style END-TO-END PASS (real sshd). #2221 still broken. Keybinding Delete + Record Key Search PASS. #2122 still open. #2113 closed not_planned (retired).
 
