@@ -1,8 +1,19 @@
 # Release Notes
 
-## 0.4.0
+## 0.4.1
+
+A bug-fix release.
 
 For live updates on Fresh, [follow me on X](https://x.com/TheNoamLewis).
+
+### Bug Fixes
+
+* Fixed an editor crash on a stale soft-wrap position in multi-byte text (#2320).
+* Opening the theme editor no longer breaks Orchestrator dock clicks and scrolling: plugin panels are now scoped to their owning plugin, so one plugin's panels can't evict or receive events for another's (#2321).
+* The plugin bridge no longer corrupts integers larger than 32 bits (timestamps, byte offsets) passed to plugin handlers (#2321).
+* Control + Right Click (the theme inspector) now reports accurate theme keys for the status bar, tab bar, scrollbar, file explorer, menus, and dock; its popup draws above the dock and renders the key name in a legible colour.
+
+## 0.4.0
 
 ### Features
 
