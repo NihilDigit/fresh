@@ -1324,3 +1324,26 @@ Per R1 master unchanged at v0.4.0 (`1b5d7f8c8`, same as Runs #31–33) → skipp
 **Cleanup:** killed tmux `fresh-rdiff-r35`; removed `/tmp/rdiff`; left build worktree `/tmp/fresh-master` (reusable next run; remove if stale).
 
 **NEXT new-coverage (Run #36+, top-down):** finish (a) Review Diff residue — delete-comment `x` confirm-key + watch `W` in-editor save→reload round-trip + **Review Range** (`main..HEAD`) entry + multi-line comment input + `v` line-selection staging + `d`/`D` discard (destructive; do last on a throwaway repo); then (d) '+' new-tab popup / terminal Ctrl+Click path open / OSC 7 cwd; (e) color-transition animation on theme switch; (f) GDScript language support (#2238). Then #2197 only if a fix lands.
+
+---
+
+## Run #36 — 2026-06-11 — Review Diff residue CLOSED (2 bugs filed) — v0.4.0 @ 1b5d7f8c8
+
+**Preflight:** Synced state branch. Master force-updated back to `1b5d7f8c8` (v0.4.0) — UNCHANGED since Run #31 → per R1 skipped open-issue rechecks (13 open agent issues, no fix landed). Auth live (listed open issues). Built `fresh` 0.4.0 from `/tmp/fresh-master` worktree @ origin/master (6m28s). Per R2 advanced new coverage = finish Run #35 Review-Diff residue (a).
+
+**Fixture:** `/tmp/rdiff36` real git repo — `src/calc.py` (MM staged+unstaged), `README.md` (M unstaged), `src/newfile.py` (?? untracked). Session `rdiff36_<pid>`, 200x50.
+
+**Results:**
+- **Multi-line comment** — single-line bottom prompt `Comment on L<n>:`, Enter submits; renders inline box + COMMENTS entry `calc.py:3` + `*1` badge. Docs call it a "line comment" → single-line is BY DESIGN, **not a bug**.
+- **Delete comment `x` — RESOLVED, PASS.** Run #35 was wrong that it's a y/n prompt. With diff cursor on the commented line, `x` → **Delete / Cancel selectable menu** (Delete highlighted, ANSI `48;5;25m`) → **Enter** → `Deleted`, panel cleared, badge gone.
+- **`v` line-level visual stage/unstage/discard — BUG → #2317 (med).** Cursor ANSI-verified on real +/- line: `v`+`s` & `v`+`d` → `Selection has no add/remove lines or crosses hunk boundary` (no-op); `v`+`u` → `Patch failed: … patch does not apply`. Tried single `+`, full `-`/`+` (v+j), pure single-add (README) — all fail. CONTROL: plain hunk `s` → `Hunk staged` (git-verified); `u`/`d` work too. Only the `v` path is dead. 3 dup-searches (only closed hunk-level #2117). → confirmed_bugs BUG-013, github_issues row.
+- **Hunk discard `d` — PASS** (Discard/Cancel menu → Enter → `Hunk discarded`, README reverted on disk, git clean). Reconfirms #2117 fix holds in 0.4.0.
+- **File discard `D` — BUG → #2318 (med).** On UNSTAGED file: PASS (reverts to HEAD). On UNTRACKED file: menu "Delete file". On **fully-staged** file (`M `): reports `Discarded: <file>` but staged change PERSISTS (git status / `git diff --cached` / disk all unchanged) — `D` only touches working tree, never index. 3 dup-searches, none. → confirmed_bugs BUG-014, github_issues row. (Note: `D`/`d`/`x` only fire when cursor on a hunk CONTENT row — group/blank row = silent no-op.)
+- **Review Range — PASS.** Palette `Review Range (Commit or Branch)` → prompt `Review (range A..B or commit SHA):` prefilled `HEAD` + commit picker. `HEAD~1..HEAD` → buffer `*Review HEAD~1..HEAD*`, single `HEAD~1..HEAD (1)` group, content matches `git diff HEAD~1..HEAD` (+3/-0 power fn), status `… working tree not included`, legend OMITS `[s]/[u]/[d]`.
+- **Watch `W` — PASS.** `W` → `Watching for changes`. Opened README in a buffer, edited, **Ctrl+S** → `*Review Diff*` auto-reloaded README +2→+4 live (no manual `r`). Save-triggered reload confirmed (matches docs; external fs edits ignored per Run #35).
+
+**State updates:** run_log (this), learning_db (+"Review Diff — residue resolved (Run #36)"; Run #35 pending marked resolved), confirmed_bugs (+BUG-013/#2317, +BUG-014/#2318), github_issues (+2 rows + Last-updated bump), test_plan (Run #36 note; residue (a) fully done).
+
+**Cleanup:** killed tmux `rdiff36_*`; removed `/tmp/rdiff36`; left build worktree `/tmp/fresh-master` (reusable; remove if stale).
+
+**NEXT new-coverage (Run #37+, top-down):** (d) '+' new-tab popup / terminal Ctrl+Click path open / OSC 7 cwd; (e) color-transition animation on theme switch; (f) GDScript (#2238). Then #2197 only if a fix lands.

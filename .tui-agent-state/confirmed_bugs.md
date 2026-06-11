@@ -14,6 +14,28 @@ Each bug entry:
 
 ---
 
+## BUG-013: Review Diff — line-level visual stage/unstage/discard (`v` then `s`/`u`/`d`) never works
+- **ID:** BUG-013
+- **Title:** The advertised line-level visual-selection staging (`v` then `s`/`u`/`d`) in Review Diff does nothing for any of the three ops, even with the cursor on a real +/- line.
+- **Severity:** Medium (a documented, help-bar-promoted feature is fully non-functional; hunk/file ops still work as a workaround).
+- **Status:** Open — GitHub #2317 filed (Run #36).
+- **GitHub Issue:** [#2317](https://github.com/sinelaw/fresh/issues/2317)
+- **Reproduction:** Real git repo w/ a one-line change. Review Diff → cursor on the `+`/`-` line (ANSI-verify highlight) → `v` (status `Visual: j/k extend, s/u/d apply`) → `s`.
+- **Expected:** The selected line is staged (git_add_-p line granularity / VS Code "Stage Selected Ranges").
+- **Actual:** `v`+`s` and `v`+`d` → `Selection has no add/remove lines or crosses hunk boundary` (no-op); `v`+`u` → `Patch failed: … patch does not apply`. Reproduced for single `+`, full `-`/`+` (v+j), and pure single-add. Control: plain hunk `s`/`u`/`d` (no `v`) all work in the same session → defect is specific to the `v` path.
+- **First Seen:** Run #36, 2026-06-11 (v0.4.0, master @ 1b5d7f8c8).
+
+## BUG-014: Review Diff — file-level Discard (`D`) reports "Discarded" but leaves staged changes intact
+- **ID:** BUG-014
+- **Title:** `D` "Discard changes in file" only reverts the working tree; on a fully-staged file it is a no-op yet reports success after a "this cannot be undone" dialog.
+- **Severity:** Medium (misleading destructive-action feedback; user believes staged changes are gone when they persist — opposite of data loss, but confusing/incorrect).
+- **Status:** Open — GitHub #2318 filed (Run #36).
+- **GitHub Issue:** [#2318](https://github.com/sinelaw/fresh/issues/2318)
+- **Reproduction:** Stage a one-line change (`git add file` → `M  file`, working tree clean). Review Diff → STAGED group → cursor on the hunk content row → `D` → dialog "Discard changes in file / Permanently lose changes / This cannot be undone" → select Discard → Enter.
+- **Expected:** File reverts to HEAD (losing the staged change), OR the UI states it won't touch staged changes and does NOT report "Discarded".
+- **Actual:** Status `Discarded: <file>` but `git status` still `M  file`, `git diff --cached` unchanged, file on disk unchanged. Contrast: on an UNSTAGED file (` M file`) `D` correctly reverts to HEAD. So `D` only ever touches the working tree, never the index. (`D` also only fires when cursor is on a hunk content row.)
+- **First Seen:** Run #36, 2026-06-11 (v0.4.0, master @ 1b5d7f8c8).
+
 ## BUG-010: Read-only buffers show no `[RO]` status-bar indicator (documented but never rendered)
 - **ID:** BUG-010
 - **Title:** Read-only buffers (auto library-path, binary, or manual toggle) display no persistent `[RO]` indicator anywhere, contradicting Fresh's own docs.
