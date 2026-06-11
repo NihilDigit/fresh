@@ -193,3 +193,10 @@ change would make it self-evident without requiring users to read docs.
 - **Suggested fix:** Give `clear_search` a sensible default keybinding (VS Code uses Escape-from-editor / a dedicated binding) and/or route it through find-bar key handling so it can clear highlights while the bar stays open.
 - **Severity:** Low (the action functions; this is discoverability/ergonomics for one secondary use case). Mostly relevant to plugins (the PR's main consumer of `has_active_search()`).
 - **Discovered:** Run #32, 2026-06-10
+
+### IMP-020 — `LSP (off)` status pill documented as "dimmed" but renders identically to `LSP (on)`
+- **Observed (Run #33, v0.4.0):** `docs/features/lsp.md` ("Disabling LSP") states that with `lsp_enabled:false` "the status bar shows a **dimmed** `LSP (off)` pill when servers are configured for the current language". The behavior is correct (no LSP auto-starts, pill reads `LSP (off)`), but ANSI capture (`tmux capture-pane -p -e`) of the status line shows the off pill drawn in the SAME default foreground as the `LSP (on)` pill — no SGR `[2m` (dim) attribute anywhere on the line, no distinct color. Only the literal word changes (`off` vs `on`). The whole status bar uses background `48;5;233`.
+- **Suggested fix:** Either actually dim/recolor the `LSP (off)` pill (e.g. SGR 2 or a muted theme fg) so the disabled state is visually distinct as the docs promise, or drop the word "dimmed" from the docs.
+- **Severity:** Trivial (cosmetic / doc-vs-render wording). The `lsp_enabled` feature itself is a comprehensive PASS.
+- **Reference:** Fresh's own docs (docs/features/lsp.md). VS Code visually distinguishes a disabled/stopped language-status item from an active one.
+- **Discovered:** Run #33, 2026-06-11

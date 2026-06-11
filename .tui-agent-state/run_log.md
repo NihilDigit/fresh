@@ -2,6 +2,40 @@
 
 ---
 
+## Run #33 — 2026-06-11
+
+### Status: COMPLETED
+
+### What Was Done
+- Synced state (`tui-automated-testing-state`, pull --rebase clean / already up to date). **Preflight:** playbook integrity OK (PER-RUN LOOP, ANTI-DRIFT RULES, ISSUE FILING STANDARDS, FALSE POSITIVE PATTERNS all present); GitHub MCP — github server connected (tools available); lessons continuity OK.
+- **Build directive:** origin/master still at `1b5d7f8c8` = v0.4.0 (unchanged since Run #31; forced-update from a9069ca69 but same HEAD). Built release binary in a fresh `/tmp/fresh-build` worktree @ `1b5d7f8c8` → `fresh 0.4.0` (8m11s). Per R1, binary version unchanged → skipped open-issue rechecks (no fix landed since Run #31).
+- Per R2 advanced new-coverage candidate (b): **`lsp_enabled` master switch (#1770)**. Read CHANGELOG 0.4.0 + docs/features/lsp.md + docs/configuration/index.md first to nail the documented contract and avoid a false positive.
+
+### NEW COVERAGE — `lsp_enabled` master switch (#1770) — COMPREHENSIVE PASS, no bug
+**Setup:** real pyright-langserver (on PATH, uv-installed) on a small Python project `/tmp/lsptest/main.py`; config `~/.config/fresh/config.json` with `lsp.python` (`command pyright-langserver`, `args [--stdio]`, `enabled true`, `auto_start true`). Workspace auto-Trusted. Black-box checks = `pgrep -f pyright-langserver` (server start observable even though #2197 makes requests time out) + ANSI status-bar capture.
+- **Config key:** top-level **`lsp_enabled`** (root, NOT `editor.lsp_enabled`).
+- **CONTROL (key absent → default true):** launch `main.py` → status `LSP (python) ready`, right pill `LSP (on)`; pyright spawns TWO procs (python wrapper + node child). Proves config drives auto-start.
+- **`lsp_enabled:false`:** relaunch → `pgrep` count **0** (no auto-start), no "ready" message, right pill `LSP (off)` for the configured Python language. ✓ exactly matches docs ("no language server auto-starts … status bar shows a … `LSP (off)` pill when servers are configured for the current language").
+- **OVERRIDE:** with `lsp_enabled:false` still set, palette `Ctrl+P` → **"Start/Restart LSP Server"** (builtin) → pyright spawns (both procs), pill → `LSP (on)`, `LSP (python) ready`. ✓ matches docs "manual start overrides the global switch for that language."
+- **Verdict:** All three documented behaviors correct. No bug. No false positive.
+
+### Doc nit (R3 → potential_improvements IMP-020, NOT filed)
+- docs/features/lsp.md calls it a "**dimmed** `LSP (off)` pill". ANSI capture (`capture-pane -p -e`) shows the off pill in the SAME default foreground as the on pill — no `[2m` dim attribute anywhere on the status line, no distinct color; only the word `off`/`on` differs (status bar bg `48;5;233`). Trivial cosmetic/doc mismatch → logged IMP-020, not issue-worthy per R3.
+
+### State updates
+- test_plan.md: added Run #33 COMPLETE note (candidate (b) done; next candidates (a) Review Diff reworked, (c) per-language indent rules, (d) '+' tab popup/Ctrl+Click/OSC7, (e) theme color-transition).
+- learning_db.md: appended "lsp_enabled master switch (Run #33)" (config key, 3-behavior matrix, container LSP availability, exit-144 tmux gotcha).
+- potential_improvements.md: appended IMP-020.
+- github_issues.md: unchanged (no issue filed).
+
+### Cleanup
+- Killed tmux session `lsp33`, killed pyright procs, removed `/tmp/lsptest`, removed `~/.config/fresh/config.json`, removed `/tmp/fresh-build` worktree (`git worktree prune`). No stray sessions/processes/temp files.
+
+### tmux gotcha (logged)
+- Compound bash lines mixing `tmux send-keys … C-q` + `pkill` + a heredoc sometimes abort the whole script with **exit 144** before later commands run. Fix: run quit/`pkill`/cleanup as SEPARATE one-line Bash calls; write config files with the Write/Edit tool, not heredocs.
+
+---
+
 ## Run #32 — 2026-06-10
 
 ### Status: COMPLETED
