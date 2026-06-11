@@ -845,3 +845,35 @@ Three brand-new 0.4.0 features by @masmu. Read the PRs first to nail expected be
   2. **`tmux send-keys 'end'` (and `down`/`up`/`home`/`tab`/`space`…) are interpreted as KEY NAMES, not literal text** — typing the word `end` instead jumps the cursor (End key). FIX: use `tmux send-keys -t S -l 'literal text'` (the `-l` flag forces literal) for any word that might collide with a key name. Words like `HEADER`/`body`/`return`/`child` are safe, but use `-l` by default for buffer text.
   3. **Verify indentation with `capture-pane -p | cat -A`** — the gutter is `│ N │ <content>`; indentation = spaces between the second `│ ` and content. `│ 2 │ child` = col 0; `│ 2 │     child` = 4-space indent.
   4. Status-bar `Ln/Col` lags one keypress after Enter (known #2301 family); rely on the buffer content capture, not the status readout, for indent assertions.
+
+---
+
+## Review Diff — reworked (Run #35) — v0.4.0 @ 1b5d7f8c8
+**Flagship 0.4.0 feature. Comprehensive PASS + 1 bug (#2315).** Read CHANGELOG 0.4.0 + docs/features/git.md FIRST.
+
+**Entry points (palette, all `audit_mode` source):** `Review Diff` (working tree), `Review Range (Commit or Branch)` (e.g. `main..HEAD`), `Review Stash` (prompts for ref, pre-filled `stash@{0}`). Opens a buffer named `*Review Diff*` / `*Review stash@{0}*`.
+
+**3-pane layout:** `FILES` sidebar (left) │ unified/side-by-side diff (center) │ `COMMENTS` (right).
+- **Sidebar** grouped by status — `STAGED (n)` / `UNSTAGED (n)` / `UNTRACKED (n)` — then by **directory** (`▾ src/core/  +A -B`), then file rows `M helpers.py  +2 -2` / `? new_feature.py  +2 -0`. Comment badge appended as `*N` (e.g. `M engine.py  +6 -1 *1`). Badge + grouping follow the file when staged/unstaged.
+- **Header legend (2 lines):** `[Tab] focus  [, .] file │ [n] next hunk [p] prev hunk │ [s] stage [u] unstage [d] discard [c] comment` / `[1 2] split/stack [↑↓] move in panel [Enter] jump [Alt+o] open file │ [S U D] file-level [/] filter [?] help [q] close`.
+- **Center breadcrumb (line 6):** `▸<GROUP> · <path>   +A / -B`; the `▸` marks the focused panel.
+
+**Full keybindings (from `?` → `*Review Keys*` buffer):**
+- Focus: `Tab`/`S-Tab` cycle files→diff→comments; `↑↓` (j/k) move within focused panel.
+- Navigate: `n`/`p` hunks, `,`/`.` files, `]`/`[` comments.
+- Fold: `za`/`zr` fold/unfold all; `Enter` folds one (on a header).
+- Layout: `1`=split (side-by-side), `2`=stack (unified), `0`=auto. Status echoes "Side-by-side view" / "Unified view". Side-by-side KEEPS the sidebar + comments (the rework's key win over old standalone side-by-side); shows `OLD (HEAD)` | `NEW (Working)` aligned with blank-row padding.
+- View: `a` show/hide inline notes; `/` filter files; `W` watch (auto-reload on save).
+- Review: `c` add comment, `x` delete comment, `s`/`u`/`d` stage/unstage/discard (hunk or file under cursor), `S`/`U`/`D` whole file, `v` line selection.
+- Open: `Enter` = side-by-side OR open the comment under cursor; `Alt+o` open working-tree file at line (needs cursor on a diff hunk line).
+- Session: `r` refresh, `e` export, `q` close.
+
+**Verified PASS:** word-level intra-line diff coloring (sub→mul, `return a - b`→`a * b`); file nav `,`/`.`; hunk nav `n`/`p`; layout 1/2; `/` filter (applies on **Enter**, not live-as-typed; header shows `FILES  /engine`; empty input + Enter clears → "Filter cleared"); `?` help; **stage/unstage `s`/`u`** (verified via `git status`: ` M`→`M `; sidebar regroups STAGED↔UNSTAGED with a **brief render lag** — re-capture after ~1s, NOT a bug; comment badge follows the file); **comments** — `c` prompts `Comment on L<n>:`, renders an inline bordered box in the diff + a `<file>:<line>` entry in COMMENTS panel + `*N` sidebar badge; **persist per-repo across editor restart** (store: `~/.local/share/fresh/audit/<sanitized_repo>/worktree.json`, full struct: id/hunk_id/file/text/timestamp/old_line/new_line/line_content/line_type); **export `e`** → `<repo>/.review/session.md` (Markdown: title+date, Summary files/hunks/files-with-comments, per-file `- **line N**: text` + code-line context); **Review Stash** (dedicated buffer, status "working tree not included", contents verified ACCURATE vs `git stash show`).
+
+**BUG #2315 (filed Run #35, med):** Review Diff does NOT expand untracked **directories**. A new dir of files (`?? assets/` in `git status --short`) shows as `▾ assets/  +0 -0` header + a file row with a **completely blank name** (`   ?   +0 -0`, verified byte-for-byte via `capture-pane|cat -A`); center shows `(untracked directory)` placeholder (after `zr`), no hunks, `+0/-0`. Contained files never listed/reviewable. Contrast: untracked FILE in a TRACKED dir (`src/core/new_feature.py`) shows `+2/-0` + content correctly. Mirrors `git status --short` collapse instead of expanding like VS Code `-uall`. Contradicts docs ("everything ... untracked in the working tree").
+
+**Pending / not fully driven over tmux (NOT filed — likely harness friction, re-test next time):**
+- **Delete comment `x`:** works only when the **diff cursor** is on the commented line — reach it by focusing COMMENTS (`Tab`×2), `↓` onto the comment, `Enter` (jumps diff to it), then `x` → confirm prompt `Delete "<text>"?`. The prompt **echoes typed chars** (`?y`) and `y`+`Enter` reported "Delete cancelled" both times; single `y` left the prompt open. Couldn't confirm the deletion over tmux — unclear if y/n single-key vs text-entry. Re-test: try just `y` then nothing, or `Enter` alone, or capital `Y`.
+- **Watch `W`:** toggles on → status "Watching for changes". External filesystem edits do NOT trigger reload (expected — docs say reloads "on save", i.e. Fresh's own save events). Did not complete the in-editor edit→Ctrl+S→reload round-trip.
+
+**git/fixture gotchas:** commits need `-c commit.gpgsign=false` (signing wrapper else 400s). Launch the editor from inside the **tmux shell's** cwd (`send-keys 'cd /tmp/rdiff' Enter` BEFORE launching) so the repo loads. `git stash push -- <pathspec>` may still capture staged files in other paths — always verify stash contents with `git stash show` before asserting a Review-Stash discrepancy (avoided a false positive this way).

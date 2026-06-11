@@ -1290,3 +1290,37 @@ Per R1 master unchanged at v0.4.0 (`1b5d7f8c8`, same as Runs #31–33) → skipp
 
 ### Cleanup
 - Killed tmux session `fresh-indent-r34`; removed `/tmp/indent-test`, `/tmp/u1test`, test user config `~/.config/fresh/config.json`; removed build worktree `/tmp/fresh-build`.
+
+---
+
+# Run #35 — 2026-06-11 — Review Diff reworked (0.4.0 flagship): comprehensive PASS + BUG #2315
+
+**Build:** fresh **0.4.0** from `origin/master` @ `1b5d7f8c8` (UNCHANGED since Run #31; release build via worktree `/tmp/fresh-master`, 8m02s). Per **R1** skipped open-issue rechecks (no fix landed; 12 open agent issues, none with new maintainer activity). Per **R2** advanced top new-coverage candidate (a): **Review Diff reworked**.
+
+**Preflight:** playbook intact (all sections present); lessons continuity OK (highest lesson present); GitHub MCP auth live (listed open agent issues). State branch pulled clean.
+
+**Fixture:** real git repo `/tmp/rdiff` (commit signing disabled), 3 dirs (src/core, src/utils, docs), spanning STAGED (helpers.py), UNSTAGED (engine.py multi-change, readme.md), UNTRACKED (new_feature.py file + later assets/ dir).
+
+**Tested (black-box, tmux `fresh-rdiff-r35`, 220×50, ANSI-verified):**
+- 3-pane layout (FILES sidebar / diff / COMMENTS): PASS. Sidebar grouped by status→directory, per-file M/? + counts + comment badge `*N`.
+- File nav `,`/`.`, hunk nav `n`/`p` (cross-file): PASS.
+- Layout toggles `1`=side-by-side / `2`=unified / `0`=auto: PASS — side-by-side KEEPS sidebar+comments.
+- Word-level intra-line diff highlight (sub→mul): PASS.
+- `/` filter: PASS (applies on Enter, empty clears).
+- `?` help → `*Review Keys*` full keyboard reference: PASS.
+- Comments `c`: inline bordered box + COMMENTS panel + sidebar `*1` badge + wrapping: PASS. **Persist across editor restart** (per-repo `~/.local/share/fresh/audit/_tmp_rdiff/worktree.json`): PASS. **Export `e`** → `.review/session.md` Markdown (summary + per-file + code context): PASS.
+- Stage/unstage `s`/`u` (verified via `git status`; sidebar regroups w/ brief render lag; badge follows file): PASS.
+- Refresh `r`: PASS.
+- **Review Stash** (dedicated buffer; contents ACCURATE vs `git stash show` — verified, avoided false positive): PASS.
+
+**BUG FOUND + FILED → #2315 (med, `bug`+`tui-agent-auto-bug`):** Review Diff does not expand untracked **directories**. A new dir of files shows as `▾ dir/  +0 -0` + a **blank-named** `?   +0 -0` row (verified byte-for-byte); center shows `(untracked directory)` placeholder, no content; contained files unreviewable. Contrast: untracked file in a tracked dir renders correctly (`+2/-0` + content). Contradicts docs. Repro'd with 2 independent untracked dirs. 3 dup-search variations, none. → confirmed_bugs BUG-012, github_issues row, registry Last-updated bump.
+
+**Pending (NOT filed — tmux harness friction, re-test next run):**
+- Delete comment `x`: confirmation prompt appears but `y`/`y`+Enter reported "Delete cancelled"; couldn't confirm the deletion over tmux. Likely prompt-driving issue, not a product defect — needs cleaner key.
+- Watch `W`: enables ("Watching for changes"); external edits correctly NOT auto-reloaded (save-triggered per docs); didn't complete in-editor save→reload round-trip.
+
+**State updates:** run_log.md (this entry), learning_db.md (+"Review Diff — reworked (Run #35)"), confirmed_bugs.md (+BUG-012), github_issues.md (+#2315 row + Last-updated), test_plan.md (Run #35 note + candidate (a) marked done).
+
+**Cleanup:** killed tmux `fresh-rdiff-r35`; removed `/tmp/rdiff`; left build worktree `/tmp/fresh-master` (reusable next run; remove if stale).
+
+**NEXT new-coverage (Run #36+, top-down):** finish (a) Review Diff residue — delete-comment `x` confirm-key + watch `W` in-editor save→reload round-trip + **Review Range** (`main..HEAD`) entry + multi-line comment input + `v` line-selection staging + `d`/`D` discard (destructive; do last on a throwaway repo); then (d) '+' new-tab popup / terminal Ctrl+Click path open / OSC 7 cwd; (e) color-transition animation on theme switch; (f) GDScript language support (#2238). Then #2197 only if a fix lands.

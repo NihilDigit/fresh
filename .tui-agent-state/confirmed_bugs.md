@@ -210,3 +210,20 @@ Each bug entry:
 - **Expected:** new line indented one level (`    child`) — per docs (VS Code `increaseIndentPattern` parity).
 - **Actual:** `│ 2 │ child` at column 0 — no indent. Same negative result for `decrease_indent_pattern`, `indent_next_line_pattern`, `dedent_next_line_pattern` (and `increase` both end- and start-anchored), tested with non-bracket/non-colon tokens (OPEN/CLOSE/HDR/RET). Built-in colon/brace indent STILL fires for the same custom languages → custom block not consulted. Confirmed at project AND user config layers.
 - **First Seen:** 2026-06-11 (Run #34), fresh 0.4.0 @ 1b5d7f8c8.
+
+---
+
+## BUG-012: Review Diff does not expand untracked directories — files inside a new folder are unreviewable
+- **ID:** BUG-012
+- **Title:** Untracked directories appear in Review Diff as a single blank/nameless `?` entry with `+0/-0` and no content; the new files inside cannot be listed or reviewed.
+- **Severity:** Medium (functional gap in flagship 0.4.0 Review Diff; new files in a new folder silently omitted from review, contradicting docs "everything ... untracked in the working tree")
+- **Status:** Open — GitHub #2315 filed (Run #35).
+- **GitHub Issue:** [#2315](https://github.com/sinelaw/fresh/issues/2315)
+- **Reproduction:**
+  1. In a git repo with some tracked changes, create a brand-new directory of files: `mkdir assets && echo data > assets/logo.txt && echo icon > assets/icon.txt` (`git status --short` → `?? assets/`).
+  2. `fresh --no-restore`; Command Palette → **Review Diff**; press `r` to refresh.
+  3. Look at the UNTRACKED group for `assets/`.
+- **Expected:** Each untracked file inside the new directory is listed and reviewable (additions shown), like VS Code SCM (untracked=all) and like a top-level untracked FILE in Fresh (`src/core/new_feature.py` correctly shows `+2/-0` with its added lines). Docs/features/git.md: Review Diff shows "everything staged, unstaged, and untracked in the working tree right now."
+- **Actual:** Sidebar shows `▾ assets/  +0 -0` group header then a file row with a **completely blank name**: `   ?   +0 -0`. Center pane shows `▾ assets/  +0 / -0` with no hunks and a `(untracked directory)` placeholder (revealed by `zr` unfold-all). The contained files (`assets/logo.txt`, `assets/icon.txt`) are never listed and have no diff/additions. `s`/Enter/Alt+o on the entry do nothing useful. Contrast: an untracked file in a TRACKED dir (`src/core/new_feature.py`) renders correctly with name + `+2/-0` + content.
+- **First Seen:** 2026-06-11 (Run #35), fresh 0.4.0 @ 1b5d7f8c8.
+- **Confirmed:** Run #35 — reproduced with two independent untracked dirs (`.review/` export artifact and a clean `assets/`); blank name verified byte-for-byte via `capture-pane | cat -A`.
