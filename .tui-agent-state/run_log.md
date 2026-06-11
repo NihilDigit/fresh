@@ -1252,3 +1252,41 @@ Tested:
 
 ### State updates
 - run_log.md (this entry), test_plan.md (new DONE item + Run #30 note), learning_db.md (+"Wave Animation (Run #30)" section), github_issues.md (Last updated bump only — no new issue).
+
+---
+
+## Run #34 — 2026-06-11 — Configurable indent rules `[languages.<id>.indent]` → BUG #2314
+
+### Objective
+Per R1 master unchanged at v0.4.0 (`1b5d7f8c8`, same as Runs #31–33) → skipped open-issue rechecks (no fix landed). Per R2 advanced new-coverage candidate (c) from the Run #33 NEXT list: **Configurable per-language indentation rules `[languages.<id>.indent]`** (0.4.0 headline feature).
+
+### Setup
+- Built `fresh 0.4.0` from `origin/master @ 1b5d7f8c8` in a throwaway git worktree (`/tmp/fresh-build`), `cargo build --release --bin fresh`.
+- Read docs FIRST: CHANGELOG 0.4.0 + `docs/configuration/index.md` → "Customize Auto-Indentation" (5 fields, VS Code-style regex, step = one `tab_size` unit).
+- Black-box harness: tmux session `fresh-indent-r34` (220x50). Project `.fresh/config.json` in `/tmp/indent-test` defining custom languages, each with a UNIQUE extension and a SINGLE indent rule, using **non-bracket/non-colon tokens (OPEN/CLOSE/HDR/RET)** that do NOT overlap Fresh's built-in heuristics — this isolates whether the *custom* rule actually fires.
+
+### What Was Done
+1. Custom languages load: opening `test.t1`/`test.t3`/… shows the custom filetype name (`incend`/`decr`/…) + `Trusted` in the status bar → language entry IS parsed.
+2. `increase_indent_pattern` `OPEN\s*$` (end-anchored): `foo OPEN` → Enter → next line stayed col 0 (NO indent). FAIL.
+3. `increase_indent_pattern` `^\s*OPEN\b` (start-anchored): `OPEN` → Enter → next line col 0. FAIL.
+4. `decrease_indent_pattern` `^\s*CLOSE\b`: typed `CLOSE` on a built-in-indented line → stayed at indent 4 (no dedent). FAIL.
+5. `indent_next_line_pattern` `^\s*HDR\b` (also tested HEADER): reference line → next line col 0. FAIL.
+6. `dedent_next_line_pattern` `^\s*RET\b` (also tested return): following line stayed indented. FAIL.
+7. **Built-in still fires:** a custom language with NO `indent` block still indents after `:` and `{`, dedents `}`. A custom language WITH an `indent` block STILL gets the built-in colon/brace indent → the custom block is NOT consulted (and does not replace built-in). This is why the doc examples (`[\{\[\(]\s*$`, `:\s*$`) appear to work — they coincide with built-in.
+8. Confirmed at BOTH project `.fresh/config.json` AND user `~/.config/fresh/config.json` (filetype `userinc` loaded; `OPEN` increase still no-op).
+
+### Result
+- **1 NEW bug filed: [#2314](https://github.com/sinelaw/fresh/issues/2314)** (labels `bug`, `tui-agent-auto-bug`) — "Configurable indentation rules (`[languages.<id>.indent]`) have no effect — all custom patterns are ignored". Med/high value: a 0.4.0 *headline* feature, fully documented, is non-functional for any custom/unrecognized language.
+- Searched 4 query variations before filing — no existing/duplicate issue. `self_close_pattern` unobservable (only cancels increase, which never fires).
+- Advanced new coverage per R2; R1 honored (no idle re-verification).
+
+### tmux lessons (durable, → learning_db "Configurable indent rules (Run #34)")
+- The editor launches in the **tmux session shell's cwd**, not the Bash-tool cwd → must `send-keys 'cd /path' Enter` in the session BEFORE launching, or the project config isn't loaded (symptom: filetype `Text` + `Restricted`).
+- `send-keys 'end'` / `'down'` / etc. are interpreted as **key names** — use `send-keys -l 'text'` for literal buffer text.
+- Verify indentation with `capture-pane -p | cat -A` (gutter `│ N │ <content>`; spaces between `│ ` and content = indent).
+
+### State updates
+- run_log.md (this entry), test_plan.md (Run #34 note + advanced candidate (c)), learning_db.md (+"Configurable indent rules (Run #34)" section), github_issues.md (+#2314 row + Last-updated bump).
+
+### Cleanup
+- Killed tmux session `fresh-indent-r34`; removed `/tmp/indent-test`, `/tmp/u1test`, test user config `~/.config/fresh/config.json`; removed build worktree `/tmp/fresh-build`.

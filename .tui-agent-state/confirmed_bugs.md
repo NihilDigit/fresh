@@ -194,3 +194,19 @@ Each bug entry:
 - **Hint:** Log shows `LSP initialize result: position_encoding=None` — possible UTF-16 encoding mismatch causing pyright to discard all requests silently.
 - **First Seen:** Run #17, 2026-06-02
 - **Confirmed:** Run #17, 2026-06-02 (10/10 requests timed out across hover, definition, completion, signatureHelp)
+
+---
+
+## BUG-011: Configurable indentation rules `[languages.<id>.indent]` have no effect
+- **ID:** BUG-011
+- **Title:** Custom per-language auto-indent rules (0.4.0 headline) are completely ignored; all 5 patterns no-op while built-in heuristics run regardless.
+- **Severity:** Medium (documented headline feature non-functional; affects anyone configuring indent for a custom/unrecognized language)
+- **Status:** Open — GitHub #2314 filed (Run #34).
+- **GitHub Issue:** [#2314](https://github.com/sinelaw/fresh/issues/2314)
+- **Reproduction:**
+  1. Project `.fresh/config.json`: `{"languages":{"incend":{"extensions":["t1"],"tab_size":4,"use_tabs":false,"indent":{"increase_indent_pattern":"OPEN\\s*$"}}}}`
+  2. In the tmux shell: `cd /tmp/indent-test`, then `fresh --no-restore test.t1` (status bar confirms filetype `incend`).
+  3. `send-keys -l 'foo OPEN'`, `Enter`, `send-keys -l 'child'`.
+- **Expected:** new line indented one level (`    child`) — per docs (VS Code `increaseIndentPattern` parity).
+- **Actual:** `│ 2 │ child` at column 0 — no indent. Same negative result for `decrease_indent_pattern`, `indent_next_line_pattern`, `dedent_next_line_pattern` (and `increase` both end- and start-anchored), tested with non-bracket/non-colon tokens (OPEN/CLOSE/HDR/RET). Built-in colon/brace indent STILL fires for the same custom languages → custom block not consulted. Confirmed at project AND user config layers.
+- **First Seen:** 2026-06-11 (Run #34), fresh 0.4.0 @ 1b5d7f8c8.

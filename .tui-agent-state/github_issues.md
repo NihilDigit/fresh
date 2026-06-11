@@ -4,11 +4,13 @@ This is the canonical reference for every GitHub issue this agent has filed.
 **Check this file BEFORE searching GitHub or filing any new issue.**
 If a topic appears here — open or closed — do not file a duplicate.
 
-Last updated: Run #32, 2026-06-10 (filed #2312 — occurrence-highlight theme color collision; v0.4.0)
+Last updated: Run #34, 2026-06-11 (filed #2314 — configurable indentation rules `[languages.<id>.indent]` have no effect; v0.4.0)
 
 ---
 
 ## Open Issues (agent-filed)
+
+| [#2314](https://github.com/sinelaw/fresh/issues/2314) | Configurable indentation rules (`[languages.<id>.indent]`) have no effect — all custom patterns ignored | Run #34 | **Open** | 0.4.0 headline feature broken. Custom-language `indent` block parses (language name shows in status bar) but NONE of the 5 patterns fire: `increase_indent_pattern` (end- & start-anchored), `decrease_indent_pattern`, `indent_next_line_pattern`, `dedent_next_line_pattern` all no-op when tested with non-bracket/non-colon tokens (OPEN/CLOSE/HDR/RET) that don't overlap built-in heuristics. Built-in colon/brace indent STILL fires regardless → custom block not consulted. Doc examples (`{`-end / `:`-end) coincidentally match built-in, masking it. Confirmed at both project `.fresh/config.json` and user `~/.config/fresh/config.json`. `self_close_pattern` unobservable (only modifies increase, which never fires). Do NOT re-file. |
 
 | # | Title | Filed | Status | Notes for next run |
 |---|-------|-------|--------|-------------------|
