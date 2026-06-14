@@ -261,15 +261,6 @@ pub struct Window {
     /// to leave a trail entry for the about-to-be-loaded file).
     pub suppress_position_history_once: bool,
 
-    /// Set while a file is being opened as a *preview* (file-explorer
-    /// browse, live-grep overlay) rather than a deliberate open. The
-    /// `after_file_open` plugin hook is skipped while this is set, so
-    /// plugins don't raise intrusive UI (e.g. the asm-lsp config-offer
-    /// popup) or run side effects over a file the user is merely
-    /// glancing at as previews replace each other. Set/cleared
-    /// synchronously around the inner open call; never persisted.
-    pub opening_as_preview: bool,
-
     /// Bookmarks (single-char register → buffer + byte position) for
     /// this window. Bookmarks point at this window's buffers and
     /// follow the window across `setActiveWindow` switches — every
@@ -399,11 +390,15 @@ pub struct Window {
     /// per window. Pre Step-0 this lived on `Editor`; moved here so
     /// preview tracking follows the window's other view-state.
     ///
+    /// This is the **single source of truth** for preview state: a buffer is
+    /// "the preview" iff this tuple is `Some` and points at it
+    /// ([`Window::is_buffer_preview`]). At most one preview exists editor-wide,
+    /// so the "two previews" / "orphan preview flag" states are unrepresentable.
+    ///
     /// Invariants:
-    /// - The `is_preview` flag on the referenced buffer's metadata is
-    ///   true iff this tuple is `Some` and points at that buffer.
     /// - The preview is anchored to the split it was opened in.
-    /// - Cleared when the buffer is closed or promoted.
+    /// - Cleared when the buffer is closed or promoted. Promotion fires the
+    ///   deferred `after_file_open` hook (see `promote_buffer_from_preview`).
     pub preview: Option<(LeafId, BufferId)>,
 
     /// Whether terminal mode is active in this window (input goes to
@@ -1786,7 +1781,6 @@ impl Window {
             position_history: crate::input::position_history::PositionHistory::new(),
             in_navigation: false,
             suppress_position_history_once: false,
-            opening_as_preview: false,
             bookmarks: crate::app::bookmarks::BookmarkState::default(),
             grouped_subtrees: HashMap::new(),
             composite_buffers: HashMap::new(),
@@ -2131,16 +2125,19 @@ impl Window {
 
     // ---- Preview-tab methods ----
 
-    /// Promote a specific buffer from preview to permanent, if it was
-    /// in preview mode. No-op if the buffer is not currently a preview.
+    /// Promote a specific buffer from preview to permanent, if it is
+    /// currently the preview. No-op otherwise.
+    ///
+    /// Escalating a preview is a commitment to the file, so this is where
+    /// the `after_file_open` hook — deferred at preview-open time — finally
+    /// fires. Because `self.preview` is the single source of truth, this
+    /// can fire at most once per buffer: a directly-opened (already
+    /// committed) buffer is never `self.preview`, and a promoted buffer is
+    /// cleared from `self.preview` here so a later promote is a no-op.
     pub fn promote_buffer_from_preview(&mut self, buffer_id: BufferId) {
-        if let Some(m) = self.buffer_metadata.get_mut(&buffer_id) {
-            m.is_preview = false;
-        }
-        if let Some((_, id)) = self.preview {
-            if id == buffer_id {
-                self.preview = None;
-            }
+        if self.preview.map(|(_, id)| id) == Some(buffer_id) {
+            self.preview = None;
+            self.fire_deferred_after_file_open(buffer_id);
         }
     }
 
@@ -2157,9 +2154,7 @@ impl Window {
     /// split") would otherwise be broken by the operation itself.
     pub fn promote_current_preview(&mut self) {
         if let Some((_, id)) = self.preview.take() {
-            if let Some(m) = self.buffer_metadata.get_mut(&id) {
-                m.is_preview = false;
-            }
+            self.fire_deferred_after_file_open(id);
         }
     }
 
@@ -2174,15 +2169,11 @@ impl Window {
         }
     }
 
-    /// Whether the given buffer is currently in preview (ephemeral)
-    /// mode. Primarily for tests; production code reads
-    /// `self.preview` or relies on the `is_preview` flag in the
-    /// buffer's metadata.
+    /// Whether the given buffer is currently the preview (ephemeral) tab.
+    /// Derived from `self.preview`, the single source of truth — at most one
+    /// buffer is the preview editor-wide.
     pub fn is_buffer_preview(&self, buffer_id: BufferId) -> bool {
-        self.buffer_metadata
-            .get(&buffer_id)
-            .map(|m| m.is_preview)
-            .unwrap_or(false)
+        self.preview.map(|(_, id)| id) == Some(buffer_id)
     }
 
     /// The (split, buffer) tuple of the current preview tab, if any.

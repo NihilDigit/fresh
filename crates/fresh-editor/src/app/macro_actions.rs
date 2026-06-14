@@ -245,7 +245,6 @@ impl Editor {
             hidden_from_tabs: false,
             auto_revert_enabled: true,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         };
         self.active_window_mut()
@@ -331,7 +330,6 @@ impl Editor {
             hidden_from_tabs: false,
             auto_revert_enabled: true,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         };
         self.active_window_mut()

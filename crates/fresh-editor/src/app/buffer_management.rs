@@ -137,16 +137,15 @@ impl Editor {
         // (LSP, language detection, split targeting, status message, plugin
         // hooks) consistent with a normal open.
         //
-        // `opening_as_preview` additionally tells the inner open path that
-        // this is a browse, not a deliberate open, so the `after_file_open`
-        // plugin hook is skipped — otherwise plugins raise intrusive UI
-        // (e.g. the asm-lsp `.asm-lsp.toml` config-offer popup) over each
-        // file the user arrows past. Set and cleared around the call so a
-        // failed open can't leave the flag stuck.
+        // `OpenKind::Preview` additionally tells the open path that this is a
+        // browse, not a deliberate open, so the `after_file_open` plugin hook
+        // is deferred — otherwise plugins raise intrusive UI (e.g. the
+        // asm-lsp `.asm-lsp.toml` config-offer popup) over each file the user
+        // arrows past. The hook fires later if/when this preview is escalated
+        // to a permanent tab.
         self.active_window_mut().suppress_position_history_once = true;
-        self.active_window_mut().opening_as_preview = true;
-        let open_result = self.open_file(path);
-        self.active_window_mut().opening_as_preview = false;
+        let open_result =
+            self.open_file_with_kind(path, super::file_open_orchestrators::OpenKind::Preview);
         self.active_window_mut().suppress_position_history_once = false;
         let buffer_id = open_result?;
         let is_new = !previously_file_backed.contains(&buffer_id);
@@ -159,40 +158,37 @@ impl Editor {
         }
 
         // New buffer. Resolve the existing preview (if any) relative to the
-        // target split.
+        // target split. `preview.take()` clears the single source of truth;
+        // each arm below decides whether the displaced buffer was *committed*
+        // (escalated → fire its deferred `after_file_open`) or merely
+        // *discarded* (closed → no hook).
         match self.active_window_mut().preview.take() {
             Some((prev_split, old_id)) if prev_split == target_split => {
                 // Same split: close the old preview so the new one takes its
-                // place. If close fails (modified buffer — shouldn't happen
-                // because edits promote, but defend in depth), demote the
-                // orphan to a permanent tab rather than leaving behind an
-                // italic "(preview)" tab that will never be replaced.
+                // place. Replacement is not a commitment, so no hook. If close
+                // fails (modified buffer — shouldn't happen because edits
+                // promote, but defend in depth), the buffer stays open as a
+                // permanent tab, which *is* a commitment → fire its deferred
+                // hook.
                 if let Err(e) = self.close_buffer(old_id) {
                     tracing::warn!(
                         "preview: could not replace stale preview buffer {:?}, demoting to permanent: {}",
                         old_id,
                         e
                     );
-                    if let Some(m) = self.active_window_mut().buffer_metadata.get_mut(&old_id) {
-                        m.is_preview = false;
-                    }
+                    self.active_window().fire_deferred_after_file_open(old_id);
                 }
             }
             Some((_other_split, old_id)) => {
                 // Different split: user walked away from the old preview
-                // before this click. Promote it to permanent — their focus
-                // moving to another split was the commitment signal.
-                if let Some(m) = self.active_window_mut().buffer_metadata.get_mut(&old_id) {
-                    m.is_preview = false;
-                }
+                // before this click. Their focus moving to another split was
+                // the commitment signal → escalate it and fire the hook.
+                self.active_window().fire_deferred_after_file_open(old_id);
             }
             None => {}
         }
 
-        // Mark the new buffer as the preview, anchored to its split.
-        if let Some(meta) = self.active_window_mut().buffer_metadata.get_mut(&buffer_id) {
-            meta.is_preview = true;
-        }
+        // Anchor the new buffer as the preview — the single source of truth.
         self.active_window_mut().preview = Some((target_split, buffer_id));
 
         Ok(buffer_id)

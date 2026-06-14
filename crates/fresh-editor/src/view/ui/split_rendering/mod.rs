@@ -59,6 +59,7 @@ impl SplitRenderer {
         split_manager: &SplitManager,
         buffers: &mut HashMap<BufferId, EditorState>,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
+        preview_buffer: Option<BufferId>,
         event_logs: &mut HashMap<BufferId, EventLog>,
         composite_buffers: &mut HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         composite_view_states: &mut HashMap<
@@ -115,6 +116,7 @@ impl SplitRenderer {
             split_manager,
             buffers,
             buffer_metadata,
+            preview_buffer,
             event_logs,
             composite_buffers,
             composite_view_states,

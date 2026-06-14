@@ -672,6 +672,10 @@ impl Editor {
             .get_mut(&active_window_id)
             .expect("active window must exist");
         let __metadata_ref = &__win.buffer_metadata;
+        // Copy out the preview buffer id (the single source of truth) so the
+        // tab renderer can style the "(preview)" tab without holding a borrow
+        // of `__win` across the `with_all_mut` closure below.
+        let __preview_buffer = __win.preview.map(|(_, b)| b);
         let __event_logs_mut = &mut __win.event_logs;
         let __grouped_ref = &__win.grouped_subtrees;
         let __composite_buffers_mut = &mut __win.composite_buffers;
@@ -695,6 +699,7 @@ impl Editor {
                     &*__mgr,
                     __buffers_mut,
                     __metadata_ref,
+                    __preview_buffer,
                     __event_logs_mut,
                     __composite_buffers_mut,
                     __composite_view_states_mut,
@@ -2250,6 +2255,7 @@ impl Editor {
             return;
         };
         let __preview_metadata = &__win_for_preview.buffer_metadata;
+        let __preview_buffer_id = __win_for_preview.preview.map(|(_, b)| b);
         let __preview_event_logs = &mut __win_for_preview.event_logs;
         let __preview_composite_buffers = &mut __win_for_preview.composite_buffers;
         let __preview_composite_view_states = &mut __win_for_preview.composite_view_states;
@@ -2287,6 +2293,7 @@ impl Editor {
                     &*mgr,
                     preview_buffers,
                     __preview_metadata,
+                    __preview_buffer_id,
                     __preview_event_logs,
                     __preview_composite_buffers,
                     __preview_composite_view_states,

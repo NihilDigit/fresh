@@ -15,22 +15,17 @@ use ratatui::Frame;
 use rust_i18n::t;
 use std::collections::HashMap;
 
-/// Returns true iff `t` refers to a buffer flagged as a preview tab.
-/// Groups are never previews.
-fn is_preview_tab(t: &TabTarget, buffer_metadata: &HashMap<BufferId, BufferMetadata>) -> bool {
-    match t {
-        TabTarget::Buffer(id) => buffer_metadata
-            .get(id)
-            .map(|m| m.is_preview)
-            .unwrap_or(false),
-        TabTarget::Group(_) => false,
-    }
+/// Returns true iff `t` is the editor's single preview tab. `preview_buffer`
+/// is `window.preview`'s buffer id (the source of truth); groups are never
+/// previews.
+fn is_preview_tab(t: &TabTarget, preview_buffer: Option<BufferId>) -> bool {
+    matches!(t, TabTarget::Buffer(id) if Some(*id) == preview_buffer)
 }
 
 /// Returns the preview-suffix string (leading space included) to append
 /// to a preview tab's label, or an empty string if the tab is not a preview.
-fn preview_suffix(t: &TabTarget, buffer_metadata: &HashMap<BufferId, BufferMetadata>) -> String {
-    if is_preview_tab(t, buffer_metadata) {
+fn preview_suffix(t: &TabTarget, preview_buffer: Option<BufferId>) -> String {
+    if is_preview_tab(t, preview_buffer) {
         format!(" {}", t!("buffer.preview_indicator"))
     } else {
         String::new()
@@ -342,6 +337,7 @@ pub fn calculate_tab_widths(
     buffer_metadata: &HashMap<BufferId, BufferMetadata>,
     composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
     group_names: &HashMap<LeafId, String>,
+    preview_buffer: Option<BufferId>,
 ) -> (Vec<usize>, Vec<TabTarget>) {
     let mut tab_widths: Vec<usize> = Vec::new();
     let mut rendered_targets: Vec<TabTarget> = Vec::new();
@@ -388,7 +384,7 @@ pub fn calculate_tab_widths(
             TabTarget::Group(_) => "",
         };
 
-        let preview_indicator = preview_suffix(t, buffer_metadata);
+        let preview_indicator = preview_suffix(t, preview_buffer);
 
         // Same format as render_for_split: " {name}{modified}{preview_indicator}{binary_indicator} " + "× "
         let tab_name_text = format!(" {name}{modified}{preview_indicator}{binary_indicator} ");
@@ -437,6 +433,7 @@ impl TabsRenderer {
         tab_scroll_offset: usize,
         hovered_tab: Option<(TabTarget, bool)>, // (target, is_close_button)
         group_names: &HashMap<LeafId, String>,
+        preview_buffer: Option<BufferId>,
         mut rec: Option<&mut CellThemeRecorder>,
     ) -> TabLayout {
         let mut layout = TabLayout::new(area);
@@ -508,8 +505,8 @@ impl TabsRenderer {
             // translated suffix (e.g. " (preview)") so the user has an
             // unambiguous cue that this tab will be replaced by the next
             // single-click open.
-            let is_preview = is_preview_tab(t, buffer_metadata);
-            let preview_indicator = preview_suffix(t, buffer_metadata);
+            let is_preview = is_preview_tab(t, preview_buffer);
+            let preview_indicator = preview_suffix(t, preview_buffer);
 
             let is_active = *t == active_target;
 
@@ -929,6 +926,7 @@ impl TabsRenderer {
         composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         active_buffer: BufferId,
         theme: &crate::view::theme::Theme,
+        preview_buffer: Option<BufferId>,
     ) {
         // Sort buffer IDs to ensure consistent tab order
         let mut buffer_ids: Vec<_> = buffers.keys().copied().collect();
@@ -949,6 +947,7 @@ impl TabsRenderer {
             0,    // Default tab_scroll_offset for legacy render
             None, // No hover state for legacy render
             &group_names,
+            preview_buffer,
             None, // No theme recording for legacy render
         );
     }

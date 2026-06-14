@@ -21,6 +21,24 @@ use crate::state::EditorState;
 
 use super::Editor;
 
+/// How a file open treats the resulting buffer.
+///
+/// Threaded through the open path so the single `after_file_open` fire site
+/// in [`open_file_no_focus_inner`] can defer the hook for previews. A
+/// `Preview` open is "just looking" (file-explorer browse, live-grep
+/// overlay): the hook is withheld until the preview is escalated to a
+/// permanent buffer (see the `promote_*` methods on `Window`). `Commit` is
+/// every deliberate open and fires the hook immediately. This replaces an
+/// earlier ambient `opening_as_preview` flag — the intent now travels as a
+/// value rather than mutable window state that could be read out of band.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenKind {
+    /// Deliberate open — fire `after_file_open` now.
+    Commit,
+    /// Ephemeral preview — defer `after_file_open` until escalation.
+    Preview,
+}
+
 impl Editor {
     /// Helper to jump to a line/column position in the active buffer.
     ///
@@ -98,6 +116,18 @@ impl Editor {
     /// If the file doesn't exist, creates an unsaved buffer with that filename.
     /// Saving the buffer will create the file.
     pub fn open_file(&mut self, path: &Path) -> anyhow::Result<BufferId> {
+        self.open_file_with_kind(path, OpenKind::Commit)
+    }
+
+    /// `open_file` with explicit [`OpenKind`]. `open_file_preview` uses
+    /// `OpenKind::Preview` to route through all of `open_file`'s
+    /// cross-cutting concerns (focus, language detection, status, the
+    /// `buffer_activated` hook) while deferring only `after_file_open`.
+    pub(crate) fn open_file_with_kind(
+        &mut self,
+        path: &Path,
+        kind: OpenKind,
+    ) -> anyhow::Result<BufferId> {
         // If the active leaf is a utility-dock pane (Search/Replace,
         // Quickfix, terminal-in-dock), the user almost never wants the
         // newly-opened file to land there — the dock hosts panel-style
@@ -119,7 +149,9 @@ impl Editor {
             .and_then(|s| s.buffer.file_path())
             .is_some();
 
-        let buffer_id = self.active_window_mut().open_file_no_focus(path)?;
+        let buffer_id = self
+            .active_window_mut()
+            .open_file_no_focus_with_kind(path, kind)?;
 
         // Check if this was an already-open buffer or a new one
         // For already-open buffers, just switch to them
@@ -817,7 +849,18 @@ impl crate::app::window::Window {
     /// flip. If the file doesn't exist, creates an unsaved buffer with
     /// that filename.
     pub fn open_file_no_focus(&mut self, path: &Path) -> anyhow::Result<BufferId> {
-        self.open_file_no_focus_inner(path, true)
+        self.open_file_no_focus_inner(path, true, OpenKind::Commit)
+    }
+
+    /// `open_file_no_focus` with an explicit [`OpenKind`], so the Editor-side
+    /// `open_file_with_kind` can route a preview open through the same core
+    /// while deferring `after_file_open`.
+    pub(crate) fn open_file_no_focus_with_kind(
+        &mut self,
+        path: &Path,
+        kind: OpenKind,
+    ) -> anyhow::Result<BufferId> {
+        self.open_file_no_focus_inner(path, true, kind)
     }
 
     /// Open a file without switching focus AND without ever
@@ -832,14 +875,10 @@ impl crate::app::window::Window {
     /// results. This variant always allocates a fresh BufferId so the
     /// background buffer never gets repurposed.
     pub(crate) fn open_file_for_preview(&mut self, path: &Path) -> anyhow::Result<BufferId> {
-        // Live-grep preview is a browse, not a deliberate open: suppress the
-        // `after_file_open` plugin hook so plugins don't pop UI / run side
-        // effects over each result the user cycles through. Cleared
-        // unconditionally so an error can't leave the flag stuck.
-        self.opening_as_preview = true;
-        let result = self.open_file_no_focus_inner(path, false);
-        self.opening_as_preview = false;
-        result
+        // Live-grep preview is a browse, not a deliberate open: defer the
+        // `after_file_open` hook so plugins don't pop UI / run side effects
+        // over each result the user cycles through.
+        self.open_file_no_focus_inner(path, false, OpenKind::Preview)
     }
 
     /// True if `path` is an internal app artifact (terminal scrollback,
@@ -866,6 +905,7 @@ impl crate::app::window::Window {
         &mut self,
         path: &Path,
         allow_replace_empty: bool,
+        kind: OpenKind,
     ) -> anyhow::Result<BufferId> {
         // Fail fast if the remote connection is down — don't attempt I/O that
         // would either timeout or return confusing errors.
@@ -1172,20 +1212,40 @@ impl crate::app::window::Window {
         // looking": firing this hook lets plugins raise intrusive UI (e.g.
         // the asm-lsp config-offer popup) or run side effects (csharp
         // `dotnet restore`) over a file the user is merely glancing at as
-        // previews replace each other. Deliberate opens (Ctrl+P, double-
-        // click, Enter) go through the non-preview path and still fire it.
-        // Plugins that need to react when a preview becomes visible use
-        // `buffer_activated`, which still fires on every preview switch.
-        if !self.opening_as_preview {
-            self.resources.plugin_manager.read().unwrap().run_hook(
-                "after_file_open",
-                crate::services::plugins::hooks::HookArgs::AfterFileOpen {
-                    buffer_id,
-                    path: path.to_path_buf(),
-                },
-            );
+        // previews replace each other. For a preview the hook is deferred —
+        // it fires once the buffer is escalated to a permanent tab (see
+        // `Window::promote_*`). Plugins that need to react when a preview
+        // becomes visible use `buffer_activated`, which still fires on every
+        // preview switch.
+        if kind == OpenKind::Commit {
+            self.run_after_file_open_hook(buffer_id, path.to_path_buf());
         }
 
         Ok(buffer_id)
+    }
+
+    /// Fire the `after_file_open` plugin hook for `buffer_id`. Single site so
+    /// both the commit-time open path and the escalation (promote) path raise
+    /// it identically.
+    pub(crate) fn run_after_file_open_hook(&self, buffer_id: BufferId, path: std::path::PathBuf) {
+        self.resources.plugin_manager.read().unwrap().run_hook(
+            "after_file_open",
+            crate::services::plugins::hooks::HookArgs::AfterFileOpen { buffer_id, path },
+        );
+    }
+
+    /// Fire the deferred `after_file_open` hook for a buffer that was opened
+    /// as a preview and is now being escalated to a permanent tab. Looks up
+    /// the buffer's own file path; a no-op for buffers without one.
+    pub(crate) fn fire_deferred_after_file_open(&self, buffer_id: BufferId) {
+        if let Some(path) = self
+            .buffers
+            .get(&buffer_id)
+            .and_then(|s| s.buffer.file_path())
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+        {
+            self.run_after_file_open_hook(buffer_id, path);
+        }
     }
 }

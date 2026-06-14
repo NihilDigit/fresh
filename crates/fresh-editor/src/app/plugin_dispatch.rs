@@ -5115,11 +5115,7 @@ impl Window {
                     .map(|bs| matches!(bs.view_mode, crate::state::ViewMode::PageView))
                     .unwrap_or(false)
             });
-            let is_preview = self
-                .buffer_metadata
-                .get(buffer_id)
-                .map(|m| m.is_preview)
-                .unwrap_or(false);
+            let is_preview = self.is_buffer_preview(*buffer_id);
             // Which splits currently hold this buffer — lets plugins
             // implement "focus existing if visible, else open new"
             // without tracking split ids across editor restarts

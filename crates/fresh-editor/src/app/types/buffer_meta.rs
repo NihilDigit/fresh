@@ -71,19 +71,6 @@ pub struct BufferMetadata {
     /// user a truly empty workspace.
     pub synthetic_placeholder: bool,
 
-    /// Whether this buffer is opened in "preview" mode (ephemeral).
-    /// A preview buffer is one opened by a single-click in the file explorer
-    /// (or a similar soft-open gesture). Its tab is rendered in italic and
-    /// it is replaced the next time another file is opened the same way.
-    /// The flag is cleared ("promoted") when the user edits the buffer,
-    /// double-clicks the file, or otherwise signals commitment to the file.
-    ///
-    /// Intentionally ephemeral — never serialized into workspace or
-    /// recovery state. Restarting the editor always brings buffers back
-    /// as permanent tabs; preview status belongs to the current session's
-    /// exploration flow only.
-    pub is_preview: bool,
-
     /// Stable recovery ID for unnamed buffers.
     /// For file-backed buffers, recovery ID is computed from the path hash.
     /// For unnamed buffers, this is generated once and reused across auto-saves.
@@ -150,7 +137,6 @@ impl BufferMetadata {
             hidden_from_tabs: false,
             auto_revert_enabled: true,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }
@@ -172,7 +158,6 @@ impl BufferMetadata {
             auto_revert_enabled: true,
             hidden_from_tabs: false,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }
@@ -233,7 +218,6 @@ impl BufferMetadata {
             lsp_opened_with: HashSet::new(),
             hidden_from_tabs: false,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }
@@ -273,7 +257,6 @@ impl BufferMetadata {
             lsp_opened_with: HashSet::new(),
             hidden_from_tabs: false,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }
@@ -372,7 +355,6 @@ impl BufferMetadata {
             lsp_opened_with: HashSet::new(),
             hidden_from_tabs: false,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }
@@ -392,7 +374,6 @@ impl BufferMetadata {
             lsp_opened_with: HashSet::new(),
             hidden_from_tabs: true,
             synthetic_placeholder: false,
-            is_preview: false,
             recovery_id: None,
         }
     }

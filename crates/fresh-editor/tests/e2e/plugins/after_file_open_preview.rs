@@ -130,3 +130,72 @@ fn preview_open_does_not_fire_after_file_open_hook() {
         .unwrap();
     harness.wait_for_screen_contains(MARKER).unwrap();
 }
+
+/// Escalating a preview to a permanent buffer fires the `after_file_open`
+/// hook that was *deferred* at preview-open time. A preview is "just
+/// looking"; committing to it (here, by editing) is the moment plugins
+/// should see the file as opened — so the asm-lsp config offer, csharp
+/// `dotnet restore`, etc. run on commit rather than never.
+#[test]
+fn escalating_a_preview_fires_the_deferred_after_file_open_hook() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let project_root = setup_project(temp.path());
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        40,
+        Default::default(),
+        project_root.clone(),
+    )
+    .unwrap();
+    harness.render().unwrap();
+
+    // Preview browse_me.txt via the explorer (deferred hook → no marker yet).
+    harness
+        .send_key(KeyCode::Char('e'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_file_explorer().unwrap();
+    harness
+        .wait_for_file_explorer_item("browse_me.txt")
+        .unwrap();
+    for _ in 0..8 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::empty())
+            .unwrap();
+        harness.render().unwrap();
+        if tab_bar(&harness).contains("browse_me.txt (preview)") {
+            break;
+        }
+    }
+    harness
+        .wait_for_screen_contains("browse_me.txt (preview)")
+        .unwrap();
+    for _ in 0..6 {
+        harness.process_async_and_render().unwrap();
+        harness.sleep(Duration::from_millis(50));
+    }
+    assert!(
+        !harness.screen_to_string().contains(MARKER),
+        "hook must stay deferred while the file is only a preview; screen:\n{}",
+        harness.screen_to_string()
+    );
+
+    // Escalate: focus the editor and type into the preview. Editing commits
+    // a preview to a permanent tab, which is where the deferred hook fires.
+    harness
+        .send_key(KeyCode::Char('e'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness
+        .send_key(KeyCode::Char('X'), KeyModifiers::empty())
+        .unwrap();
+    harness.render().unwrap();
+
+    // The deferred hook now fires (probe popup marker appears) and the tab is
+    // no longer a preview.
+    harness.wait_for_screen_contains(MARKER).unwrap();
+    assert!(
+        !tab_bar(&harness).contains("(preview)"),
+        "editing must promote the preview to a permanent tab; tab bar:\n{}",
+        tab_bar(&harness)
+    );
+}

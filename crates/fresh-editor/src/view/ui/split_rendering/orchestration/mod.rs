@@ -59,6 +59,9 @@ pub(crate) fn render_content(
     split_manager: &SplitManager,
     buffers: &mut HashMap<BufferId, EditorState>,
     buffer_metadata: &HashMap<BufferId, BufferMetadata>,
+    // Buffer id of the window's single preview tab (`window.preview`), or
+    // `None`. Drives the italic "(preview)" tab styling.
+    preview_buffer: Option<BufferId>,
     event_logs: &mut HashMap<BufferId, EventLog>,
     composite_buffers: &mut HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
     composite_view_states: &mut HashMap<
@@ -345,6 +348,7 @@ pub(crate) fn render_content(
                     tab_scroll_offset,
                     tab_hover_for_split,
                     &group_names,
+                    preview_buffer,
                     Some(&mut rec),
                 )
             };

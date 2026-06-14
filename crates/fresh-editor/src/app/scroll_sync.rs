@@ -40,6 +40,7 @@ impl crate::app::window::Window {
             .collect();
         let metadata = &self.buffer_metadata;
         let composites = &self.composite_buffers;
+        let preview_buffer = self.preview.map(|(_, b)| b);
 
         self.buffers.with_all_mut(|buffer_map, _mgr, vs_map| {
             let Some(view_state) = vs_map.get_mut(&split_id) else {
@@ -52,6 +53,7 @@ impl crate::app::window::Window {
                 metadata,
                 composites,
                 &group_names,
+                preview_buffer,
             );
 
             let total_tabs_width: usize = tab_widths.iter().sum();
