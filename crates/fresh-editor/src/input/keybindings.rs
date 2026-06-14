@@ -430,6 +430,7 @@ pub enum Action {
     // File operations
     Save,
     SaveAs,
+    SaveAll,
     Open,
     SwitchProject,
     New,
@@ -952,6 +953,7 @@ impl Action {
 
             "save" => Save,
             "save_as" => SaveAs,
+            "save_all" => SaveAll,
             "open" => Open,
             "switch_project" => SwitchProject,
             "new" => New,
@@ -1682,6 +1684,7 @@ impl KeybindingResolver {
                 | Action::ForceQuit
                 | Action::Save
                 | Action::SaveAs
+                | Action::SaveAll
                 | Action::ShowHelp
                 | Action::ShowKeyboardShortcuts
                 | Action::PromptCancel  // Esc should always cancel
@@ -2361,6 +2364,7 @@ impl KeybindingResolver {
             Action::RemoveSecondaryCursors => t!("action.remove_secondary_cursors"),
             Action::Save => t!("action.save"),
             Action::SaveAs => t!("action.save_as"),
+            Action::SaveAll => t!("action.save_all"),
             Action::Open => t!("action.open"),
             Action::SwitchProject => t!("action.switch_project"),
             Action::New => t!("action.new"),
