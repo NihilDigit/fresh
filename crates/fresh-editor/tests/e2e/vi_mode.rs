@@ -82,6 +82,46 @@ fn enable_vi_mode(harness: &mut EditorTestHarness) {
         .unwrap();
 }
 
+fn send_vi_key(harness: &mut EditorTestHarness, c: char) {
+    let modifiers = if c.is_ascii_uppercase() {
+        KeyModifiers::SHIFT
+    } else {
+        KeyModifiers::NONE
+    };
+    harness.send_key(KeyCode::Char(c), modifiers).unwrap();
+    harness.render().unwrap();
+}
+
+fn send_vi_operator_motion(harness: &mut EditorTestHarness, operator: char, motion: char) {
+    send_vi_key(harness, operator);
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-operator-pending".to_string()))
+        .unwrap();
+    send_vi_key(harness, motion);
+}
+
+fn wait_for_rendered_lines_in_order(harness: &mut EditorTestHarness, expected: &[&str]) {
+    let expected: Vec<String> = expected.iter().map(|line| line.to_string()).collect();
+    harness
+        .wait_until(move |h| {
+            if expected.is_empty() {
+                return true;
+            }
+
+            let mut next = 0;
+            for line in h.screen_to_string().lines() {
+                if line.contains(&expected[next]) {
+                    next += 1;
+                    if next == expected.len() {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
+        .unwrap();
+}
+
 // =============================================================================
 // Basic Navigation Tests
 // =============================================================================
@@ -530,6 +570,377 @@ fn test_vi_paste_before_line() {
     harness
         .wait_for_buffer_content("AAA\nBBB\nBBB\nCCC\n")
         .unwrap();
+}
+
+/// Test 'yw' uses the same motion-selection path as delete/change operators
+#[test]
+fn test_vi_yank_word_paste_uses_selected_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "hello world\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'y', 'w');
+    wait_for_rendered_lines_in_order(&mut harness, &["hello world"]);
+
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["hello worldhello"]);
+}
+
+/// Test counted 'yy' yanks the full line range into the unnamed register
+#[test]
+fn test_vi_counted_yank_line_paste_after_uses_yanked_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\nBBB\nCCC\nDDD\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '3');
+    send_vi_operator_motion(&mut harness, 'y', 'y');
+    wait_for_rendered_lines_in_order(&mut harness, &["AAA", "BBB", "CCC", "DDD"]);
+
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(
+        &mut harness,
+        &["AAA", "AAA", "BBB", "CCC", "BBB", "CCC", "DDD"],
+    );
+}
+
+/// Test final unterminated lines still paste as linewise register contents
+#[test]
+fn test_vi_delete_final_unterminated_line_paste_stays_linewise() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\r\nBBB").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'j');
+    send_vi_operator_motion(&mut harness, 'd', 'd');
+    harness.wait_for_buffer_content("AAA\r\n").unwrap();
+
+    send_vi_key(&mut harness, 'p');
+
+    harness.wait_for_buffer_content("AAA\r\nBBB\r\n").unwrap();
+}
+
+/// Test linewise vi changes do not bypass editing-disabled buffer protections
+#[test]
+fn test_vi_linewise_changes_respect_read_only_buffers() {
+    {
+        let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+        let fixture = TestFixture::new("test.txt", "AAA\nBBB\n").unwrap();
+        harness.open_file(&fixture.path).unwrap();
+        harness.render().unwrap();
+
+        let buffer_id = harness.editor().active_buffer_id();
+        harness
+            .editor_mut()
+            .active_window_mut()
+            .mark_buffer_read_only(buffer_id, true);
+        enable_vi_mode(&mut harness);
+
+        send_vi_operator_motion(&mut harness, 'd', 'd');
+
+        harness.assert_buffer_content("AAA\nBBB\n");
+    }
+
+    {
+        let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+        let fixture = TestFixture::new("test.txt", "AAA\nBBB\n").unwrap();
+        harness.open_file(&fixture.path).unwrap();
+        harness.render().unwrap();
+
+        let buffer_id = harness.editor().active_buffer_id();
+        harness
+            .editor_mut()
+            .active_window_mut()
+            .mark_buffer_read_only(buffer_id, true);
+        enable_vi_mode(&mut harness);
+
+        send_vi_operator_motion(&mut harness, 'c', 'c');
+
+        harness.assert_buffer_content("AAA\nBBB\n");
+    }
+}
+
+/// Test 'dd' updates the unnamed register and 'p' pastes the deleted line below
+#[test]
+fn test_vi_delete_line_paste_after_uses_deleted_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\nBBB\nCCC\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'd', 'd');
+    wait_for_rendered_lines_in_order(&mut harness, &["BBB", "CCC"]);
+
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["BBB", "AAA", "CCC"]);
+}
+
+/// Test counted 'dd' cuts the full line range into the unnamed register
+#[test]
+fn test_vi_counted_delete_line_paste_after_uses_deleted_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\nBBB\nCCC\nDDD\nEEE\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '3');
+    send_vi_operator_motion(&mut harness, 'd', 'd');
+    wait_for_rendered_lines_in_order(&mut harness, &["DDD", "EEE"]);
+
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["DDD", "AAA", "BBB", "CCC", "EEE"]);
+}
+
+/// Test counted 'cc' changes the full line range and stores it linewise
+#[test]
+fn test_vi_counted_change_line_replaces_deleted_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\nBBB\nCCC\nDDD\nEEE\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '3');
+    send_vi_operator_motion(&mut harness, 'c', 'c');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-insert".to_string()))
+        .unwrap();
+
+    harness.type_text("NEW").unwrap();
+    harness.render().unwrap();
+
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+
+    wait_for_rendered_lines_in_order(&mut harness, &["NEW", "DDD", "EEE"]);
+
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["NEW", "AAA", "BBB", "CCC", "DDD", "EEE"]);
+}
+
+/// Test 'cc' preserves CRLF line endings when it creates the replacement line
+#[test]
+fn test_vi_change_line_preserves_crlf_line_endings() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\r\nBBB\r\nCCC\r\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'c', 'c');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-insert".to_string()))
+        .unwrap();
+
+    harness.type_text("NEW").unwrap();
+    harness.render().unwrap();
+
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+
+    harness.assert_buffer_content("NEW\r\nBBB\r\nCCC\r\n");
+}
+
+/// Test 'dd' keeps linewise paste semantics for 'P'
+#[test]
+fn test_vi_delete_line_paste_before_uses_linewise_register() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "AAA\nBBB\nCCC\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'd', 'd');
+    wait_for_rendered_lines_in_order(&mut harness, &["BBB", "CCC"]);
+
+    send_vi_key(&mut harness, 'P');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["AAA", "BBB", "CCC"]);
+}
+
+/// Test 'x' updates the unnamed register for characterwise paste
+#[test]
+fn test_vi_delete_char_paste_uses_deleted_char() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "abc\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'x');
+    wait_for_rendered_lines_in_order(&mut harness, &["bc"]);
+
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["bca"]);
+}
+
+/// Test characterwise deletes no-op when the selection motion has no range
+#[test]
+fn test_vi_empty_characterwise_delete_does_not_cut_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "abc\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'X');
+    harness.assert_buffer_content("abc\n");
+
+    send_vi_operator_motion(&mut harness, 'd', '0');
+    harness.assert_buffer_content("abc\n");
+
+    send_vi_key(&mut harness, 'G');
+    send_vi_key(&mut harness, 'x');
+    harness.assert_buffer_content("abc\n");
+}
+
+/// Test 'dw' updates the unnamed register for characterwise paste
+#[test]
+fn test_vi_delete_word_paste_uses_deleted_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "hello world\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'd', 'w');
+    wait_for_rendered_lines_in_order(&mut harness, &["world"]);
+
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["worldhello"]);
+}
+
+/// Test 'e' operator motions include the final character of the word
+#[test]
+fn test_vi_end_motion_operators_include_final_character() {
+    {
+        let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+        let fixture = TestFixture::new("test.txt", "hello world\n").unwrap();
+        harness.open_file(&fixture.path).unwrap();
+        harness.render().unwrap();
+
+        enable_vi_mode(&mut harness);
+
+        send_vi_operator_motion(&mut harness, 'd', 'e');
+        harness.assert_buffer_content(" world\n");
+
+        send_vi_key(&mut harness, '$');
+        send_vi_key(&mut harness, 'p');
+
+        harness.assert_buffer_content(" worldhello\n");
+    }
+
+    {
+        let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+        let fixture = TestFixture::new("test.txt", "hello world\n").unwrap();
+        harness.open_file(&fixture.path).unwrap();
+        harness.render().unwrap();
+
+        enable_vi_mode(&mut harness);
+
+        send_vi_operator_motion(&mut harness, 'y', 'e');
+        harness.assert_buffer_content("hello world\n");
+
+        send_vi_key(&mut harness, '$');
+        send_vi_key(&mut harness, 'p');
+
+        harness.assert_buffer_content("hello worldhello\n");
+    }
+}
+
+/// Test 'e' operator motions on a one-character word keep Vim's inclusive motion behavior
+#[test]
+fn test_vi_end_motion_one_character_word_matches_vim() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "a b\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'd', 'e');
+
+    harness.assert_buffer_content("\n");
+}
+
+/// Test text-object delete updates the unnamed register before direct deleteRange
+#[test]
+fn test_vi_delete_inner_word_paste_uses_deleted_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(80, 24);
+
+    let fixture = TestFixture::new("test.txt", "hello world test\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'w');
+    wait_for_rendered_lines_in_order(&mut harness, &["hello world test"]);
+
+    send_vi_key(&mut harness, 'd');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-operator-pending".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'i');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-text-object".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'w');
+    wait_for_rendered_lines_in_order(&mut harness, &["hello  test"]);
+
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    wait_for_rendered_lines_in_order(&mut harness, &["hello  testworld"]);
 }
 
 /// Test 'v' enters visual mode and 'd' deletes selection

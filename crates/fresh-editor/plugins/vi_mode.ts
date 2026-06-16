@@ -216,6 +216,292 @@ function executeWithCount(action: string, count?: number): void {
   }
 }
 
+function selectWithCount(action: string, count: number): void {
+  if (count === 1) {
+    editor.executeAction(action);
+  } else {
+    editor.executeActions([{ action, count }]);
+  }
+}
+
+function cutCharacterwiseSelection(hasSelectedRange: boolean): boolean {
+  if (!hasSelectedRange) {
+    return false;
+  }
+
+  editor.executeAction("cut");
+  state.lastYankWasLinewise = false;
+  return true;
+}
+
+function copyCharacterwiseSelection(hasSelectedRange: boolean): boolean {
+  if (!hasSelectedRange) {
+    return false;
+  }
+
+  state.lastYankWasLinewise = false;
+  editor.executeAction("copy");
+  return true;
+}
+
+async function canSelectionActionSelect(action: string, count: number): Promise<boolean> {
+  if (count <= 0) {
+    return false;
+  }
+
+  const cursor = editor.getPrimaryCursor();
+  const position = cursor?.position ?? editor.getCursorPosition();
+  const line = cursor?.line ?? null;
+  const bufferId = editor.getActiveBufferId();
+
+  switch (action) {
+    case "select_left":
+    case "select_word_left":
+    case "select_document_start":
+      return position > 0;
+    case "select_right":
+    case "select_word_right":
+    case "vi_select_word_end":
+    case "select_document_end":
+      return position < editor.getBufferLength(bufferId);
+    case "select_line_start": {
+      if (line === null) {
+        return false;
+      }
+      const lineStart = await editor.getLineStartPosition(line);
+      return lineStart !== null && position > lineStart;
+    }
+    case "select_line_end": {
+      if (line === null) {
+        return false;
+      }
+      const lineEnd = await editor.getLineEndPosition(line);
+      return lineEnd !== null && position < lineEnd;
+    }
+    case "select_up":
+      return line !== null && line > 0;
+    case "select_down": {
+      if (line === null) {
+        return false;
+      }
+      const lineCount = await editor.getBufferLineCount();
+      return lineCount !== null && line < lineCount - 1;
+    }
+    default:
+      return true;
+  }
+}
+
+async function selectThenCutCharacterwise(action: string, count: number): Promise<boolean> {
+  const hasSelectedRange = await canSelectionActionSelect(action, count);
+  if (!hasSelectedRange) {
+    return false;
+  }
+
+  selectWithCount(action, count);
+  if (action === "vi_select_word_end") {
+    editor.executeAction("select_right");
+  }
+  return cutCharacterwiseSelection(true);
+}
+
+async function selectThenCopyCharacterwise(action: string, count: number): Promise<boolean> {
+  const hasSelectedRange = await canSelectionActionSelect(action, count);
+  if (!hasSelectedRange) {
+    return false;
+  }
+
+  selectWithCount(action, count);
+  if (action === "vi_select_word_end") {
+    editor.executeAction("select_right");
+  }
+  return copyCharacterwiseSelection(true);
+}
+
+function getLinewiseReplacementText(deletedText: string): string | null {
+  const trailingTerminator = deletedText.match(/(\r\n|\n|\r)$/);
+  if (trailingTerminator) {
+    return trailingTerminator[0];
+  }
+
+  const firstTerminator = deletedText.match(/\r\n|\n|\r/);
+  return firstTerminator?.[0] ?? null;
+}
+
+interface LinewiseRange {
+  bufferId: number;
+  start: number;
+  end: number;
+  text: string;
+  lineTerminator: string;
+}
+
+async function getLinewiseTerminator(bufferId: number, start: number, text: string): Promise<string> {
+  const ownTerminator = text.match(/\r\n|\n|\r/);
+  if (ownTerminator) {
+    return ownTerminator[0];
+  }
+
+  const sampleStart = Math.max(0, start - 4096);
+  if (sampleStart < start) {
+    const prefix = await editor.getBufferText(bufferId, sampleStart, start);
+    const matches = prefix.match(/\r\n|\n|\r/g);
+    const lastMatch = matches?.[matches.length - 1];
+    if (lastMatch) {
+      return lastMatch;
+    }
+  }
+
+  return "\n";
+}
+
+function ensureLinewiseRegisterText(text: string, lineTerminator: string): string {
+  return /(\r\n|\n|\r)$/.test(text) ? text : text + lineTerminator;
+}
+
+async function findLineStartAtPosition(bufferId: number, position: number): Promise<number> {
+  let searchEnd = Math.max(0, position);
+
+  while (searchEnd > 0) {
+    const chunkStart = Math.max(0, searchEnd - 4096);
+    const text = await editor.getBufferText(bufferId, chunkStart, searchEnd);
+    const lf = text.lastIndexOf("\n");
+    const cr = text.lastIndexOf("\r");
+    const lineBreak = Math.max(lf, cr);
+    if (lineBreak !== -1) {
+      return chunkStart + editor.utf8ByteLength(text.slice(0, lineBreak + 1));
+    }
+    searchEnd = chunkStart;
+  }
+
+  return 0;
+}
+
+function nextLineTerminatorEnd(text: string, searchFrom: number): number | null {
+  const lf = text.indexOf("\n", searchFrom);
+  const cr = text.indexOf("\r", searchFrom);
+  if (lf === -1 && cr === -1) {
+    return null;
+  }
+
+  if (cr !== -1 && (lf === -1 || cr < lf)) {
+    return text[cr + 1] === "\n" ? cr + 2 : cr + 1;
+  }
+
+  return lf + 1;
+}
+
+async function findLinewiseEndFromStart(bufferId: number, start: number, count: number): Promise<number> {
+  let position = start;
+  let remainingLines = count;
+  const chunkSize = 4096;
+
+  while (true) {
+    const chunkEnd = position + chunkSize;
+    const text = await editor.getBufferText(bufferId, position, chunkEnd);
+    if (!text) {
+      return position;
+    }
+    let searchFrom = 0;
+
+    while (remainingLines > 0) {
+      const terminatorEnd = nextLineTerminatorEnd(text, searchFrom);
+      if (terminatorEnd === null) {
+        break;
+      }
+
+      remainingLines--;
+      const nextLineStart = position + editor.utf8ByteLength(text.slice(0, terminatorEnd));
+      if (remainingLines === 0) {
+        return nextLineStart;
+      }
+      searchFrom = terminatorEnd;
+    }
+
+    const consumed = editor.utf8ByteLength(text);
+    if (consumed === 0) {
+      return position;
+    }
+    position += consumed;
+    if (consumed < chunkSize) {
+      return position;
+    }
+  }
+}
+
+function isActiveBufferEditingDisabled(bufferId: number): boolean {
+  return editor.getBufferInfo(bufferId)?.editing_disabled ?? false;
+}
+
+async function getLinewiseRange(count: number): Promise<LinewiseRange | null> {
+  if (count <= 0) {
+    return null;
+  }
+
+  const bufferId = editor.getActiveBufferId();
+  const cursor = editor.getPrimaryCursor();
+  const position = cursor?.position ?? editor.getCursorPosition();
+  const start = await findLineStartAtPosition(bufferId, position);
+  const end = await findLinewiseEndFromStart(bufferId, start, count);
+  if (end <= start) {
+    return null;
+  }
+
+  const text = await editor.getBufferText(bufferId, start, end);
+  if (!text) {
+    return null;
+  }
+
+  const lineTerminator = await getLinewiseTerminator(bufferId, start, text);
+
+  return { bufferId, start, end, text, lineTerminator };
+}
+
+async function yankLinewise(count: number): Promise<void> {
+  const range = await getLinewiseRange(count);
+  if (range === null) {
+    return;
+  }
+
+  editor.setClipboard(ensureLinewiseRegisterText(range.text, range.lineTerminator));
+  state.lastYankWasLinewise = true;
+}
+
+async function cutLinewise(count: number): Promise<void> {
+  const bufferId = editor.getActiveBufferId();
+  if (isActiveBufferEditingDisabled(bufferId)) {
+    return;
+  }
+
+  const range = await getLinewiseRange(count);
+  if (range === null) {
+    return;
+  }
+
+  editor.setClipboard(ensureLinewiseRegisterText(range.text, range.lineTerminator));
+  editor.deleteRange(range.bufferId, range.start, range.end);
+  state.lastYankWasLinewise = true;
+  editor.setBufferCursor(range.bufferId, Math.min(range.start, editor.getBufferLength(range.bufferId)));
+}
+
+async function changeLinewise(count: number): Promise<void> {
+  const bufferId = editor.getActiveBufferId();
+  if (isActiveBufferEditingDisabled(bufferId)) {
+    return;
+  }
+
+  const range = await getLinewiseRange(count);
+  if (range === null) {
+    return;
+  }
+
+  editor.setClipboard(ensureLinewiseRegisterText(range.text, range.lineTerminator));
+  editor.deleteRange(range.bufferId, range.start, range.end);
+  editor.insertText(range.bufferId, range.start, getLinewiseReplacementText(range.text) ?? range.lineTerminator);
+  editor.setBufferCursor(range.bufferId, range.start);
+  state.lastYankWasLinewise = true;
+}
+
 // Map motion actions to their selection equivalents
 const motionToSelection: Record<string, string> = {
   move_left: "select_left",
@@ -231,64 +517,15 @@ const motionToSelection: Record<string, string> = {
   move_document_end: "select_document_end",
 };
 
-// Map (operator, motion) pairs to atomic Rust actions
-// These are single actions that combine the operator and motion atomically
-// This avoids async issues with selection-based approach
-type OperatorMotionMap = Record<string, Record<string, string>>;
-const atomicOperatorActions: OperatorMotionMap = {
-  d: {
-    // Delete operators
-    move_word_right: "delete_word_forward",
-    move_word_left: "delete_word_backward",
-    vi_move_word_end: "delete_vi_word_end",
-    move_line_end: "delete_to_line_end",
-    move_line_start: "delete_to_line_start",
-  },
-  y: {
-    // Yank operators
-    move_word_right: "yank_word_forward",
-    move_word_left: "yank_word_backward",
-    vi_move_word_end: "yank_vi_word_end",
-    move_line_end: "yank_to_line_end",
-    move_line_start: "yank_to_line_start",
-  },
-};
-
-// Apply an operator using atomic actions if available, otherwise selection-based approach
+// Apply an operator by turning the motion into a selection, then applying the
+// operator to that selected range.
 // The count parameter specifies how many times to apply the motion (e.g., d3w = delete 3 words)
-function applyOperatorWithMotion(operator: string, motionAction: string, count: number = 1): void {
+async function applyOperatorWithMotion(operator: string, motionAction: string, count: number = 1): Promise<void> {
   // Record last change for '.' repeat (only for delete and change, not yank)
   if (operator === "d" || operator === "c") {
     state.lastChange = { type: "operator-motion", operator, motion: motionAction, count };
   }
 
-  // For "change" operator, use delete action and then enter insert mode
-  const lookupOperator = operator === "c" ? "d" : operator;
-
-  // Check if we have an atomic action for this operator+motion combination
-  const operatorActions = atomicOperatorActions[lookupOperator];
-  const atomicAction = operatorActions?.[motionAction];
-
-  if (atomicAction) {
-    // Use the atomic action - single command, no async issues
-    // Apply count times for 3dw, etc.
-    if (count === 1) {
-      editor.executeAction(atomicAction);
-    } else {
-      editor.executeActions([{ action: atomicAction, count }]);
-    }
-    if (operator === "y") {
-      state.lastYankWasLinewise = false;
-    }
-    if (operator === "c") {
-      switchMode("insert");
-      return;
-    }
-    switchMode("normal");
-    return;
-  }
-
-  // Fall back to selection-based approach for motions without atomic actions
   const selectAction = motionToSelection[motionAction];
   if (!selectAction) {
     editor.debug(`No selection equivalent for motion: ${motionAction}`);
@@ -296,26 +533,21 @@ function applyOperatorWithMotion(operator: string, motionAction: string, count: 
     return;
   }
 
-  // Execute the selection action count times (synchronous - extends selection to target)
-  if (count === 1) {
-    editor.executeAction(selectAction);
-  } else {
-    editor.executeActions([{ action: selectAction, count }]);
-  }
-
   switch (operator) {
     case "d": // delete
-      editor.executeAction("cut"); // Cut removes selection
+      await selectThenCutCharacterwise(selectAction, count);
       break;
     case "c": // change (delete and enter insert mode)
-      editor.executeAction("cut");
-      switchMode("insert");
-      return; // Don't switch back to normal mode
+      if (await selectThenCutCharacterwise(selectAction, count)) {
+        switchMode("insert");
+        return; // Don't switch back to normal mode
+      }
+      break;
     case "y": // yank
-      state.lastYankWasLinewise = false; // Motion-based yank is character-wise
-      editor.executeAction("copy");
-      // Move cursor back to start of selection (left side)
-      editor.executeAction("move_left");
+      if (await selectThenCopyCharacterwise(selectAction, count)) {
+        // Move cursor back to start of selection (left side)
+        editor.executeAction("move_left");
+      }
       break;
   }
 
@@ -324,14 +556,14 @@ function applyOperatorWithMotion(operator: string, motionAction: string, count: 
 
 // Handle motion in operator-pending mode
 // Consumes any pending count and applies it to the motion
-function handleMotionWithOperator(motionAction: string): void {
+async function handleMotionWithOperator(motionAction: string): Promise<void> {
   if (!state.pendingOperator) {
     switchMode("normal");
     return;
   }
 
   const count = consumeCount();
-  applyOperatorWithMotion(state.pendingOperator, motionAction, count);
+  await applyOperatorWithMotion(state.pendingOperator, motionAction, count);
 }
 
 // ============================================================================
@@ -534,65 +766,42 @@ function vi_yank_operator() : void {
 registerHandler("vi_yank_operator", vi_yank_operator);
 
 // Line operations (dd, cc, yy) - support count prefix (3dd = delete 3 lines)
-function vi_delete_line() : void {
+async function vi_delete_line() : Promise<void> {
   const count = consumeCount();
   state.lastChange = { type: "line-op", action: "delete_line", count };
-  if (count === 1) {
-    editor.executeAction("delete_line");
-  } else {
-    editor.executeActions([{ action: "delete_line", count }]);
-  }
+  await cutLinewise(count);
   switchMode("normal");
 }
 registerHandler("vi_delete_line", vi_delete_line);
 
-function vi_change_line() : void {
+async function vi_change_line() : Promise<void> {
   const count = consumeCount();
   state.lastChange = { type: "line-op", action: "change_line", count };
-  // Select from line start to line end, then cut (avoids stale snapshot issue)
-  editor.executeAction("move_line_start");
-  editor.executeAction("select_line_end");
-  editor.executeAction("cut");
+  await changeLinewise(count);
   switchMode("insert");
 }
 registerHandler("vi_change_line", vi_change_line);
 
-function vi_yank_line() : void {
+async function vi_yank_line() : Promise<void> {
   const count = consumeCount();
-  // select_line selects current line and moves cursor to next line
-  if (count === 1) {
-    editor.executeAction("select_line");
-  } else {
-    editor.executeActions([{ action: "select_line", count }]);
-  }
-  editor.executeAction("copy");
-  // Move back to original line. After #1566 the plain arrow keys collapse
-  // an active selection to its edge, so we can't rely on `move_up` from
-  // the end of a `select_line` selection to land on the original line —
-  // it would collapse to the top edge (line N) and then move up to N-1.
-  // Clear the selection first by issuing `move_line_start` (which drops
-  // the anchor without moving the cursor horizontally), then `move_up`
-  // steps cleanly to the original line.
-  editor.executeAction("move_line_start");
-  editor.executeAction("move_up");
-  state.lastYankWasLinewise = true;
+  await yankLinewise(count);
   editor.setStatus(editor.t("status.yanked_lines", { count: String(count) }));
   switchMode("normal");
 }
 registerHandler("vi_yank_line", vi_yank_line);
 
 // Single character operations - support count prefix (3x = delete 3 chars)
-function vi_delete_char() : void {
+async function vi_delete_char() : Promise<void> {
   const count = consumeCount();
   state.lastChange = { type: "simple", action: "delete_forward", count };
-  executeWithCount("delete_forward", count);
+  await selectThenCutCharacterwise("select_right", count);
 }
 registerHandler("vi_delete_char", vi_delete_char);
 
-function vi_delete_char_before() : void {
+async function vi_delete_char_before() : Promise<void> {
   const count = consumeCount();
   state.lastChange = { type: "simple", action: "delete_backward", count };
-  executeWithCount("delete_backward", count);
+  await selectThenCutCharacterwise("select_left", count);
 }
 registerHandler("vi_delete_char_before", vi_delete_char_before);
 
@@ -630,31 +839,26 @@ async function vi_replace_char(): Promise<void> {
 registerHandler("vi_replace_char", vi_replace_char);
 
 // Substitute (delete char and enter insert mode)
-function vi_substitute() : void {
+async function vi_substitute() : Promise<void> {
   const count = consumeCount();
   state.lastChange = { type: "simple", action: "substitute", count };
-  if (count > 1) {
-    editor.executeActions([{ action: "delete_forward", count }]);
-  } else {
-    editor.executeAction("delete_forward");
+  if (await selectThenCutCharacterwise("select_right", count)) {
+    switchMode("insert");
   }
-  switchMode("insert");
 }
 registerHandler("vi_substitute", vi_substitute);
 
 // Delete to end of line (D)
-function vi_delete_to_end() : void {
+async function vi_delete_to_end() : Promise<void> {
   state.lastChange = { type: "operator-motion", operator: "d", motion: "move_line_end" };
-  // Use the atomic delete_to_line_end action to avoid stale snapshot issues
-  editor.executeAction("delete_to_line_end");
+  await selectThenCutCharacterwise("select_line_end", 1);
 }
 registerHandler("vi_delete_to_end", vi_delete_to_end);
 
 // Change to end of line (C)
-function vi_change_to_end() : void {
+async function vi_change_to_end() : Promise<void> {
   state.lastChange = { type: "operator-motion", operator: "c", motion: "move_line_end" };
-  // Use the atomic delete_to_line_end action to avoid stale snapshot issues
-  editor.executeAction("delete_to_line_end");
+  await selectThenCutCharacterwise("select_line_end", 1);
   switchMode("insert");
 }
 registerHandler("vi_change_to_end", vi_change_to_end);
@@ -718,20 +922,17 @@ async function vi_repeat() : Promise<void> {
       // Simple actions like x, X, s
       if (change.action === "substitute") {
         // Substitute: delete chars and insert text
-        if (count > 1) {
-          editor.executeActions([{ action: "delete_forward", count }]);
-        } else {
-          editor.executeAction("delete_forward");
-        }
-        if (change.insertedText) {
+        if ((await selectThenCutCharacterwise("select_right", count)) && change.insertedText) {
           editor.insertAtCursor(change.insertedText);
         }
       } else if (change.action) {
         // Simple action like delete_forward, delete_backward
-        if (count > 1) {
-          editor.executeActions([{ action: change.action, count }]);
+        if (change.action === "delete_forward") {
+          await selectThenCutCharacterwise("select_right", count);
+        } else if (change.action === "delete_backward") {
+          await selectThenCutCharacterwise("select_left", count);
         } else {
-          editor.executeAction(change.action);
+          executeWithCount(change.action, count);
         }
       }
       break;
@@ -740,16 +941,9 @@ async function vi_repeat() : Promise<void> {
     case "line-op": {
       // Line operations like dd, cc
       if (change.action === "delete_line") {
-        if (count > 1) {
-          editor.executeActions([{ action: "delete_line", count }]);
-        } else {
-          editor.executeAction("delete_line");
-        }
+        await cutLinewise(count);
       } else if (change.action === "change_line") {
-        // Change line: select line content, cut, insert text
-        editor.executeAction("move_line_start");
-        editor.executeAction("select_line_end");
-        editor.executeAction("cut");
+        await changeLinewise(count);
         if (change.insertedText) {
           editor.insertAtCursor(change.insertedText);
         }
@@ -762,12 +956,12 @@ async function vi_repeat() : Promise<void> {
       if (change.operator && change.motion) {
         if (change.operator === "c") {
           // For change: do the delete part, then insert the text
-          applyOperatorWithMotion("d", change.motion, count);
+          await applyOperatorWithMotion("d", change.motion, count);
           if (change.insertedText) {
             editor.insertAtCursor(change.insertedText);
           }
         } else {
-          applyOperatorWithMotion(change.operator, change.motion, count);
+          await applyOperatorWithMotion(change.operator, change.motion, count);
         }
       }
       break;
@@ -891,11 +1085,11 @@ function vi_digit_0_or_line_start() : void {
 registerHandler("vi_digit_0_or_line_start", vi_digit_0_or_line_start);
 
 // 0 in operator-pending mode: if count is started, append; otherwise apply operator to line start
-function vi_op_digit_0_or_line_start() : void {
+async function vi_op_digit_0_or_line_start() : Promise<void> {
   if (state.count !== null) {
     accumulateCount(0);
   } else {
-    handleMotionWithOperator("move_line_start");
+    await handleMotionWithOperator("move_line_start");
   }
 }
 registerHandler("vi_op_digit_0_or_line_start", vi_op_digit_0_or_line_start);
@@ -1370,14 +1564,21 @@ async function applyTextObject(objectType: string): Promise<void> {
   // Apply the operator directly using deleteRange/copyRange
   switch (operator) {
     case "d": {
-      // Delete the range directly
+      const deletedText = await editor.getBufferText(bufferId, selectStart, selectEnd);
+      if (deletedText) {
+        editor.setClipboard(deletedText);
+      }
       editor.deleteRange(bufferId, selectStart, selectEnd);
       state.lastYankWasLinewise = false;
       break;
     }
     case "c": {
-      // Delete and enter insert mode
+      const deletedText = await editor.getBufferText(bufferId, selectStart, selectEnd);
+      if (deletedText) {
+        editor.setClipboard(deletedText);
+      }
       editor.deleteRange(bufferId, selectStart, selectEnd);
+      state.lastYankWasLinewise = false;
       switchMode("insert");
       return;
     }
@@ -1610,70 +1811,70 @@ registerHandler("vi_find_char_repeat_reverse", vi_find_char_repeat_reverse);
 // Operator-Pending Mode Commands
 // ============================================================================
 
-function vi_op_left(): void {
-  handleMotionWithOperator("move_left");
+async function vi_op_left(): Promise<void> {
+  await handleMotionWithOperator("move_left");
 }
 registerHandler("vi_op_left", vi_op_left);
 
-function vi_op_down(): void {
-  handleMotionWithOperator("move_down");
+async function vi_op_down(): Promise<void> {
+  await handleMotionWithOperator("move_down");
 }
 registerHandler("vi_op_down", vi_op_down);
 
-function vi_op_up(): void {
-  handleMotionWithOperator("move_up");
+async function vi_op_up(): Promise<void> {
+  await handleMotionWithOperator("move_up");
 }
 registerHandler("vi_op_up", vi_op_up);
 
-function vi_op_right(): void {
-  handleMotionWithOperator("move_right");
+async function vi_op_right(): Promise<void> {
+  await handleMotionWithOperator("move_right");
 }
 registerHandler("vi_op_right", vi_op_right);
 
-function vi_op_word(): void {
-  handleMotionWithOperator("move_word_right");
+async function vi_op_word(): Promise<void> {
+  await handleMotionWithOperator("move_word_right");
 }
 registerHandler("vi_op_word", vi_op_word);
 
-function vi_op_word_back(): void {
-  handleMotionWithOperator("move_word_left");
+async function vi_op_word_back(): Promise<void> {
+  await handleMotionWithOperator("move_word_left");
 }
 registerHandler("vi_op_word_back", vi_op_word_back);
 
 // Operator-pending e (word end) - select to word end, then apply operator
 // Operator-pending e (word end) — uses native vi_move_word_end motion
-function vi_op_word_end(): void {
-  handleMotionWithOperator("vi_move_word_end");
+async function vi_op_word_end(): Promise<void> {
+  await handleMotionWithOperator("vi_move_word_end");
 }
 registerHandler("vi_op_word_end", vi_op_word_end);
 
-function vi_op_line_start(): void {
-  handleMotionWithOperator("move_line_start");
+async function vi_op_line_start(): Promise<void> {
+  await handleMotionWithOperator("move_line_start");
 }
 registerHandler("vi_op_line_start", vi_op_line_start);
 
-function vi_op_line_end(): void {
-  handleMotionWithOperator("move_line_end");
+async function vi_op_line_end(): Promise<void> {
+  await handleMotionWithOperator("move_line_end");
 }
 registerHandler("vi_op_line_end", vi_op_line_end);
 
-function vi_op_doc_start(): void {
-  handleMotionWithOperator("move_document_start");
+async function vi_op_doc_start(): Promise<void> {
+  await handleMotionWithOperator("move_document_start");
 }
 registerHandler("vi_op_doc_start", vi_op_doc_start);
 
-function vi_op_doc_end(): void {
-  handleMotionWithOperator("move_document_end");
+async function vi_op_doc_end(): Promise<void> {
+  await handleMotionWithOperator("move_document_end");
 }
 registerHandler("vi_op_doc_end", vi_op_doc_end);
 
 // NOTE: operator + `%` (d%/c%/y%) is currently a no-op. `applyOperatorWithMotion`
-// resolves a motion via `atomicOperatorActions` or `motionToSelection`, and
-// `goto_matching_bracket` is in neither map, so it bails without deleting. Making
-// this work needs a selection-extending action (e.g. `select_to_matching_bracket`)
-// plus a `motionToSelection` entry. See test_vi_bug_d_percent_ignored.
-function vi_op_matching_bracket(): void {
-  handleMotionWithOperator("goto_matching_bracket");
+// resolves a motion via `motionToSelection`, and `goto_matching_bracket` is not
+// in that map, so it bails without deleting. Making this work needs a
+// selection-extending action (e.g. `select_to_matching_bracket`) plus a
+// `motionToSelection` entry. See test_vi_bug_d_percent_ignored.
+async function vi_op_matching_bracket(): Promise<void> {
+  await handleMotionWithOperator("goto_matching_bracket");
 }
 registerHandler("vi_op_matching_bracket", vi_op_matching_bracket);
 

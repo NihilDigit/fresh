@@ -421,6 +421,10 @@ type BufferInfo = {
 	*/
 	is_virtual: boolean;
 	/**
+	* Whether editing is disabled for this buffer.
+	*/
+	editing_disabled: boolean;
+	/**
 	* Current view mode of the active split: "source" or "compose"
 	*/
 	view_mode: string;

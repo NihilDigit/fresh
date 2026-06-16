@@ -450,6 +450,9 @@ pub struct BufferInfo {
     pub length: usize,
     /// Whether this is a virtual buffer (not backed by a file)
     pub is_virtual: bool,
+    /// Whether editing is disabled for this buffer.
+    #[serde(default)]
+    pub editing_disabled: bool,
     /// Current view mode of the active split: "source" or "compose"
     pub view_mode: String,
     /// True if any split showing this buffer has compose mode enabled.
@@ -5588,6 +5591,7 @@ mod tests {
                 modified: true,
                 length: 100,
                 is_virtual: false,
+                editing_disabled: false,
                 view_mode: "source".to_string(),
                 is_composing_in_any_split: false,
                 compose_width: None,
@@ -5634,6 +5638,7 @@ mod tests {
                     modified: false,
                     length: 50,
                     is_virtual: false,
+                    editing_disabled: false,
                     view_mode: "source".to_string(),
                     is_composing_in_any_split: false,
                     compose_width: None,
@@ -5650,6 +5655,7 @@ mod tests {
                     modified: true,
                     length: 100,
                     is_virtual: false,
+                    editing_disabled: false,
                     view_mode: "source".to_string(),
                     is_composing_in_any_split: false,
                     compose_width: None,
@@ -5666,6 +5672,7 @@ mod tests {
                     modified: false,
                     length: 0,
                     is_virtual: true,
+                    editing_disabled: false,
                     view_mode: "source".to_string(),
                     is_composing_in_any_split: false,
                     compose_width: None,
