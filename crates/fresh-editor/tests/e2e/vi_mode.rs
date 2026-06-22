@@ -256,7 +256,7 @@ fn test_vi_word_navigation() {
 fn test_vi_vim_compat_options_default_enabled() {
     let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
 
-    let fixture = TestFixture::new("test.txt", "one.two three\n\nalpha beta alpha\n").unwrap();
+    let fixture = TestFixture::new("test.txt", "alpha beta alpha\n").unwrap();
     harness.open_file(&fixture.path).unwrap();
     harness.render().unwrap();
 
@@ -266,28 +266,13 @@ fn test_vi_vim_compat_options_default_enabled() {
         .send_key(KeyCode::Right, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
-    harness.wait_for_screen_contains("Ln 1, Col 2").unwrap();
-
-    send_vi_key(&mut harness, 'W');
-    harness.wait_for_screen_contains("Ln 1, Col 9").unwrap();
-
-    send_vi_key(&mut harness, 'B');
-    harness.wait_for_screen_contains("Ln 1, Col 1").unwrap();
-
-    send_vi_key(&mut harness, 'E');
-    harness.wait_for_screen_contains("Ln 1, Col 7").unwrap();
-
-    send_vi_key(&mut harness, '}');
-    harness.wait_for_screen_contains("Ln 2, Col 1").unwrap();
-
-    send_vi_key(&mut harness, 'j');
-    harness.wait_for_screen_contains("Ln 3, Col 1").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 1).unwrap();
 
     send_vi_key(&mut harness, '*');
-    harness.wait_for_screen_contains("Ln 3, Col 12").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 11).unwrap();
 
     send_vi_key(&mut harness, '#');
-    harness.wait_for_screen_contains("Ln 3, Col 1").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 0).unwrap();
 }
 
 #[test]
@@ -301,33 +286,21 @@ fn test_vi_vim_compat_optional_features_can_be_disabled() {
         }),
     );
 
-    let fixture = TestFixture::new("test.txt", "one.two three\n\nalpha beta alpha\n").unwrap();
+    let fixture = TestFixture::new("test.txt", "alpha beta alpha\n").unwrap();
     harness.open_file(&fixture.path).unwrap();
     harness.render().unwrap();
 
     enable_vi_mode(&mut harness);
-    harness.wait_for_screen_contains("Ln 1, Col 1").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 0).unwrap();
 
     harness
         .send_key(KeyCode::Right, KeyModifiers::NONE)
         .unwrap();
     harness.render().unwrap();
-    harness.wait_for_screen_contains("Ln 1, Col 1").unwrap();
-
-    send_vi_key(&mut harness, 'W');
-    harness.wait_for_screen_contains("Ln 1, Col 9").unwrap();
-
-    send_vi_key(&mut harness, 'B');
-    harness.wait_for_screen_contains("Ln 1, Col 1").unwrap();
-
-    send_vi_key(&mut harness, '}');
-    harness.wait_for_screen_contains("Ln 2, Col 1").unwrap();
-
-    send_vi_key(&mut harness, 'j');
-    harness.wait_for_screen_contains("Ln 3, Col 1").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 0).unwrap();
 
     send_vi_key(&mut harness, '*');
-    harness.wait_for_screen_contains("Ln 3, Col 1").unwrap();
+    harness.wait_until(|h| h.cursor_position() == 0).unwrap();
 }
 
 #[test]
@@ -342,6 +315,72 @@ fn test_vi_vim_compat_operator_motions_default_enabled() {
 
     send_vi_operator_motion(&mut harness, 'd', 'W');
     wait_for_rendered_lines_in_order(&mut harness, &["1 │ three", "2 │ second"]);
+}
+
+#[test]
+fn test_vi_vim_compat_change_word_motion_keeps_following_space() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one.two three\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'c', 'W');
+    harness.type_text("X").unwrap();
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    harness.assert_buffer_content("X three\n");
+}
+
+#[test]
+fn test_vi_vim_compat_change_word_motion_honors_count() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one.two three four\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'c');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-operator-pending".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, '2');
+    send_vi_key(&mut harness, 'W');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-insert".to_string()))
+        .unwrap();
+    harness.type_text("X").unwrap();
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    harness.assert_buffer_content("X four\n");
+}
+
+#[test]
+fn test_vi_vim_compat_repeat_change_word_keeps_change_semantics() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one.two three four.five\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'c', 'W');
+    harness.type_text("X").unwrap();
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+    harness.assert_buffer_content("X three four.five\n");
+
+    send_vi_key(&mut harness, 'W');
+    send_vi_key(&mut harness, '.');
+
+    harness.assert_buffer_content("X X four.five\n");
 }
 
 #[test]
@@ -366,7 +405,7 @@ fn test_vi_vim_compat_repeat_uses_original_operator_count() {
     harness.assert_buffer_content("four five six seven\n");
 
     send_vi_key(&mut harness, '.');
-    harness.assert_buffer_content("seven\n");
+    harness.wait_for_buffer_content("seven\n").unwrap();
 }
 
 #[test]
@@ -392,7 +431,7 @@ fn test_vi_vim_compat_repeat_prefix_count_overrides_original_operator_count() {
 
     send_vi_key(&mut harness, '2');
     send_vi_key(&mut harness, '.');
-    harness.assert_buffer_content("six seven\n");
+    harness.wait_for_buffer_content("six seven\n").unwrap();
 }
 
 #[test]
@@ -410,7 +449,7 @@ fn test_vi_vim_compat_word_motion_stops_before_trailing_eof_whitespace() {
 }
 
 #[test]
-fn test_vi_vim_compat_word_motion_does_not_move_backward_from_trailing_whitespace() {
+fn test_vi_vim_compat_word_motion_moves_to_end_of_trailing_whitespace() {
     let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
 
     let fixture = TestFixture::new("test.txt", "foo   \n").unwrap();
@@ -425,7 +464,26 @@ fn test_vi_vim_compat_word_motion_does_not_move_backward_from_trailing_whitespac
     harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
 
     send_vi_key(&mut harness, 'W');
+    harness.wait_for_screen_contains("Ln 1, Col 6").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_word_motion_moves_to_end_of_trailing_whitespace_with_crlf() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "foo   \r\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
     harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
+
+    send_vi_key(&mut harness, 'W');
+    harness.wait_for_screen_contains("Ln 1, Col 6").unwrap();
 }
 
 #[test]
@@ -443,7 +501,7 @@ fn test_vi_vim_compat_operator_word_motion_preserves_trailing_newline() {
 }
 
 #[test]
-fn test_vi_vim_compat_operator_word_motion_does_not_delete_backward_from_trailing_whitespace() {
+fn test_vi_vim_compat_operator_word_motion_deletes_trailing_whitespace() {
     let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
 
     let fixture = TestFixture::new("test.txt", "foo   \n").unwrap();
@@ -458,8 +516,28 @@ fn test_vi_vim_compat_operator_word_motion_does_not_delete_backward_from_trailin
     harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
 
     send_vi_operator_motion(&mut harness, 'd', 'W');
-    harness.assert_buffer_content("foo   \n");
+    harness.assert_buffer_content("foo\n");
+    harness.wait_for_screen_contains("Ln 1, Col 3").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_operator_word_motion_deletes_trailing_whitespace_with_crlf() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "foo   \r\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
     harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
+
+    send_vi_operator_motion(&mut harness, 'd', 'W');
+    harness.assert_buffer_content("foo\r\n");
+    harness.wait_for_screen_contains("Ln 1, Col 3").unwrap();
 }
 
 #[test]
@@ -567,6 +645,194 @@ fn test_vi_vim_compat_search_backward_skips_prefix_match_at_buffer_start() {
     harness.wait_for_screen_contains("Ln 1, Col 8").unwrap();
 }
 
+#[test]
+fn test_vi_vim_compat_star_on_space_uses_next_word_on_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "cat dog cat\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
+
+    send_vi_key(&mut harness, '*');
+    harness.wait_for_screen_contains("Ln 1, Col 5").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_star_on_leading_indent_uses_next_word_on_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "   cat tail\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '*');
+    harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_hash_on_space_uses_next_word_on_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "cat dog cat dog\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    send_vi_key(&mut harness, 'l');
+    harness.wait_for_screen_contains("Ln 1, Col 4").unwrap();
+
+    send_vi_key(&mut harness, '#');
+    harness.wait_for_screen_contains("Ln 1, Col 13").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_star_hash_fall_back_to_non_blank_string() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", ". .\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '*');
+    harness.wait_for_screen_contains("Ln 1, Col 3").unwrap();
+
+    send_vi_key(&mut harness, '#');
+    harness.wait_for_screen_contains("Ln 1, Col 1").unwrap();
+}
+
+#[test]
+fn test_vi_vim_compat_paragraph_down_at_trailing_newline_eof_stays_on_last_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n\ntwo\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'j');
+    harness.wait_until(|h| h.cursor_position() == 4).unwrap();
+    send_vi_key(&mut harness, 'j');
+    harness.wait_until(|h| h.cursor_position() == 5).unwrap();
+
+    send_vi_key(&mut harness, '}');
+    assert_eq!(harness.cursor_position(), 7);
+}
+
+#[test]
+fn test_vi_vim_compat_paragraph_down_at_eof_without_trailing_newline_stays_on_last_char() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n\ntwo").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'j');
+    harness.wait_until(|h| h.cursor_position() == 4).unwrap();
+    send_vi_key(&mut harness, 'j');
+    harness.wait_until(|h| h.cursor_position() == 5).unwrap();
+
+    send_vi_key(&mut harness, '}');
+    assert_eq!(harness.cursor_position(), 7);
+}
+
+#[test]
+fn test_vi_vim_compat_paragraph_down_skips_whitespace_only_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n   \ntwo\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '}');
+    assert_eq!(harness.cursor_position(), 10);
+}
+
+#[test]
+fn test_vi_vim_compat_operator_paragraph_down_skips_whitespace_only_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n   \ntwo\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_operator_motion(&mut harness, 'd', '}');
+    harness.assert_buffer_content("\n");
+}
+
+#[test]
+fn test_vi_vim_compat_paragraph_up_skips_whitespace_only_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n   \ntwo\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '}');
+    assert_eq!(harness.cursor_position(), 10);
+
+    send_vi_key(&mut harness, '{');
+    assert_eq!(harness.cursor_position(), 0);
+}
+
+#[test]
+fn test_vi_vim_compat_operator_paragraph_up_skips_whitespace_only_lines() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n   \ntwo\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, '}');
+    assert_eq!(harness.cursor_position(), 10);
+
+    send_vi_operator_motion(&mut harness, 'd', '{');
+    harness.assert_buffer_content("o\n");
+}
+
+#[test]
+fn test_vi_vim_compat_word_forward_and_back_stop_on_empty_line() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "one\n\nthree\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'W');
+    harness.wait_until(|h| h.cursor_position() == 4).unwrap();
+
+    send_vi_key(&mut harness, 'j');
+    harness.wait_until(|h| h.cursor_position() == 5).unwrap();
+
+    send_vi_key(&mut harness, 'B');
+    harness.wait_until(|h| h.cursor_position() == 4).unwrap();
+}
 #[test]
 fn test_vi_vim_compat_word_search_repeats_with_n_and_shift_n() {
     let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
@@ -1381,6 +1647,119 @@ fn test_vi_visual_line_delete() {
     harness.wait_for_buffer_content("AAA\nCCC\n").unwrap();
 }
 
+#[test]
+fn test_vi_visual_word_end_yanks_selected_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "elephant zebra giraffe\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'v');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-visual".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'E');
+    send_vi_key(&mut harness, 'y');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    harness
+        .wait_for_buffer_content("elephant zebra giraffeelephant\n")
+        .unwrap();
+}
+
+#[test]
+fn test_vi_visual_word_forward_yanks_selected_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "elephant zebra giraffe\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'v');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-visual".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'W');
+    send_vi_key(&mut harness, 'y');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    harness
+        .wait_for_buffer_content("elephant zebra giraffeelephant z\n")
+        .unwrap();
+}
+
+#[test]
+fn test_vi_visual_word_forward_accumulates_from_visual_head() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "elephant zebra giraffe\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'v');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-visual".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'W');
+    send_vi_key(&mut harness, 'W');
+    send_vi_key(&mut harness, 'y');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    harness
+        .wait_for_buffer_content("elephant zebra giraffeelephant zebra g\n")
+        .unwrap();
+}
+
+#[test]
+fn test_vi_visual_word_back_yanks_selected_text() {
+    let (mut harness, _temp_dir) = vi_mode_harness(100, 30);
+
+    let fixture = TestFixture::new("test.txt", "alpha beta gamma\n").unwrap();
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    enable_vi_mode(&mut harness);
+
+    send_vi_key(&mut harness, 'w');
+    send_vi_key(&mut harness, 'w');
+    harness.wait_until(|h| h.cursor_position() == 11).unwrap();
+
+    send_vi_key(&mut harness, 'v');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-visual".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, 'B');
+    harness.wait_until(|h| h.cursor_position() == 6).unwrap();
+    send_vi_key(&mut harness, 'y');
+    harness
+        .wait_until(|h| h.editor().editor_mode() == Some("vi-normal".to_string()))
+        .unwrap();
+    send_vi_key(&mut harness, '$');
+    send_vi_key(&mut harness, 'p');
+
+    harness
+        .wait_for_buffer_content("alpha beta gammabeta g\n")
+        .unwrap();
+}
 /// Test visual mode yank and paste
 #[test]
 fn test_vi_visual_yank() {

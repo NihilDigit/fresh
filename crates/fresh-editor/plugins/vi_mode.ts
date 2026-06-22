@@ -25,6 +25,7 @@ type TextObjectType = "inner" | "around" | null;
 type ModeBinding = [string, string];
 type WORDMotionKind = "forward" | "backward" | "end";
 type WordSearchDirection = "forward" | "backward";
+type WordSearchTarget = { start: number; end: number; text: string; wholeWord: boolean };
 
 // Types for tracking repeatable changes
 type ChangeType = "simple" | "operator-motion" | "operator-textobj" | "insert" | "line-op";
@@ -49,9 +50,11 @@ interface ViState {
   lastChange: LastChange | null; // For '.' repeat
   lastYankWasLinewise: boolean; // Track if last yank was line-wise for proper paste
   visualAnchor: number | null; // Starting position for visual mode selection
+  visualHead: number | null; // Active end of computed visual selections
+  visualRange: { start: number; end: number } | null; // Characterwise visual range for computed motions
   insertStartPos: number | null; // Cursor position when entering insert mode
   visualBlockAnchor: { line: number; col: number } | null; // For visual block mode
-  lastWordSearch: { word: string; direction: WordSearchDirection } | null; // For n/N after * or #
+  lastWordSearch: { text: string; direction: WordSearchDirection; wholeWord: boolean } | null; // For n/N after * or #
 }
 
 const state: ViState = {
@@ -64,6 +67,8 @@ const state: ViState = {
   lastChange: null,
   lastYankWasLinewise: false,
   visualAnchor: null,
+  visualHead: null,
+  visualRange: null,
   insertStartPos: null,
   visualBlockAnchor: null,
   lastWordSearch: null,
@@ -149,6 +154,8 @@ function switchMode(newMode: ViMode): void {
   // Clear visual anchor when leaving visual modes
   if (newMode !== "visual" && newMode !== "visual-line" && newMode !== "visual-block") {
     state.visualAnchor = null;
+    state.visualHead = null;
+    state.visualRange = null;
     state.visualBlockAnchor = null;
     // Clear any selection when leaving visual mode by moving cursor
     // (any non-select movement clears selection in Fresh)
@@ -624,6 +631,32 @@ function isWhitespaceAt(text: string, index: number): boolean {
   return isWhitespaceChar(charAtStringIndex(text, index));
 }
 
+function isLineBreakAt(text: string, index: number): boolean {
+  return text[index] === "\n" || text[index] === "\r";
+}
+
+function lineStartIndex(text: string, index: number): number {
+  let lineStart = Math.min(Math.max(index, 0), text.length);
+  while (lineStart > 0) {
+    const previous = previousStringIndex(text, lineStart);
+    if (text[previous] === "\n" || text[previous] === "\r") {
+      break;
+    }
+    lineStart = previous;
+  }
+  return lineStart;
+}
+
+function isEmptyLineStart(text: string, index: number): boolean {
+  if (text[index] === "\n" && index > 0 && text[index - 1] === "\r") {
+    return false;
+  }
+  return index >= 0
+    && index < text.length
+    && lineStartIndex(text, index) === index
+    && (text[index] === "\n" || text[index] === "\r");
+}
+
 function hasOnlyWhitespaceAfter(text: string, index: number): boolean {
   let next = nextStringIndex(text, index);
   while (next < text.length) {
@@ -637,8 +670,9 @@ function hasOnlyWhitespaceAfter(text: string, index: number): boolean {
 
 function nextWORDIndex(text: string, startIndex: number): number {
   let index = Math.min(startIndex, text.length);
-  const startedOnWhitespace = isWhitespaceAt(text, index);
+  const startedOnWhitespace = index < text.length && isWhitespaceAt(text, index);
   let lastNonWhitespace = index;
+  let lastWhitespace = index;
 
   if (index < text.length && !isWhitespaceAt(text, index)) {
     while (index < text.length && !isWhitespaceAt(text, index)) {
@@ -648,11 +682,17 @@ function nextWORDIndex(text: string, startIndex: number): number {
   }
 
   while (index < text.length && isWhitespaceAt(text, index)) {
+    if (isEmptyLineStart(text, index)) {
+      break;
+    }
+    if (!isLineBreakAt(text, index)) {
+      lastWhitespace = index;
+    }
     index = nextStringIndex(text, index);
   }
 
   if (index >= text.length) {
-    return startedOnWhitespace ? Math.min(startIndex, text.length) : lastNonWhitespace;
+    return startedOnWhitespace ? lastWhitespace : lastNonWhitespace;
   }
 
   return index;
@@ -665,6 +705,9 @@ function previousWORDIndex(text: string, startIndex: number): number {
 
   let index = previousStringIndex(text, Math.min(startIndex, text.length));
   while (index > 0 && isWhitespaceAt(text, index)) {
+    if (isEmptyLineStart(text, index)) {
+      return index;
+    }
     index = previousStringIndex(text, index);
   }
 
@@ -708,17 +751,8 @@ function endWORDIndex(text: string, startIndex: number): number {
   return index;
 }
 
-async function computeWORDMotionTarget(kind: WORDMotionKind, count: number): Promise<number | null> {
-  const bufferId = editor.getActiveBufferId();
-  const cursorPos = editor.getCursorPosition();
-  if (cursorPos === null) {
-    return null;
-  }
-
-  const bufferLength = editor.getBufferLength(bufferId);
-  const text = await editor.getBufferText(bufferId, 0, bufferLength);
-  let index = byteOffsetToStringIndex(text, cursorPos);
-
+function computeWORDMotionTargetIndex(text: string, startIndex: number, kind: WORDMotionKind, count: number): number {
+  let index = startIndex;
   for (let i = 0; i < Math.max(1, count); i++) {
     if (kind === "forward") {
       index = nextWORDIndex(text, index);
@@ -728,8 +762,94 @@ async function computeWORDMotionTarget(kind: WORDMotionKind, count: number): Pro
       index = endWORDIndex(text, index);
     }
   }
+  return index;
+}
+
+async function computeWORDMotionTarget(kind: WORDMotionKind, count: number, origin: number | null = null): Promise<number | null> {
+  const bufferId = editor.getActiveBufferId();
+  const cursorPos = origin ?? editor.getCursorPosition();
+  if (cursorPos === null) {
+    return null;
+  }
+
+  const bufferLength = editor.getBufferLength(bufferId);
+  const text = await editor.getBufferText(bufferId, 0, bufferLength);
+  const index = computeWORDMotionTargetIndex(text, byteOffsetToStringIndex(text, cursorPos), kind, count);
 
   return stringIndexToByteOffset(text, index);
+}
+
+function nextLineStartIndex(text: string, index: number): number {
+  let cursor = lineStartIndex(text, index);
+  while (cursor < text.length) {
+    const char = charAtStringIndex(text, cursor);
+    cursor = nextStringIndex(text, cursor);
+    if (char === "\n") {
+      return cursor;
+    }
+    if (char === "\r") {
+      if (text[cursor] === "\n") {
+        cursor = nextStringIndex(text, cursor);
+      }
+      return cursor;
+    }
+  }
+  return text.length;
+}
+
+function paragraphDownEofIndex(text: string): number {
+  if (text.length === 0) {
+    return 0;
+  }
+
+  let contentEnd = text.length;
+  if (text[contentEnd - 1] === "\n") {
+    contentEnd--;
+    if (contentEnd > 0 && text[contentEnd - 1] === "\r") {
+      contentEnd--;
+    }
+  } else if (text[contentEnd - 1] === "\r") {
+    contentEnd--;
+  }
+
+  return contentEnd === 0 ? 0 : previousStringIndex(text, contentEnd);
+}
+
+function paragraphDownMotionTargetIndex(text: string, startIndex: number): { index: number; reachedEof: boolean } {
+  let lineStart = nextLineStartIndex(text, startIndex);
+  while (lineStart < text.length) {
+    const nextLineStart = nextLineStartIndex(text, lineStart);
+    const lineContent = text.slice(lineStart, nextLineStart);
+    if (lineContent.replace(/[\r\n]+$/, "") === "") {
+      return { index: lineStart, reachedEof: false };
+    }
+    lineStart = nextLineStart;
+  }
+
+  return { index: paragraphDownEofIndex(text), reachedEof: true };
+}
+
+async function computeParagraphDownOperatorRange(count: number): Promise<{ start: number; end: number } | null> {
+  const start = editor.getCursorPosition();
+  if (start === null) {
+    return null;
+  }
+
+  const bufferId = editor.getActiveBufferId();
+  const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
+  let target = byteOffsetToStringIndex(bufferText, start);
+  let reachedEof = false;
+  for (let i = 0; i < Math.max(1, count); i++) {
+    const next = paragraphDownMotionTargetIndex(bufferText, target);
+    target = next.index;
+    reachedEof = next.reachedEof;
+  }
+
+  const endIndex = reachedEof ? nextStringIndex(bufferText, target) : target;
+  return {
+    start,
+    end: stringIndexToByteOffset(bufferText, endIndex),
+  };
 }
 
 function byteLengthOfCharAt(text: string, index: number): number {
@@ -780,30 +900,68 @@ async function applyOperatorWithRange(operator: string, start: number, end: numb
   switchMode("normal");
 }
 
-async function applyWORDOperatorMotion(operator: string, kind: WORDMotionKind, count: number): Promise<void> {
+async function computeWORDOperatorRange(
+  kind: WORDMotionKind,
+  count: number,
+  useChangeForwardSemantics: boolean,
+): Promise<{ start: number; end: number; cursorAfter?: number } | null> {
   const start = editor.getCursorPosition();
-  const target = await computeWORDMotionTarget(kind, count);
-  if (start === null || target === null) {
+  if (start === null) {
+    return null;
+  }
+
+  const bufferId = editor.getActiveBufferId();
+  const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
+  const startIndex = byteOffsetToStringIndex(bufferText, start);
+
+  if (useChangeForwardSemantics && kind === "forward" && !isWhitespaceAt(bufferText, startIndex)) {
+    let endIndex = startIndex;
+    for (let i = 0; i < Math.max(1, count); i++) {
+      endIndex = endWORDIndex(bufferText, endIndex);
+    }
+    const endTarget = stringIndexToByteOffset(bufferText, endIndex);
+    return {
+      start,
+      end: endTarget + byteLengthOfCharAt(bufferText, endIndex),
+    };
+  }
+
+  const targetIndex = computeWORDMotionTargetIndex(bufferText, startIndex, kind, count);
+  const target = stringIndexToByteOffset(bufferText, targetIndex);
+  let end = target;
+  let cursorAfter: number | undefined;
+  if (kind === "end") {
+    end += byteLengthOfCharAt(bufferText, targetIndex);
+  } else if (kind === "forward") {
+    if (target >= start && !isWhitespaceAt(bufferText, targetIndex) && hasOnlyWhitespaceAfter(bufferText, targetIndex)) {
+      end += byteLengthOfCharAt(bufferText, targetIndex);
+    } else if (target >= start && isWhitespaceAt(bufferText, targetIndex) && hasOnlyWhitespaceAfter(bufferText, targetIndex)) {
+      end += byteLengthOfCharAt(bufferText, targetIndex);
+      if (!useChangeForwardSemantics && startIndex > 0) {
+        cursorAfter = stringIndexToByteOffset(bufferText, previousStringIndex(bufferText, startIndex));
+      }
+    }
+  }
+
+  return { start, end, cursorAfter };
+}
+
+async function applyWORDOperatorMotion(
+  operator: string,
+  kind: WORDMotionKind,
+  count: number,
+  useChangeForwardSemantics: boolean = operator === "c",
+): Promise<void> {
+  const range = await computeWORDOperatorRange(kind, count, useChangeForwardSemantics);
+  if (range === null) {
     switchMode("normal");
     return;
   }
 
-  let end = target;
-  if (kind === "end") {
-    const bufferId = editor.getActiveBufferId();
-    const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
-    const targetIndex = byteOffsetToStringIndex(bufferText, target);
-    end += byteLengthOfCharAt(bufferText, targetIndex);
-  } else if (kind === "forward") {
-    const bufferId = editor.getActiveBufferId();
-    const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
-    const targetIndex = byteOffsetToStringIndex(bufferText, target);
-    if (target >= start && !isWhitespaceAt(bufferText, targetIndex) && hasOnlyWhitespaceAfter(bufferText, targetIndex)) {
-      end += byteLengthOfCharAt(bufferText, targetIndex);
-    }
+  await applyOperatorWithRange(operator, range.start, range.end);
+  if (operator === "d" && range.cursorAfter !== undefined) {
+    editor.setBufferCursor(editor.getActiveBufferId(), range.cursorAfter);
   }
-
-  await applyOperatorWithRange(operator, start, end);
 }
 
 function WORDMotionKindFromRepeatMotion(motion: string): WORDMotionKind | null {
@@ -836,21 +994,29 @@ async function handleWORDMotionWithOperator(kind: WORDMotionKind): Promise<void>
 
 async function selectToPosition(target: number, includeTarget: boolean = false): Promise<void> {
   const bufferId = editor.getActiveBufferId();
+  const start = editor.getCursorPosition();
+  if (start === null) {
+    return;
+  }
+
+  if (start === target && !includeTarget) {
+    return;
+  }
+
+  const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
   let destination = target;
   if (includeTarget) {
-    const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
     const targetIndex = byteOffsetToStringIndex(bufferText, target);
     destination += byteLengthOfCharAt(bufferText, targetIndex);
   }
 
-  let cursor = editor.getCursorPosition();
-  while (cursor !== null && cursor !== destination) {
-    editor.executeAction(cursor < destination ? "select_right" : "select_left");
-    const next = editor.getCursorPosition();
-    if (next === cursor) {
-      break;
-    }
-    cursor = next;
+  const startIndex = byteOffsetToStringIndex(bufferText, start);
+  const destinationIndex = byteOffsetToStringIndex(bufferText, destination);
+  const action = startIndex < destinationIndex ? "select_right" : "select_left";
+  let steps = Math.abs(destinationIndex - startIndex);
+  while (steps > 0) {
+    editor.executeAction(action);
+    steps--;
   }
 }
 
@@ -1058,72 +1224,181 @@ function vi_paragraph_up() : void {
 }
 registerHandler("vi_paragraph_up", vi_paragraph_up);
 
-function vi_paragraph_down() : void {
-  executeWithCount("move_to_paragraph_down");
+function realLineStarts(text: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < text.length; index = nextStringIndex(text, index)) {
+    const char = text[index];
+    if (char === "\n" && index + 1 < text.length) {
+      starts.push(index + 1);
+    } else if (char === "\r" && text[index + 1] !== "\n" && index + 1 < text.length) {
+      starts.push(index + 1);
+    }
+  }
+  return starts;
+}
+
+function lineContentEndIndex(text: string, lineStarts: number[], lineIndex: number): number {
+  const nextLineStart = lineStarts[lineIndex + 1];
+  let end = nextLineStart === undefined ? text.length : nextLineStart - 1;
+  if (end > lineStarts[lineIndex] && text[end - 1] === "\n") {
+    end--;
+  }
+  if (end > lineStarts[lineIndex] && text[end - 1] === "\r") {
+    end--;
+  }
+  return end;
+}
+
+function lineIndexForStringIndex(lineStarts: number[], index: number): number {
+  let lineIndex = 0;
+  while (lineIndex + 1 < lineStarts.length && lineStarts[lineIndex + 1] <= index) {
+    lineIndex++;
+  }
+  return lineIndex;
+}
+
+async function vi_paragraph_down() : Promise<void> {
+  const bufferId = editor.getActiveBufferId();
+  const cursorPos = editor.getCursorPosition();
+  if (cursorPos === null) {
+    return;
+  }
+
+  const text = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
+  const lineStarts = realLineStarts(text);
+  if (lineStarts.length === 0) {
+    return;
+  }
+
+  let lineIndex = lineIndexForStringIndex(lineStarts, byteOffsetToStringIndex(text, cursorPos));
+  let count = consumeCount();
+  while (count-- > 0) {
+    let didSkip = false;
+    for (let first = true; ; first = false) {
+      if (lineContentEndIndex(text, lineStarts, lineIndex) > lineStarts[lineIndex]) {
+        didSkip = true;
+      }
+
+      if (!first && didSkip && lineContentEndIndex(text, lineStarts, lineIndex) === lineStarts[lineIndex]) {
+        break;
+      }
+
+      lineIndex++;
+      if (lineIndex >= lineStarts.length) {
+        lineIndex = lineStarts.length - 1;
+        break;
+      }
+    }
+  }
+
+  if (lineIndex === lineStarts.length - 1) {
+    const lineEnd = lineContentEndIndex(text, lineStarts, lineIndex);
+    if (lineEnd > lineStarts[lineIndex]) {
+      editor.setBufferCursor(bufferId, stringIndexToByteOffset(text, previousStringIndex(text, lineEnd)));
+      return;
+    }
+  }
+
+  editor.setBufferCursor(bufferId, stringIndexToByteOffset(text, lineStarts[lineIndex]));
 }
 registerHandler("vi_paragraph_down", vi_paragraph_down);
 
-function findWordUnderCursor(text: string, cursorIndex: number): { start: number; end: number; word: string } | null {
-  let index = Math.min(cursorIndex, Math.max(0, text.length - 1));
-  if (!isWordChar(text[index]) && index > 0 && isWordChar(text[index - 1])) {
+function findLineEndIndex(text: string, index: number): number {
+  let end = Math.min(Math.max(index, 0), text.length);
+  while (end < text.length && text[end] !== "\n" && text[end] !== "\r") {
+    end = nextStringIndex(text, end);
+  }
+  return end;
+}
+
+function findSearchTargetUnderCursor(text: string, cursorIndex: number, scanForwardOnMiss: boolean = false): WordSearchTarget | null {
+  const originalIndex = Math.min(cursorIndex, Math.max(0, text.length - 1));
+  const lineEnd = findLineEndIndex(text, originalIndex);
+  let index = originalIndex;
+
+  if (!scanForwardOnMiss && !isWordChar(text[index]) && index > 0 && isWordChar(text[index - 1])) {
     index--;
   }
-  if (!isWordChar(text[index])) {
+  if (scanForwardOnMiss && !isWordChar(text[index])) {
+    while (index < lineEnd && !isWordChar(text[index])) {
+      index = nextStringIndex(text, index);
+    }
+  }
+  if (isWordChar(text[index])) {
+    let start = index;
+    let end = index + 1;
+    while (start > 0 && isWordChar(text[start - 1])) {
+      start--;
+    }
+    while (end < text.length && isWordChar(text[end])) {
+      end++;
+    }
+
+    return { start, end, text: text.slice(start, end), wholeWord: true };
+  }
+
+  index = originalIndex;
+  while (index < lineEnd && isWhitespaceAt(text, index)) {
+    index = nextStringIndex(text, index);
+  }
+  if (index >= lineEnd) {
     return null;
   }
 
   let start = index;
-  let end = index + 1;
-  while (start > 0 && isWordChar(text[start - 1])) {
-    start--;
-  }
-  while (end < text.length && isWordChar(text[end])) {
-    end++;
+  let end = index;
+  while (end < lineEnd && !isWhitespaceAt(text, end)) {
+    end = nextStringIndex(text, end);
   }
 
-  return { start, end, word: text.slice(start, end) };
+  return { start, end, text: text.slice(start, end), wholeWord: false };
 }
 
 function isWholeWordMatch(text: string, start: number, end: number): boolean {
   return !isWordChar(text[start - 1]) && !isWordChar(text[end]);
 }
 
-function findNextWholeWord(text: string, word: string, from: number, until: number): number | null {
-  let index = text.indexOf(word, from);
+function isSearchMatch(text: string, start: number, end: number, wholeWord: boolean): boolean {
+  return !wholeWord || isWholeWordMatch(text, start, end);
+}
+
+function findNextSearchMatch(text: string, target: string, wholeWord: boolean, from: number, until: number): number | null {
+  let index = text.indexOf(target, from);
   while (index !== -1 && index < until) {
-    const end = index + word.length;
-    if (isWholeWordMatch(text, index, end)) {
+    const end = index + target.length;
+    if (isSearchMatch(text, index, end, wholeWord)) {
       return index;
     }
-    index = text.indexOf(word, index + 1);
+    index = text.indexOf(target, index + 1);
   }
   return null;
 }
 
-function findPreviousWholeWord(text: string, word: string, before: number, min: number): number | null {
+function findPreviousSearchMatch(text: string, target: string, wholeWord: boolean, before: number, min: number): number | null {
   if (before <= min) {
     return null;
   }
 
-  let index = text.lastIndexOf(word, before - 1);
+  let index = text.lastIndexOf(target, before - 1);
   while (index !== -1 && index >= min) {
-    const end = index + word.length;
-    if (isWholeWordMatch(text, index, end)) {
+    const end = index + target.length;
+    if (isSearchMatch(text, index, end, wholeWord)) {
       return index;
     }
     if (index === 0) {
       return null;
     }
-    index = text.lastIndexOf(word, index - 1);
+    index = text.lastIndexOf(target, index - 1);
   }
   return null;
 }
 
 async function executeStoredWordSearch(
-  word: string,
+  target: string,
   direction: WordSearchDirection,
   count: number,
-  currentWord?: { start: number; end: number; word: string },
+  wholeWord: boolean,
+  currentTarget?: WordSearchTarget,
 ): Promise<void> {
   const bufferId = editor.getActiveBufferId();
   const cursorPos = editor.getCursorPosition();
@@ -1133,20 +1408,21 @@ async function executeStoredWordSearch(
 
   const text = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
   const cursorIndex = byteOffsetToStringIndex(text, cursorPos);
-  const wordAtCursor = currentWord ?? findWordUnderCursor(text, cursorIndex);
-  const searchStart = wordAtCursor?.word === word ? wordAtCursor.start : cursorIndex;
-  const searchEnd = wordAtCursor?.word === word ? wordAtCursor.end : nextStringIndex(text, cursorIndex);
+  const targetAtCursor = currentTarget ?? findSearchTargetUnderCursor(text, cursorIndex);
+  const onSameTarget = targetAtCursor?.text === target && targetAtCursor.wholeWord === wholeWord;
+  const searchStart = onSameTarget && targetAtCursor !== null ? targetAtCursor.start : cursorIndex;
+  const searchEnd = onSameTarget && targetAtCursor !== null ? targetAtCursor.end : nextStringIndex(text, cursorIndex);
 
   let match: number | null = null;
   let fromStart = searchStart;
   let fromEnd = searchEnd;
   for (let i = 0; i < count; i++) {
     if (direction === "forward") {
-      match = findNextWholeWord(text, word, fromEnd, text.length)
-        ?? findNextWholeWord(text, word, 0, fromStart);
+      match = findNextSearchMatch(text, target, wholeWord, fromEnd, text.length)
+        ?? findNextSearchMatch(text, target, wholeWord, 0, fromStart);
     } else {
-      match = findPreviousWholeWord(text, word, fromStart, 0)
-        ?? findPreviousWholeWord(text, word, text.length, fromEnd);
+      match = findPreviousSearchMatch(text, target, wholeWord, fromStart, 0)
+        ?? findPreviousSearchMatch(text, target, wholeWord, text.length, fromEnd);
     }
 
     if (match === null) {
@@ -1154,7 +1430,7 @@ async function executeStoredWordSearch(
     }
 
     fromStart = match;
-    fromEnd = match + word.length;
+    fromEnd = match + target.length;
   }
 
   if (match !== null) {
@@ -1171,13 +1447,14 @@ async function executeWordUnderCursorSearch(direction: WordSearchDirection, coun
 
   const text = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
   const cursorIndex = byteOffsetToStringIndex(text, cursorPos);
-  const currentWord = findWordUnderCursor(text, cursorIndex);
-  if (currentWord === null) {
+  const currentTarget = findSearchTargetUnderCursor(text, cursorIndex, true);
+  if (currentTarget === null) {
     return;
   }
 
-  state.lastWordSearch = { word: currentWord.word, direction };
-  await executeStoredWordSearch(currentWord.word, direction, count, currentWord);
+  state.lastWordSearch = { text: currentTarget.text, direction, wholeWord: currentTarget.wholeWord };
+  editor.setBufferCursor(bufferId, stringIndexToByteOffset(text, currentTarget.start));
+  await executeStoredWordSearch(currentTarget.text, direction, count, currentTarget.wholeWord, currentTarget);
 }
 
 async function vi_search_word_forward() : Promise<void> {
@@ -1455,7 +1732,7 @@ async function vi_repeat() : Promise<void> {
         const WORDKind = WORDMotionKindFromRepeatMotion(change.motion);
         if (change.operator === "c") {
           if (WORDKind) {
-            await applyWORDOperatorMotion("d", WORDKind, count);
+            await applyWORDOperatorMotion("d", WORDKind, count, true);
           } else {
             // For change: do the delete part, then insert the text
             await applyOperatorWithMotion("d", change.motion, count);
@@ -1529,7 +1806,12 @@ registerHandler("vi_search_backward", vi_search_backward);
 
 async function vi_find_next() : Promise<void> {
   if (state.lastWordSearch) {
-    await executeStoredWordSearch(state.lastWordSearch.word, state.lastWordSearch.direction, consumeCount());
+    await executeStoredWordSearch(
+      state.lastWordSearch.text,
+      state.lastWordSearch.direction,
+      consumeCount(),
+      state.lastWordSearch.wholeWord,
+    );
     return;
   }
   editor.executeAction("find_next");
@@ -1539,7 +1821,12 @@ registerHandler("vi_find_next", vi_find_next);
 async function vi_find_prev() : Promise<void> {
   if (state.lastWordSearch) {
     const direction = state.lastWordSearch.direction === "forward" ? "backward" : "forward";
-    await executeStoredWordSearch(state.lastWordSearch.word, direction, consumeCount());
+    await executeStoredWordSearch(
+      state.lastWordSearch.text,
+      direction,
+      consumeCount(),
+      state.lastWordSearch.wholeWord,
+    );
     return;
   }
   editor.executeAction("find_previous");
@@ -1614,9 +1901,16 @@ registerHandler("vi_op_digit_0_or_line_start", vi_op_digit_0_or_line_start);
 // Visual Mode
 // ============================================================================
 
+function clearComputedVisualRange(): void {
+  state.visualHead = null;
+  state.visualRange = null;
+}
+
 // Enter character-wise visual mode
 function vi_visual_char() : void {
   state.visualAnchor = editor.getCursorPosition();
+  state.visualHead = state.visualAnchor;
+  state.visualRange = null;
   // Select the character under cursor to establish the anchor.
   // This moves cursor one position right (the selection end), which is
   // standard visual mode behavior — the first char is part of the selection.
@@ -1628,6 +1922,8 @@ registerHandler("vi_visual_char", vi_visual_char);
 // Enter line-wise visual mode
 function vi_visual_line() : void {
   state.visualAnchor = editor.getCursorPosition();
+  state.visualHead = state.visualAnchor;
+  state.visualRange = null;
   // Select full line including newline (select_line selects and moves to next line)
   editor.executeAction("select_line");
   switchMode("visual-line");
@@ -1636,6 +1932,7 @@ registerHandler("vi_visual_line", vi_visual_line);
 
 // Toggle between visual and visual-line modes
 function vi_visual_toggle_line() : void {
+  clearComputedVisualRange();
   if (state.mode === "visual") {
     // Switch to line mode - extend selection to full lines
     editor.executeAction("select_line");
@@ -1655,6 +1952,8 @@ registerHandler("vi_visual_toggle_line", vi_visual_toggle_line);
 async function vi_visual_block() : Promise<void> {
   // Store anchor position for block selection
   state.visualAnchor = editor.getCursorPosition();
+  state.visualHead = state.visualAnchor;
+  state.visualRange = null;
 
   // Calculate line and column for block anchor
   const cursorPos = editor.getCursorPosition();
@@ -1755,36 +2054,43 @@ registerHandler("vi_vblock_toggle_line", vi_vblock_toggle_line);
 
 // Visual mode motions - these extend the selection
 function vi_vis_left() : void {
+  clearComputedVisualRange();
   executeWithCount("select_left");
 }
 registerHandler("vi_vis_left", vi_vis_left);
 
 function vi_vis_down() : void {
+  clearComputedVisualRange();
   executeWithCount("select_down");
 }
 registerHandler("vi_vis_down", vi_vis_down);
 
 function vi_vis_up() : void {
+  clearComputedVisualRange();
   executeWithCount("select_up");
 }
 registerHandler("vi_vis_up", vi_vis_up);
 
 function vi_vis_right() : void {
+  clearComputedVisualRange();
   executeWithCount("select_right");
 }
 registerHandler("vi_vis_right", vi_vis_right);
 
 function vi_vis_word() : void {
+  clearComputedVisualRange();
   executeWithCount("select_word_right");
 }
 registerHandler("vi_vis_word", vi_vis_word);
 
 function vi_vis_word_back() : void {
+  clearComputedVisualRange();
   executeWithCount("select_word_left");
 }
 registerHandler("vi_vis_word_back", vi_vis_word_back);
 
 function vi_vis_word_end() : void {
+  clearComputedVisualRange();
   // Extend selection to end of word
   const count = consumeCount();
   for (let i = 0; i < count; i++) {
@@ -1794,66 +2100,77 @@ function vi_vis_word_end() : void {
 }
 registerHandler("vi_vis_word_end", vi_vis_word_end);
 
+function visualWORDMotionOrigin(): number | null {
+  return state.visualHead ?? state.visualAnchor ?? editor.getCursorPosition();
+}
+
 async function vi_vis_WORD() : Promise<void> {
-  const target = await computeWORDMotionTarget("forward", consumeCount());
+  const target = await computeWORDMotionTarget("forward", consumeCount(), visualWORDMotionOrigin());
   if (target !== null) {
-    await selectToPosition(target);
+    await selectVisualRangeToTarget(target);
   }
 }
 registerHandler("vi_vis_WORD", vi_vis_WORD);
 
 async function vi_vis_WORD_back() : Promise<void> {
-  const target = await computeWORDMotionTarget("backward", consumeCount());
+  const target = await computeWORDMotionTarget("backward", consumeCount(), visualWORDMotionOrigin());
   if (target !== null) {
-    await selectToPosition(target);
+    await selectVisualRangeToTarget(target, false);
   }
 }
 registerHandler("vi_vis_WORD_back", vi_vis_WORD_back);
 
 async function vi_vis_WORD_end() : Promise<void> {
-  const target = await computeWORDMotionTarget("end", consumeCount());
+  const target = await computeWORDMotionTarget("end", consumeCount(), visualWORDMotionOrigin());
   if (target !== null) {
-    await selectToPosition(target, true);
+    await selectVisualRangeToTarget(target);
   }
 }
 registerHandler("vi_vis_WORD_end", vi_vis_WORD_end);
 
 function vi_vis_line_start() : void {
+  clearComputedVisualRange();
   consumeCount();
   editor.executeAction("select_line_start");
 }
 registerHandler("vi_vis_line_start", vi_vis_line_start);
 
 function vi_vis_line_end() : void {
+  clearComputedVisualRange();
   consumeCount();
   editor.executeAction("select_line_end");
 }
 registerHandler("vi_vis_line_end", vi_vis_line_end);
 
 function vi_vis_doc_start() : void {
+  clearComputedVisualRange();
   consumeCount();
   editor.executeAction("select_document_start");
 }
 registerHandler("vi_vis_doc_start", vi_vis_doc_start);
 
 function vi_vis_doc_end() : void {
+  clearComputedVisualRange();
   consumeCount();
   editor.executeAction("select_document_end");
 }
 registerHandler("vi_vis_doc_end", vi_vis_doc_end);
 
 function vi_vis_paragraph_up() : void {
+  clearComputedVisualRange();
   executeWithCount("select_to_paragraph_up");
 }
 registerHandler("vi_vis_paragraph_up", vi_vis_paragraph_up);
 
 function vi_vis_paragraph_down() : void {
+  clearComputedVisualRange();
   executeWithCount("select_to_paragraph_down");
 }
 registerHandler("vi_vis_paragraph_down", vi_vis_paragraph_down);
 
 // Visual line mode motions - extend selection by whole lines
 function vi_vline_down() : void {
+  clearComputedVisualRange();
   executeWithCount("select_down");
   // Ensure full line selection
   editor.executeAction("select_line_end");
@@ -1861,14 +2178,58 @@ function vi_vline_down() : void {
 registerHandler("vi_vline_down", vi_vline_down);
 
 function vi_vline_up() : void {
+  clearComputedVisualRange();
   executeWithCount("select_up");
   // Ensure full line selection
   editor.executeAction("select_line_start");
 }
 registerHandler("vi_vline_up", vi_vline_up);
 
+async function selectVisualRangeToTarget(target: number, includeDisplayTarget: boolean = true): Promise<void> {
+  const anchor = state.visualAnchor;
+  if (anchor === null) {
+    state.visualHead = target;
+    await selectToPosition(target, includeDisplayTarget);
+    return;
+  }
+
+  const bufferId = editor.getActiveBufferId();
+  const bufferText = await editor.getBufferText(bufferId, 0, editor.getBufferLength(bufferId));
+  const anchorIndex = byteOffsetToStringIndex(bufferText, anchor);
+  const targetIndex = byteOffsetToStringIndex(bufferText, target);
+  const anchorEnd = anchor + byteLengthOfCharAt(bufferText, anchorIndex);
+  const targetEnd = target + byteLengthOfCharAt(bufferText, targetIndex);
+
+  state.visualRange = target >= anchor
+    ? { start: anchor, end: targetEnd }
+    : { start: target, end: anchorEnd };
+  state.visualHead = target;
+
+  await selectToPosition(target, includeDisplayTarget && target >= anchor);
+}
+
+async function takeVisualRangeText(): Promise<{ bufferId: number; start: number; end: number; text: string } | null> {
+  const range = state.visualRange;
+  if (range === null || range.end <= range.start) {
+    return null;
+  }
+
+  const bufferId = editor.getActiveBufferId();
+  const text = await editor.getBufferText(bufferId, range.start, range.end);
+  return { bufferId, start: range.start, end: range.end, text };
+}
 // Visual mode operators - act on selection
-function vi_vis_delete() : void {
+async function vi_vis_delete() : Promise<void> {
+  const directRange = await takeVisualRangeText();
+  if (directRange !== null) {
+    editor.setClipboard(directRange.text);
+    editor.deleteRange(directRange.bufferId, directRange.start, directRange.end);
+    state.lastYankWasLinewise = false;
+    switchMode("normal");
+    editor.setBufferCursor(directRange.bufferId, Math.min(directRange.start, editor.getBufferLength(directRange.bufferId)));
+    return;
+  }
+
   const wasLinewise = state.mode === "visual-line";
   editor.executeAction("cut");
   state.lastYankWasLinewise = wasLinewise;
@@ -1876,13 +2237,33 @@ function vi_vis_delete() : void {
 }
 registerHandler("vi_vis_delete", vi_vis_delete);
 
-function vi_vis_change() : void {
+async function vi_vis_change() : Promise<void> {
+  const directRange = await takeVisualRangeText();
+  if (directRange !== null) {
+    editor.setClipboard(directRange.text);
+    editor.deleteRange(directRange.bufferId, directRange.start, directRange.end);
+    switchMode("insert");
+    editor.setBufferCursor(directRange.bufferId, directRange.start);
+    state.insertStartPos = directRange.start;
+    state.lastYankWasLinewise = false;
+    return;
+  }
+
   editor.executeAction("cut");
   switchMode("insert");
 }
 registerHandler("vi_vis_change", vi_vis_change);
 
-function vi_vis_yank() : void {
+async function vi_vis_yank() : Promise<void> {
+  const directRange = await takeVisualRangeText();
+  if (directRange !== null) {
+    editor.setClipboard(directRange.text);
+    state.lastYankWasLinewise = false;
+    switchMode("normal");
+    editor.setBufferCursor(directRange.bufferId, directRange.start);
+    return;
+  }
+
   const wasLinewise = state.mode === "visual-line";
   editor.executeAction("copy");
   state.lastYankWasLinewise = wasLinewise;
@@ -2449,7 +2830,24 @@ async function vi_op_paragraph_up(): Promise<void> {
 registerHandler("vi_op_paragraph_up", vi_op_paragraph_up);
 
 async function vi_op_paragraph_down(): Promise<void> {
-  await handleMotionWithOperator("move_to_paragraph_down");
+  if (!state.pendingOperator) {
+    switchMode("normal");
+    return;
+  }
+
+  const operator = state.pendingOperator;
+  const count = consumeCount();
+  if (operator === "d" || operator === "c") {
+    state.lastChange = { type: "operator-motion", operator, motion: "move_to_paragraph_down", count };
+  }
+
+  const range = await computeParagraphDownOperatorRange(count);
+  if (range === null) {
+    switchMode("normal");
+    return;
+  }
+
+  await applyOperatorWithRange(operator, range.start, range.end);
 }
 registerHandler("vi_op_paragraph_down", vi_op_paragraph_down);
 

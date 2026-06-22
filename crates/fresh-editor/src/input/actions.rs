@@ -61,7 +61,7 @@ fn find_paragraph_up(buffer: &mut Buffer, pos: usize, estimated_line_length: usi
     let mut found_pos = None;
     while let Some((line_start, line_content)) = iter.prev() {
         let trimmed = line_content.trim_end_matches(['\n', '\r']);
-        if trimmed.is_empty() || trimmed.chars().all(char::is_whitespace) {
+        if trimmed.is_empty() {
             found_pos = Some(line_start);
             break;
         }
@@ -69,18 +69,110 @@ fn find_paragraph_up(buffer: &mut Buffer, pos: usize, estimated_line_length: usi
     found_pos.unwrap_or(0)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ParagraphDownTarget {
+    position: usize,
+    reached_eof: bool,
+}
+
 fn find_paragraph_down(buffer: &mut Buffer, pos: usize, estimated_line_length: usize) -> usize {
+    find_paragraph_down_target(buffer, pos, estimated_line_length).position
+}
+
+fn find_paragraph_down_target(
+    buffer: &mut Buffer,
+    pos: usize,
+    estimated_line_length: usize,
+) -> ParagraphDownTarget {
+    let buffer_len = buffer.len();
     let mut iter = buffer.line_iterator(pos, estimated_line_length);
     iter.next_line();
-    let mut found_pos = None;
     while let Some((line_start, line_content)) = iter.next_line() {
-        let trimmed = line_content.trim_end_matches(['\n', '\r']);
-        if trimmed.is_empty() || trimmed.chars().all(char::is_whitespace) {
-            found_pos = Some(line_start);
+        if is_virtual_trailing_line(buffer_len, line_start, &line_content) {
             break;
         }
+
+        let trimmed = line_content.trim_end_matches(['\n', '\r']);
+        if trimmed.is_empty() {
+            return ParagraphDownTarget {
+                position: line_start,
+                reached_eof: false,
+            };
+        }
     }
-    found_pos.unwrap_or(buffer.len())
+
+    ParagraphDownTarget {
+        position: paragraph_down_eof_position(buffer),
+        reached_eof: true,
+    }
+}
+
+fn is_virtual_trailing_line(buffer_len: usize, line_start: usize, line_content: &str) -> bool {
+    // Vim's findpar() never sees a synthetic line after a final newline: when
+    // curr moves past b_ml.ml_line_count it backs up to the last real line and
+    // then places the cursor on that line's final character. Fresh's
+    // line_iterator intentionally emits that synthetic trailing line, so map it
+    // back to Vim's EOF branch here.
+    line_start == buffer_len && line_content.is_empty()
+}
+
+fn paragraph_down_eof_position(buffer: &Buffer) -> usize {
+    let len = buffer.len();
+    if len == 0 {
+        return 0;
+    }
+
+    let mut content_end = len;
+    if buffer
+        .slice_bytes(content_end.saturating_sub(1)..content_end)
+        .first()
+        == Some(&b'\n')
+    {
+        content_end = content_end.saturating_sub(1);
+        if content_end > 0
+            && buffer
+                .slice_bytes(content_end.saturating_sub(1)..content_end)
+                .first()
+                == Some(&b'\r')
+        {
+            content_end = content_end.saturating_sub(1);
+        }
+    } else if buffer
+        .slice_bytes(content_end.saturating_sub(1)..content_end)
+        .first()
+        == Some(&b'\r')
+    {
+        content_end = content_end.saturating_sub(1);
+    }
+
+    if content_end == 0 {
+        0
+    } else {
+        buffer.prev_grapheme_boundary(content_end)
+    }
+}
+
+fn paragraph_down_selection_position(
+    buffer: &mut Buffer,
+    pos: usize,
+    estimated_line_length: usize,
+) -> usize {
+    let target = find_paragraph_down_target(buffer, pos, estimated_line_length);
+    if target.reached_eof {
+        return buffer.len();
+    }
+
+    let target = target.position;
+    if target < buffer.len()
+        && !matches!(
+            buffer.slice_bytes(target..target + 1).first(),
+            Some(b'\n') | Some(b'\r')
+        )
+    {
+        buffer.next_grapheme_boundary(target)
+    } else {
+        target
+    }
 }
 
 /// Adjust position after moving left in CRLF mode.
@@ -2166,7 +2258,11 @@ pub fn action_to_events(
 
         Action::SelectToParagraphDown => {
             select_each_cursor(cursors, &mut events, |c| {
-                find_paragraph_down(&mut state.buffer, c.position, estimated_line_length)
+                paragraph_down_selection_position(
+                    &mut state.buffer,
+                    c.position,
+                    estimated_line_length,
+                )
             });
         }
 
