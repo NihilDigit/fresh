@@ -1,3 +1,6 @@
 [submodule "tests/vim-reference"]
 	path = tests/vim-reference
 	url = https://github.com/vim/vim.git
+[submodule "tests/evil-reference"]
+	path = tests/evil-reference
+	url = https://github.com/emacs-evil/evil.git
