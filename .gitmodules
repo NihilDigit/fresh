@@ -1,0 +1,3 @@
+[submodule "tests/vim-reference"]
+	path = tests/vim-reference
+	url = https://github.com/vim/vim.git
